@@ -6,7 +6,7 @@
 수행하는 배포 루트다. 구조·규칙·문서 체계는 전부 동일하게 유지하고, AWS 고유 메커니즘만 Azure
 대응물로 치환한다. 모듈 자체는 만들지 않는다(`iac-module-library`가 담당).
 
-## 0. 현재 상태: Phase 1 진행 중, live/hub/networking 스캐폴딩 완료
+## 0. 현재 상태: Phase 1 진행 중, live/hub/networking 실제 배포 완료
 
 `bootstrap/`(IaC 밖 자격증명 계층, Azure CLI bash 스크립트)는 구현 완료 + hub 대상
 실제 Azure 실행 검증(3-1 멱등성·3-2 negative test 전 과정)까지 끝났다(2026-08-27,
@@ -14,10 +14,13 @@
 제거했다 — 상세는 `.omc/plans/bootstrap-credential-design.md`의 추가 기록 참고.
 dev(spoke) 인스턴스는 별도 구독이 필요해 아직 미검증이다.
 
-`live/hub/networking`(`modules/azure/vnet` 최초 소비)은 스캐폴딩을 완료했다.
-`tofu init -backend=false` + `tofu validate` 통과를 확인했다(2026-08-27). 설계 전문은
-`.omc/plans/live-hub-networking.md` 참고. 실제 Azure 대상 `plan`/`apply`는 아직
-사람이 직접 수행하지 않았다(backend.hcl 준비·CI 인증 필요, 6절 참고). `live/hub/vwan`·
+`live/hub/networking`(`modules/azure/vnet` 최초 소비)은 GitHub Actions CI를 통해 hub
+구독에 실제로 apply됐다(2026-08-27, run 33054015583, `Plan: 24 to add, 0 to change,
+0 to destroy` → apply 성공 → 재-plan 수렴 검증까지 통과). GitHub repo
+`skax-ca/aks-reference-infra`(private)를 신설하고 `.github/workflows/
+deploy-hub-network.yml`을 이 세션에서 처음 배선했다. 설계 전문·실행 중 발견한 버그
+3건(FIC subject의 GitHub 불변 ID 접미사, azurerm 자동 프로바이더 등록, 존재하지 않는
+`getenv` 함수)은 `.omc/plans/live-hub-networking.md` 참고. `live/hub/vwan`·
 `live/dev/networking`·`live/dev/aks`·`live/hub/aks`는 아직 없다.
 
 ## 1. 이 repo의 위치 (SSOT 계층)
@@ -99,8 +102,7 @@ Blob Container, `azurerm` backend의 네이티브 blob lease 잠금 사용, `use
 
 ```
 bootstrap/              ✅ 자격증명·state 저장소 계층(IaC 밖, 4절 설계 구현 완료)
-live/hub/networking/    ✅ VNet(hub). modules/azure/vnet 최초 소비, validate 통과.
-                           실제 Azure apply는 미실행(6절)
+live/hub/networking/    ✅ VNet(hub). modules/azure/vnet 최초 소비, 실제 Azure apply 완료(6절)
 live/hub/vwan/          ⏳ Virtual WAN(hub, networking과 분리된 state)
 live/dev/networking/    ⏳ VNet + Virtual WAN 연결(spoke 첫 인스턴스)
 live/hub/aks/           (Phase 2, 모듈 준비 전까지 생성하지 않음)
@@ -123,13 +125,19 @@ scripts/                문서 문체 검증 등(원본에서 기계적으로 �
    `rg`·`st`·`entapp` 3종. `entapp`는 CAF 표에 없는 첫 non-ARM 등재 사례). hub 리소스는
    삭제 후 재생성으로 이름 정리 진행 중. 크로스 구독 vWAN 권한 스코프는 여전히 미확정
    (`modules/azure/vnet` 계약 확인 후 Phase 1에서)
-6. ✅ `live/hub/networking` 스캐폴딩 완료(2026-08-27, `/oh-my-claudecode:plan` → `execute`,
-   설계는 `.omc/plans/live-hub-networking.md`). `modules/azure/vnet ?ref=vnet-v0.2.0` 소비,
-   `tofu validate` 통과. 실제 Azure `plan`/`apply`는 사람이 직접 수행해야 한다.
-   `backend.hcl.example`을 복사해 `backend.hcl`(gitignore됨)을 만들고 실제 Storage Account
-   이름을 채운 뒤 `tofu init -backend-config=backend.hcl`을 실행한다. CI 밖(로컬)에서는
-   `ARM_USE_OIDC` 가드가 기본으로 apply를 막는다(`providers.tf` 참고). 의도적 로컬 검증만
-   `-var="require_oidc=false"`로 낮춘다
+6. ✅ `live/hub/networking` 실제 Azure 배포 완료(2026-08-27, `/oh-my-claudecode:plan` →
+   `execute`, 설계는 `.omc/plans/live-hub-networking.md`). `modules/azure/vnet
+   ?ref=vnet-v0.2.0` 소비. GitHub repo `skax-ca/aks-reference-infra`(private) 신설,
+   `bootstrap.sh`로 FIC subject를 실제 repo로 갱신, `.github/workflows/
+   deploy-hub-network.yml` 최초 배선, hub 구독에 apply 성공(run 33054015583,
+   `Plan: 24 to add, 0 to change, 0 to destroy`, apply 후 재-plan 수렴 검증 통과).
+   최초 실행 중 실측한 버그 3건과 수정: (1) FIC subject가 `repo:<org>/<repo>:...`가
+   아니라 `repo:<org>@<org_id>/<repo>@<repo_id>:...` 형식이어야 인증됨(`config.sh`가
+   `gh api`로 ID를 자동 조회하도록 수정) (2) azurerm이 기본으로 시도하는 프로바이더
+   자동 등록이 CI 신원 권한 밖이라 무한 대기(`resource_provider_registrations = "none"`
+   으로 차단) (3) `require_oidc_guard`가 쓴 `getenv()`는 Terraform/OpenTofu에 없는
+   함수(`var.ci_run`으로 대체). CI 로컬 apply 방어 로직(`require_oidc`/`var.ci_run`)은
+   `providers.tf`·`variables.tf` 참고
 6-1. ⏳ `live/hub/vwan`(Virtual WAN) 신설. 크로스 구독 vWAN 권한 스코프는 여전히 미확정
 7. ⏳ `live/dev/networking`(spoke 첫 인스턴스, CIDR `10.61.0.0/16` 예약됨). 별도 구독 확보 후 진행
 8. ⏳ docs 포팅(원본 `iac-reference-infra`로부터 기계적 이식, 7절 문서 규칙 적용)
