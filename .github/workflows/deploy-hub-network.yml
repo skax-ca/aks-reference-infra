@@ -46,10 +46,18 @@ env:
   TF_ROOT: live/hub/networking
   TOFU_VERSION: 1.12.5
   TF_IN_AUTOMATION: "1"
+  # ⚠️ TF_IN_AUTOMATION만으로는 입력 프롬프트를 막지 못한다(안내 문구만 바뀐다). 값 없는
+  # 필수 변수를 만나면 stdin이 비대화형이라도 EOF를 기다리며 멈춘 전례가 있다(2026-08-27
+  # hub CI 최초 실행, var.subscription_id에 TF_VAR_*를 빠뜨려 실측). TF_INPUT=false로
+  # 프롬프트 자체를 차단해 "값이 없다"를 명시적 에러로 즉시 드러낸다.
+  TF_INPUT: "false"
   ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
   ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
   ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
   ARM_USE_OIDC: "true"
+  # provider "azurerm" { subscription_id = var.subscription_id }가 소비한다. ARM_*는
+  # provider 자동 인증에만 쓰이고 이 변수엔 자동 연결되지 않는다.
+  TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
@@ -132,7 +140,7 @@ jobs:
           fi
 
           set +e
-          tofu plan $DESTROY -no-color -lock-timeout=5m -out=tfplan -detailed-exitcode
+          tofu plan $DESTROY -no-color -input=false -lock-timeout=5m -out=tfplan -detailed-exitcode
           code=$?
           set -e
           case "$code" in
@@ -260,7 +268,7 @@ jobs:
           [ "${{ inputs.action }}" = "destroy" ] && DESTROY="-destroy"
 
           set +e
-          tofu plan $DESTROY -no-color -lock-timeout=5m -detailed-exitcode -refresh=true
+          tofu plan $DESTROY -no-color -input=false -lock-timeout=5m -detailed-exitcode -refresh=true
           code=$?
           set -e
           if [ "$code" = 2 ]; then
