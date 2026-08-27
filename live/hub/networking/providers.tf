@@ -8,6 +8,15 @@
 provider "azurerm" {
   subscription_id = var.subscription_id
 
+  # azurerm v5의 기본값은 계정에 없는 "핵심" 프로바이더 집합(Microsoft.Cache·
+  # Microsoft.ServiceBus 등, 이 배포와 무관한 것 포함)을 plan 시작 시 자동 등록하려
+  # 시도한다. bootstrap의 CI 신원은 워크로드 RG 스코프 커스텀 역할만 가져(CLAUDE.md 4절)
+  # 구독 스코프 등록 권한(*/register/action)이 없다 — 실측 확인(2026-08-27, 첫 hub CI plan이
+  # 이 자동 등록 시도로 9분 넘게 멈춰 있었다. az provider list로 Microsoft.Cache·
+  # Microsoft.ServiceBus가 NotRegistered임을 직접 확인). "none"으로 꺼서 이 배포가 실제로
+  # 쓰는 Microsoft.Network만 조회하게 한다 — 이미 등록돼 있어 문제가 없다.
+  resource_provider_registrations = "none"
+
   features {}
 }
 
