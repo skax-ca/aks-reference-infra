@@ -141,7 +141,7 @@ ensure_app_registration() {
   local sp_id
   sp_id="$(az_ ad sp list --filter "appId eq '$APP_ID'" --query "[0].id" -o tsv)"
   if [[ -z "$sp_id" || "$sp_id" == "None" ]]; then
-    retry_on_principal_not_found az_ ad sp create --id "$APP_ID"
+    retry_on_replication_delay az_ ad sp create --id "$APP_ID"
     sp_id="$(az_ ad sp list --filter "appId eq '$APP_ID'" --query "[0].id" -o tsv)"
     changed "[$ENV_TOKEN] Service Principal 생성: $sp_id"
   else
@@ -187,18 +187,28 @@ ensure_fic "$FIC_NAME_ENV" "$SUB_ENV"
 # 다른 기준을 쓰면 "bootstrap은 ok인데 verify는 실패"가 생겨 verify.sh가
 # 소음이 된다.
 ensure_custom_role() {  # ensure_custom_role <role-name> <definition-json> <label>
-  local role_name="$1" definition="$2" label="$3" existing_id
-  existing_id="$(az_ role definition list --name "$role_name" --query "[0].id" -o tsv 2>/dev/null || true)"
-  if [[ -z "$existing_id" || "$existing_id" == "None" ]]; then
+  # ⚠️ 존재 여부를 판단하는 "첫" 조회도 role_definition_list_retry를 거친다.
+  # 예전엔 이 최초 조회만 재시도 없이 단발이었는데, 2026-08-27 hub 재생성 세션
+  # 2차 실행에서 실제 캐시 지연에 걸렸다 — role이 실제로 존재하고 verify.sh도
+  # "일치"로 확인했는데, 이 단발 조회만 빈 배열을 돌려줘 "부재"로 오판, `role
+  # definition create`가 `RoleDefinitionWithSameNameExists`로 죽었다. 진짜
+  # 부재(최초 부트스트랩)라면 재시도 5회 후에도 빈 배열이라 정상적으로 create
+  # 경로를 탄다 — 그 경우의 비용은 최대 15초뿐이다.
+  local role_name="$1" definition="$2" label="$3" current existing_id
+  current="$(role_definition_list_retry "$role_name")"
+  existing_id="$(jq -r '.[0].id // empty' <<<"$current")"
+  if [[ -z "$existing_id" ]]; then
     az_ role definition create --role-definition "$definition" >/dev/null
     changed "[$label] 커스텀 역할 생성: $role_name"
   else
-    local current
-    current="$(az_ role definition list --name "$role_name" -o json)"
     if role_definition_matches "$definition" "$current"; then
       ok "[$label] 커스텀 역할 일치: $role_name"
     else
-      az_ role definition update --role-definition "$definition" >/dev/null
+      # id를 명시해야 이름 기반의 애매한 검색 없이 정확히 이 객체를 갱신한다
+      # (id 없이 update하면 CLI가 'Role "id" is missing' 경고를 내며 이름으로
+      # 다시 찾는다 — 실측 확인, 2026-08-27).
+      az_ role definition update \
+        --role-definition "$(jq --arg id "$existing_id" '. + {id: $id}' <<<"$definition")" >/dev/null
       changed "[$label] 커스텀 역할 갱신: $role_name (Actions/NotActions/DataActions 불일치)"
     fi
   fi
@@ -213,12 +223,19 @@ ensure_custom_role "$STATE_DATA_ROLE_NAME" "$(state_data_role_definition_json "$
 
 # ── 6. role assignment (CI 신원 = SP_ID) ─────────────────────────────────────
 ensure_role_assignment() {  # ensure_role_assignment <role-name> <scope> <label>
+  # ⚠️ roleDefinitionName이 아니라 roleDefinitionId로 필터링한다. roleDefinitionName은
+  # role assignment 객체가 조회 시점에 역할 정의 쪽과 조인해서 채우는 값이라, 방금
+  # role assignment를 만들거나 역할 정의를 갱신한 직후엔 한동안 null로 보일 수 있다
+  # (실측 확인, 2026-08-27 hub 재생성 세션 — role assignment는 실제로 1건만 존재하고
+  # verify.sh도 "존재"로 확인했는데, 이 필터만 0건으로 봐서 불필요한 create를 유발했다).
+  # roleDefinitionId는 조인이 필요 없는 role assignment 자신의 직접 속성이라 지연이 없다.
   local role_name="$1" scope="$2" label="$3"
-  local existing
+  local role_id existing
+  role_id="$(jq -r '.[0].id' <<<"$(role_definition_list_retry "$role_name")")"
   existing="$(az_ role assignment list --assignee "$SP_ID" --scope "$scope" \
-    --query "[?roleDefinitionName=='$role_name']" -o json)"
+    --query "[?roleDefinitionId=='$role_id']" -o json)"
   if [[ "$(jq 'length' <<<"$existing")" -eq 0 ]]; then
-    retry_on_principal_not_found az_ role assignment create --assignee "$SP_ID" \
+    retry_on_replication_delay az_ role assignment create --assignee "$SP_ID" \
       --role "$role_name" --scope "$scope"
     changed "[$label] role assignment 생성: $role_name @ $scope"
   else
@@ -267,9 +284,6 @@ cat <<OUT
     container_name       = "$CONTAINER_NAME"
     key                  = "$ENV_TOKEN/<root>.tfstate"
     use_azuread_auth     = true
-
-  ⚠️ 이 세션은 Azure 자격증명 없이 실행됐으므로 실제 az CLI 호출은 수행하지
-     않았다. 실제 실행은 사용자가 Azure 자격증명을 확보한 뒤 별도로 수행한다.
 
   검증:  EXPECTED_SUBSCRIPTION=$EXPECTED_SUBSCRIPTION EXPECTED_TENANT=$EXPECTED_TENANT \\
            BOOTSTRAP_TARGET=$BOOTSTRAP_TARGET SPOKE_ENV=$SPOKE_ENV ./verify.sh

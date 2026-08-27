@@ -8,11 +8,13 @@
 
 ## 0. 현재 상태: Phase 1 착수, Terraform/OpenTofu 코드는 아직 없음
 
-`bootstrap/`(IaC 밖 자격증명 계층, Azure CLI bash 스크립트)는 구현이 완료됐다. 그러나
-`live/*`(Terraform/OpenTofu 코드)는 아직 하나도 없다 - Phase 1 networking 스캐폴딩은
-별도 `plan` → `execute`로 진행한다(6절 참고). `bootstrap/`의 스크립트는 실제 Azure
-자격증명 없는 세션에서 작성됐으므로, 사용자가 자격증명을 확보한 뒤 `bootstrap/README.md`
-의 멱등성·negative test 절차로 직접 실행 검증해야 한다.
+`bootstrap/`(IaC 밖 자격증명 계층, Azure CLI bash 스크립트)는 구현 완료 + hub 대상
+실제 Azure 실행 검증(3-1 멱등성·3-2 negative test 전 과정)까지 끝났다(2026-08-27,
+`bootstrap/README.md` 3절 참고). 이 과정에서 버그 2건을 고치고 불변식 (b)를
+제거했다 — 상세는 `.omc/plans/bootstrap-credential-design.md`의 추가 기록 참고.
+dev(spoke) 인스턴스는 별도 구독이 필요해 아직 미검증이다. `live/*`(Terraform/
+OpenTofu 코드)는 아직 하나도 없다 - Phase 1 networking 스캐폴딩은 별도 `plan` →
+`execute`로 진행한다(6절 참고).
 
 ## 1. 이 repo의 위치 (SSOT 계층)
 
@@ -39,7 +41,7 @@
 | hub-spoke 네트워킹의 TGW 대응 | **Azure Virtual WAN** | 완전관리형 허브라는 점에서 TGW와 가장 가까운 개념 |
 | 이번 착수 범위 | **로컬 스캐폴딩까지만** | GitHub repo 생성·push는 검토 후 별도 승인 필요 |
 | 구독 분리 | **hub/dev를 별도 Azure 구독으로 분리** | 사용자 확인 완료(2026-08-27). 폭발 반경을 구독 경계에서 막는 1차 방어선 |
-| bootstrap 자격증명 계층 | RG 스코프 커스텀 역할 2종 + 7종 권한 0건 불변식(`bootstrap/README.md` 참고) | ralplan 5라운드로 확정. 4절의 설계 보류가 해제됐다 |
+| bootstrap 자격증명 계층 | RG 스코프 커스텀 역할 2종 + 6종 권한 0건 불변식(`bootstrap/README.md` 참고) | ralplan 5라운드로 확정, 이후 관리 그룹 스코프 불변식은 실제 Azure 검증 세션(2026-08-27)에서 제거. 4절의 설계 보류가 해제됐다 |
 | state backend | Azure Storage Account + Blob Container, `use_azuread_auth`, `allowSharedKeyAccess = false` | `azurerm` backend가 blob lease 잠금을 네이티브 지원, S3+`use_lockfile`의 완전한 대응물 |
 | GitHub Actions 배포 승인 | 배포 브랜치 정책만(필수 리뷰어 없음) | 사용자 확인 완료(2026-08-27). 무인 자동화 유지 우선 |
 | Option C(MI-as-FIC 추가 계층) | 보류 | 사용자가 30분 실측 스파이크를 나중으로 미룸. 기본 설계(Option A+D)는 그 결과와 무관하게 완결된 방어선 |
@@ -66,13 +68,16 @@
 **확정된 대체 설계**(전문은 `.omc/plans/bootstrap-credential-design.md`,
 구현은 `bootstrap/README.md`·`config.sh`·`bootstrap.sh`·`verify.sh`): 원본의 2단
 체인을 재현하는 대신, CI 신원(App Registration)의 권한을 리소스 그룹 하나로 좁히고
-그 권한이 새어나가지 않는지 7종 불변식(구독/관리그룹/디렉터리/Graph 권한·정적
+그 권한이 새어나가지 않는지 6종 불변식(구독/디렉터리/Graph 권한·정적
 자격증명·FIC 설정·그룹 멤버십이 전부 0건 또는 허용 목록과 완전 일치)으로 검증한다.
+관리 그룹 스코프 불변식은 원래 7종에 포함됐으나, 이 설계의 OIDC 배포 경로가 관리
+그룹을 전혀 쓰지 않는데도 그 부재를 증명하려면 검증자에게 테넌트 루트 MG Reader라는
+불균형한 권한이 필요해 실제 Azure 검증 세션(2026-08-27)에서 제거했다.
 
 ⚠️ **원칙 1의 한계**: 이 설계는 "GitHub Actions가 직접 인증하는 신원이 그 리소스
 그룹에 대한 커스텀 역할을 직접 갖는다"는 점에서, AWS 원본의 "신원 자체가 얇다"(입구
 신원은 고권한을 전혀 갖지 않는다)는 속성과 완전히 같지는 않다. 이 차이는 의도적으로
-받아들인 트레이드오프이며, 검증 가능한 7종 불변식으로 방어 깊이를 대체한다. Option
+받아들인 트레이드오프이며, 검증 가능한 6종 불변식으로 방어 깊이를 대체한다. Option
 C(MI-as-FIC, App Registration 앞에 UAMI를 한 겹 더 두는 선택적 추가 계층)가
 채택되면 이 한계가 줄어들지만, 현재는 보류 상태다(2절 표).
 
@@ -105,10 +110,14 @@ scripts/                문서 문체 검증 등(원본에서 기계적으로 �
 2. ✅ 프로젝트 전용 세션 스킬(`.claude/skills/notepad-sync/SKILL.md`) 작성 완료
 3. ✅ `bootstrap/`(자격증명 계층) 설계를 `/oh-my-claudecode:ralplan`(5라운드)으로 확정,
    `ralph`로 구현 완료(4절 참고)
-4. ⏳ 사용자가 Azure 자격증명을 확보한 뒤 `bootstrap/README.md`의 검증 절차로 실제
-   실행 검증
-5. ⏳ 남은 선행 의존성 처리: 네이밍 약어 등재(`iac-module-library`), 크로스 구독 vWAN
-   권한 스코프 확정(`modules/azure/vnet` 계약 확인 후)
+4. ✅ hub 대상 실제 Azure 실행 검증 완료(2026-08-27, 3-1·3-2 전 과정). 버그 2건 수정,
+   불변식 (b) 제거 — `bootstrap/README.md` 3절·설계 이력 참고
+4-1. ⏳ dev(spoke) 인스턴스 검증은 별도 구독이 생기면 진행(현재 로그인 계정은 구독
+   1개뿐)
+5. ✅ bootstrap용 네이밍 약어 등재 완료(2026-08-27, `iac-module-library`의 `azure.md`에
+   `rg`·`st`·`entapp` 3종. `entapp`는 CAF 표에 없는 첫 non-ARM 등재 사례). hub 리소스는
+   삭제 후 재생성으로 이름 정리 진행 중. 크로스 구독 vWAN 권한 스코프는 여전히 미확정
+   (`modules/azure/vnet` 계약 확인 후 Phase 1에서)
 6. ⏳ 나머지(docs 포팅, Phase 1 networking 스캐폴딩)는 `/oh-my-claudecode:plan` → `execute`
 7. ⏳ 완료 후 `/oh-my-claudecode:verify`
 

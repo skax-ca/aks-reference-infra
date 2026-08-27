@@ -8,7 +8,7 @@ state Storage Account, App Registration, 커스텀 RBAC 역할 2종, 리소스 �
 
 설계 근거는 `.omc/plans/bootstrap-credential-design.md`(v6, ralplan 5라운드 확정)다. AWS
 원본의 "입구 Role → 실행 Role" 2단 체인을 Azure Entra ID에 그대로 재현할 수 없어, 대신
-"CI 신원의 권한을 리소스 그룹 하나로 좁히고, 7가지 불변식으로 검증"하는 방식으로
+"CI 신원의 권한을 리소스 그룹 하나로 좁히고, 6가지 불변식으로 검증"하는 방식으로
 대체했다. 이 대체가 원본과 완전히 동등하지는 않다. 그 한계는 아래 2절과 4절에
 명시한다.
 
@@ -63,18 +63,18 @@ hub는 구독 하나의 단일 고정 거처이고, spoke는 별도 구독에 �
 
 | 항목 | 값 |
 |------|-----|
-| 워크로드 RG | `rg-todo-<workload>-<env>-krc-workload-01` (사람이 선생성, CI는 관여하지 않는다) |
-| state RG | `rg-todo-<workload>-<env>-krc-tfstate-01` (CI 신원의 RBAC 스코프 밖) |
+| 워크로드 RG | `rg-<workload>-<env>-krc-workload-01` (사람이 선생성, CI는 관여하지 않는다) |
+| state RG | `rg-<workload>-<env>-krc-tfstate-01` (CI 신원의 RBAC 스코프 밖) |
 
-`todo-` 접두사는 `iac-module-library`의 `docs/naming/abbreviations/azure.md`에
-resource group·storage account 등의 약어가 아직 등재되지 않아 붙인 placeholder다
-(설계 계획 문서 참고). 등재 후 `config.sh`의 네이밍 함수만 교체한다.
+`rg` 약어는 `iac-module-library`의 `docs/naming/abbreviations/azure.md`에 등재됐다
+(2026-08-27, 실제 Azure 검증 세션 — CAF 표에서 그대로 채택). 등재 전에는 `rg-todo-...`
+placeholder를 썼었다.
 
 ### state Storage Account (대상별 1개)
 
 | 항목 | 값 |
 |------|-----|
-| 이름 | `todo<workload><env><8자리 hex>`(3~24자, 소문자+숫자만, 하이픈 불가, Azure 물리 제약) |
+| 이름 | `st<workload><env><8자리 hex>`(3~24자, 소문자+숫자만, 하이픈 불가, Azure 물리 제약. `st` 약어는 CAF 표에서 그대로 채택, 2026-08-27 등재) |
 | 이름의 소재 | git에 없다. GitHub repo 변수 또는 로컬 `backend.hcl`(gitignore됨) |
 | 인증 | `use_azuread_auth = true`. `allowSharedKeyAccess = false` 강제(계정 키로 RBAC 우회 차단) |
 | 내구성 | blob 버전 관리 + blob soft delete(30일) + **컨테이너 소프트 삭제**(30일, blob soft delete와 별개 기능이라 반드시 함께 켠다) |
@@ -159,9 +159,13 @@ networking 스캐폴딩 단계에서 확인한 뒤 결정한다. 이 절이 채�
 ### 3-1. 멱등성
 
 재실행하면 이미 있는 항목은 전부 `ok`로 표시되고 `=== 변경 0건 ===`이 출력되어야
-한다. 아무것도 없는 처음 상태에서 실행하면 모든 항목이 `absent`로 잡히고
-`verify.sh`가 `exit 1`을 내야 한다. 그렇지 않으면 `check_*` 함수와 실제 Azure 상태가
-어긋난 것이다.
+한다. 아무것도 없는 처음 상태에서 실행하면 `verify.sh`가 `exit 1`을 내야 한다.
+
+⚠️ `verify.sh`는 App Registration이 없으면 그 지점에서 즉시 `exit 1`로 끝난다
+(RG·Storage 등 이후 항목은 App Registration 존재를 전제로 하는 조회라 App
+Registration이 없으면 검사 자체가 무의미하기 때문 — 실측 확인, 2026-08-27). "모든
+항목이 개별적으로 absent로 보고된다"는 뜻이 아니다. drift 1건 보고 + exit 1이면
+수용 기준을 충족한 것이다.
 
 ### 3-2. 음성 테스트: verify.sh가 실제로 drift를 잡는지 증명한다
 
@@ -188,14 +192,18 @@ az storage account blob-service-properties update \
 
 이 순서대로 결과가 나오면 `verify.sh`는 소음이 아니라 실제 탐지기임이 증명된 것이다.
 
-⚠️ **이 세션은 실제 Azure 자격증명이 없어 위 절차를 직접 실행하지 않았다.** 스크립트가
-이 절차를 정확히 구현했는지는 코드 리뷰로 검증했다(3절 로직·`config.sh`의 기대 상태
-함수 대조). 실제 실행은 사용자가 Azure 자격증명을 확보한 뒤 별도로 수행한다.
+✅ **hub 대상으로 실제 Azure에서 3-1·3-2 전 과정을 실행해 확인했다(2026-08-27, 정식
+네이밍 약어 등재 후 리소스 재생성까지 마친 최종 상태 기준).** 위 순서 그대로 DRIFT
+2건 → 변경 2건 → drift 없음 → 변경 0건이 재현됐다. 이 과정에서 버그 3건(역할 정의
+생성 직후·역할 정의 재조회·role assignment 조회의 ARM 캐시/조인 지연 미대응)을
+발견해 고쳤고, 불변식 (b)(관리 그룹 스코프)를 제거했다 — 상세 경위는
+`.omc/plans/bootstrap-credential-design.md`의 2026-08-27 추가 기록 참고. dev(spoke)
+인스턴스는 별도 구독이 필요해 이번에는 검증하지 않았다.
 
 ### 검증 실행 권한의 한계
 
 ⛔ **`verify.sh` 전체를 CI 파이프라인의 공용 자격증명으로 무인 실행할 수 없다.** 구독
-스코프 검사((a)(b))는 Reader 권한으로 CI 분리 실행이 가능하지만, Entra 디렉터리·Graph
+스코프 검사(a)는 Reader 권한으로 CI 분리 실행이 가능하지만, Entra 디렉터리·Graph
 앱 권한 검사((c)~(g))는 `Application.Read.All`/`Directory.Read.All` 같은 Microsoft
 Graph 디렉터리 읽기 권한을 요구하는데, 이 설계의 원칙 1이 CI 신원에 그런 Graph 권한
 자체를 0건으로 금지한다. 따라서 Entra/Graph 관련 검사는 **사람 관리자가 수동으로

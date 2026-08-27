@@ -74,20 +74,19 @@ readonly SPOKE_ENV="${SPOKE_ENV:-dev}"
 readonly ENV_TOKEN="$([[ "$BOOTSTRAP_TARGET" == hub ]] && echo hub || echo "$SPOKE_ENV")"
 
 # ── 네이밍 ───────────────────────────────────────────────────────────────────
-# TODO(계획 6-0-b): iac-module-library의 docs/naming/abbreviations/azure.md에
-# resource group·storage account·managed identity·log analytics·virtual wan
-# 약어가 아직 없다(현재 Network 6종뿐). 등재 전까지 "todo" placeholder 접두사를
-# 쓴다 — 등재 후 이 파일의 네이밍 함수만 교체하면 된다(사용처는 바뀌지 않는다).
-readonly RG_NAME="rg-todo-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-workload-01"
-readonly STATE_RG_NAME="rg-todo-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-tfstate-01"
-readonly APP_NAME="todo-approle-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-gha-01"
+# iac-module-library의 docs/naming/abbreviations/azure.md에 resource group(`rg`)·
+# storage account(`st`)·앱 등록(`entapp`)을 등재했다(2026-08-27, 실제 Azure 검증
+# 세션). "todo" placeholder는 이 등재로 해소됐다 — 등재 전까지는 이 네이밍 함수만
+# 교체하면 되도록 설계했었고, 실제로 사용처(RG_NAME 등을 참조하는 bootstrap.sh·
+# verify.sh)는 하나도 안 건드렸다.
+readonly RG_NAME="rg-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-workload-01"
+readonly STATE_RG_NAME="rg-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-tfstate-01"
+readonly APP_NAME="entapp-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-gha-01"
 
-# Storage Account 이름: 3~24자, 소문자+숫자만, 하이픈 불가(Azure 물리 제약).
-# 원본의 "이름을 git에 남기지 않는다" 요건(임의 접미사)과 24자 한도가 양립하는
-# 정확한 접미사 길이는 iac-module-library 약어 등재 시 함께 확정한다(계획 6-0-b,
-# 4절 Unit 테스트 선행 조건). 지금은 접두사 "todo" + workload + envtoken + 8자리
-# hex로 24자 이내를 맞춘 placeholder 생성 함수만 둔다.
-readonly SA_PREFIX="todo${WORKLOAD}${ENV_TOKEN}"
+# Storage Account 이름: 3~24자, 소문자+숫자만, 하이픈 불가(Azure 물리 제약) — 등재된
+# `st` 약어에서 하이픈만 뺀 접두사를 쓴다(azure.md A.3의 캐비어트 참고). 원본의
+# "이름을 git에 남기지 않는다" 요건(임의 접미사)을 지키려고 8자리 hex 접미사를 더한다.
+readonly SA_PREFIX="st${WORKLOAD}${ENV_TOKEN}"
 readonly CONTAINER_NAME="tfstate"
 
 # SA_PREFIX + 8자리 hex 접미사가 24자를 넘으면 new_storage_account_name()의
@@ -166,6 +165,20 @@ require_int() {  # require_int <value> <label>
 # ── 공통 확인 ────────────────────────────────────────────────────────────────
 az_() { az "$@"; }
 
+# 일반 az 호출 — 실패하면 즉시 exit 2 한다(fail-closed). 호출자는 항상
+# `"$(az_or_die '설명' -- az 서브커맨드...)"` 형태로 쓴다. 원래 verify.sh에만
+# 있었으나, role_definition_list_retry가 bootstrap.sh·verify.sh 양쪽에서
+# 같은 fail-closed 기준으로 조회 실패를 판정해야 해서 공유 계층으로 옮겼다.
+az_or_die() {  # az_or_die <error-context> -- <command...>
+  local ctx="$1"; shift
+  [[ "$1" == "--" ]] && shift
+  local out
+  if ! out="$("$@" 2>&1)"; then
+    die "$ctx 조회 실패: $out"
+  fi
+  echo "$out"
+}
+
 assert_subscription_tenant() {
   local actual_sub actual_tenant
   actual_sub="$(az_ account show --query id -o tsv 2>/dev/null)" \
@@ -180,18 +193,24 @@ assert_subscription_tenant() {
 # ── 재시도 헬퍼 (계획 5절, 특정 오류 코드일 때만 재시도. 맹목적 재시도는 진짜
 #    실패를 감춘다) ───────────────────────────────────────────────────────────
 #
-# PrincipalNotFound: SP 생성 직후 role assignment를 시도할 때 Entra 복제 지연으로
-# 발생한다(원본 README 128~131행이 AWS IAM에 대해 경고한 것과 같은 계열).
-retry_on_principal_not_found() {
+# role assignment 생성 직후 실행 시 두 가지 복제 지연이 독립적으로 터질 수 있다:
+#   - PrincipalNotFound: SP 생성 직후 Entra 복제 지연(원본 README 128~131행이
+#     AWS IAM에 대해 경고한 것과 같은 계열)
+#   - "Role '...' doesn't exist.": 커스텀 역할 정의(ensure_custom_role) 생성 직후
+#     ARM 캐시 전파 지연. 실측(2026-08-27 hub 부트스트랩 1차 실행)으로 확인 —
+#     원래는 PrincipalNotFound만 재시도 대상이었는데, workload 커스텀 역할 생성
+#     직후 role assignment가 이 오류로 즉시 die했다.
+retry_on_replication_delay() {
   local attempt=0 err
   while :; do
     if err="$("$@" 2>&1 >/dev/null)"; then return 0; fi
     attempt=$((attempt + 1))
-    if [[ "$err" != *"PrincipalNotFound"* && "$err" != *"does not exist in the directory"* ]] \
+    if [[ "$err" != *"PrincipalNotFound"* && "$err" != *"does not exist in the directory"* \
+          && "$err" != *"doesn't exist"* ]] \
        || (( attempt >= 10 )); then
       die "재시도 초과 또는 다른 오류: $err"
     fi
-    printf '            … principal 전파 대기 (%d/10)\n' "$attempt" >&2
+    printf '            … 복제 전파 대기 (%d/10)\n' "$attempt" >&2
     sleep 5
   done
 }
@@ -305,6 +324,24 @@ json_eq() { [[ "$(jq -cS . <<<"$1")" == "$(jq -cS . <<<"$2")" ]]; }
 # 완전 일치" 검사에 쓴다 — 계획이 명시적으로 요구하는 방식이다.
 array_set_eq() {  # array_set_eq <json-array-1> <json-array-2>
   [[ "$(jq -cS 'sort' <<<"$1")" == "$(jq -cS 'sort' <<<"$2")" ]]
+}
+
+# `az role definition list --name` 단건 조회가, 같은 역할이 방금 생성/갱신된
+# 직후 일시적으로 빈 배열을 돌려주는 경우가 실측됐다(2026-08-27 hub 부트스트랩
+# 2차 실행 — --name 단건 조회와 --custom-role-only 전체 목록 조회가 같은 시점에
+# 서로 다른 결과를 냈다. Azure RBAC 조회 경로 간 캐시 전파 지연으로 보인다).
+# bootstrap.sh·verify.sh 양쪽에서 같은 재시도로 흡수한다 — 각자 따로 재시도를
+# 구현하면 한쪽만 고쳐지고 다른 쪽은 계속 소음을 낸다.
+role_definition_list_retry() {  # role_definition_list_retry <role-name>
+  local role_name="$1" current attempt=0
+  while :; do
+    current="$(az_or_die "역할 정의 조회($role_name)" -- az_ role definition list --name "$role_name" -o json)"
+    [[ "$(jq 'length' <<<"$current")" -gt 0 ]] && { echo "$current"; return 0; }
+    attempt=$((attempt + 1))
+    (( attempt < 5 )) && printf '            … 역할 정의 조회 캐시 지연 대기 (%d/5)\n' "$attempt" >&2
+    (( attempt < 5 )) || { echo "$current"; return 0; }
+    sleep 3
+  done
 }
 
 # 커스텀 역할 정의 전체(Actions/NotActions/DataActions/NotDataActions)를

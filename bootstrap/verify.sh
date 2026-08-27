@@ -18,12 +18,21 @@
 #    check_*가 조회 실패 시 absent로 처리하는 fail-closed 관례와 같은 정신).
 #
 # ⛔ 이 스크립트 전체를 CI 파이프라인의 공용 자격증명으로 무인 실행할 수 없다.
-#    (a)(b) ARM RBAC 스코프 검사는 Reader 권한으로 충분해 CI 분리 실행이
+#    (a) ARM RBAC 스코프 검사(구독)는 Reader 권한으로 충분해 CI 분리 실행이
 #    가능하지만, (c)~(g)(Entra 디렉터리 역할, Graph 앱 권한, 정적 자격증명·
 #    owners, FIC 전 필드, 그룹 멤버십)는 Microsoft Graph 디렉터리 읽기 권한
 #    (Application.Read.All/Directory.Read.All 또는 앱 소유권)을 요구하는데,
 #    원칙 1이 CI 신원에 그 권한 자체를 0건으로 금지한다. 이 스크립트는 **사람
 #    관리자 자격증명으로 수동 실행**하는 것을 전제로 작성됐다.
+#
+# ⚠️ 원래 (b) 관리 그룹 스코프 role assignment 0건 검사가 있었으나 제거했다
+#    (2026-08-27, 실제 Azure 검증 세션). 이 설계의 OIDC 배포 경로는 관리 그룹을
+#    전혀 쓰지 않는데(role assignment는 항상 RG·컨테이너 스코프에만 생성),
+#    그 부재를 증명하려면 검증자에게 테넌트 루트 `Microsoft.Management/
+#    managementGroups/read`가 필요했다 — README가 명시한 실행 전제(구독
+#    Owner/UAA)보다 훨씬 넓은 권한을 검증자에게만 요구하는 불균형이라 사용자가
+#    직접 삭제를 확정했다. 이 판단의 전체 맥락은
+#    `.omc/plans/bootstrap-credential-design.md`의 2026-08-27 추가 기록을 참고.
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./config.sh
@@ -49,18 +58,6 @@ report() {  # report <이름> <상태>
       die "$1 - 상태를 판정하지 못했다(예상 밖의 값). 위 ERROR 메시지를 확인할 것"
       ;;
   esac
-}
-
-# 일반 az 호출 — 실패하면 즉시 exit 2 한다(fail-closed). 호출자는 항상
-# `"$(az_or_die '설명' -- az 서브커맨드...)"` 형태로 쓴다.
-az_or_die() {  # az_or_die <error-context> -- <command...>
-  local ctx="$1"; shift
-  [[ "$1" == "--" ]] && shift
-  local out
-  if ! out="$("$@" 2>&1)"; then
-    die "$ctx 조회 실패: $out"
-  fi
-  echo "$out"
 }
 
 # Microsoft Graph 호출 — 실패하면 즉시 exit 2 한다. --query로 서버 측 JMESPath를
@@ -100,10 +97,10 @@ if [[ -z "$SP_ID" || "$SP_ID" == "None" ]]; then
 fi
 ok "[$ENV_TOKEN] Service Principal 존재: $SP_ID"
 
-# ── 불변식 (g): Entra 그룹 멤버십(transitive) 0건 - 반드시 (a)(b)보다 먼저 ──
+# ── 불변식 (g): Entra 그룹 멤버십(transitive) 0건 - 반드시 (a)보다 먼저 ──
 # 검사한다. az role assignment list --include-groups는 user 주체에만 그룹
 # 전개를 수행하고 서비스 주체에는 작동하지 않는다(Azure 공식 문서). 그룹
-# 멤버십이 0이면 (a)(b)의 그룹 경유 우회 가능성이 원천 차단되므로, SP objectId
+# 멤버십이 0이면 (a)의 그룹 경유 우회 가능성이 원천 차단되므로, SP objectId
 # 하나만 직접 조회하는 이후 검사가 유효해진다.
 check_group_membership() {
   local memberships
@@ -140,26 +137,6 @@ if [[ "$sub_scope_count" -eq 0 ]]; then
   ok "[$ENV_TOKEN] 구독 스코프 role assignment: 0건"
 else
   mismatch "[$ENV_TOKEN] 구독 스코프 role assignment - ${sub_scope_count}건 존재(0건이어야 한다)"
-fi
-
-# ── 불변식 (b): 관리 그룹 스코프 role assignment 0건 ────────────────────────
-check_mg_scope_assignments() {
-  local mgs mg count total=0
-  mgs="$(az_or_die "관리 그룹 목록" -- az_ account management-group list --query "[].name" -o tsv)"
-  for mg in $mgs; do
-    count="$(az_or_die "관리 그룹 $mg 의 role assignment" -- \
-      az_ role assignment list --assignee "$SP_ID" \
-        --scope "/providers/Microsoft.Management/managementGroups/${mg}" --query "length(@)" -o tsv)"
-    total=$((total + count))
-  done
-  echo "$total"
-}
-mg_scope_count="$(check_mg_scope_assignments)"
-require_int "$mg_scope_count" "[$ENV_TOKEN] 관리 그룹 스코프 role assignment"
-if [[ "$mg_scope_count" -eq 0 ]]; then
-  ok "[$ENV_TOKEN] 관리 그룹 스코프 role assignment: 0건"
-else
-  mismatch "[$ENV_TOKEN] 관리 그룹 스코프 role assignment - ${mg_scope_count}건 존재(0건이어야 한다)"
 fi
 
 # ── 불변식 (c): Entra 디렉터리 역할 0건 ─────────────────────────────────────
@@ -243,14 +220,14 @@ STATE_RG_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}/resourceGroups/${STATE_R
 
 check_workload_role() {
   local current
-  current="$(az_or_die "워크로드 커스텀 역할" -- az_ role definition list --name "$WORKLOAD_ROLE_NAME" -o json)"
+  current="$(role_definition_list_retry "$WORKLOAD_ROLE_NAME")"
   role_definition_matches "$(workload_role_definition_json "$RG_SCOPE")" "$current" && echo ok || echo drift
 }
 report "[workload] 커스텀 역할 Actions/NotActions 완전 일치" "$(check_workload_role)"
 
 check_state_data_role() {
   local current
-  current="$(az_or_die "state 데이터 커스텀 역할" -- az_ role definition list --name "$STATE_DATA_ROLE_NAME" -o json)"
+  current="$(role_definition_list_retry "$STATE_DATA_ROLE_NAME")"
   role_definition_matches "$(state_data_role_definition_json "$STATE_RG_SCOPE")" "$current" && echo ok || echo drift
 }
 report "[state-data] 커스텀 역할 Actions/DataActions 완전 일치" "$(check_state_data_role)"
@@ -296,10 +273,14 @@ report "[state] 컨테이너 존재" "$(check_container_exists)"
 # bootstrap.sh가 만드는 두 role assignment가 실제로 존재하는지 확인한다. 이것이
 # 없으면 CI 신원의 role assignment가 삭제돼도 verify.sh가 drift 없음을 보고한다.
 check_role_assignment_exists() {  # check_role_assignment_exists <role-name> <scope>
-  local role_name="$1" scope="$2" count
+  # roleDefinitionName이 아니라 roleDefinitionId로 필터링한다 — bootstrap.sh의
+  # ensure_role_assignment와 같은 이유(join 지연, 2026-08-27 실측 확인).
+  local role_name="$1" scope="$2" role_id count
+  role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$role_name")")"
+  [[ -n "$role_id" ]] || { echo absent; return; }
   count="$(az_or_die "role assignment($role_name @ $scope)" -- \
     az_ role assignment list --assignee "$SP_ID" --scope "$scope" \
-      --query "length([?roleDefinitionName=='$role_name'])" -o tsv)"
+      --query "length([?roleDefinitionId=='$role_id'])" -o tsv)"
   [[ "$count" -gt 0 ]] && echo ok || echo absent
 }
 report "[workload] role assignment 존재" "$(check_role_assignment_exists "$WORKLOAD_ROLE_NAME" "$RG_SCOPE")"
