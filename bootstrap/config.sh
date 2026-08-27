@@ -115,11 +115,27 @@ readonly WORKLOAD_ROLE_NAME="aks-ref-bootstrap-workload-ci-${ENV_TOKEN}"
 readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
 
 # ── FIC subject (계획 6-0-d 확정: 배포 브랜치 정책만, 필수 리뷰어 없음) ─────
+#
+# ⚠️ 이름만으로 조합한 subject(`repo:org/repo:...`)는 실제 GitHub OIDC 토큰과 맞지 않는다.
+# 이 조직/계정에서는 GitHub가 org·repo 이름 뒤에 불변 숫자 ID를 붙인
+# `repo:org@org_id/repo@repo_id:...` 형태로 sub 클레임을 발급한다(2026-08-27 hub CI 최초
+# 실행에서 AADSTS700213으로 실측 확인 — 이름 기반 FIC는 항상 인증 실패한다). 원인은
+# GitHub 쪽의 sub 클레임 정책이지 이 스크립트가 결정할 수 있는 값이 아니므로, `gh api`로
+# 실제 ID를 조회해 조합한다. 이름 기반으로 되돌리지 않는다.
+command -v gh >/dev/null || {
+  echo "ERROR: gh CLI가 필요하다 (FIC subject의 org/repo 불변 ID 조회용)." >&2
+  exit 1
+}
 readonly GH_ORG_REPO="${GH_ORG_REPO:-skax-ca/aks-reference-infra}"
+readonly GH_ORG="${GH_ORG_REPO%%/*}"
+readonly GH_REPO_NAME="${GH_ORG_REPO##*/}"
+readonly GH_ORG_ID="$(gh api "orgs/${GH_ORG}" --jq '.id')"
+readonly GH_REPO_ID="$(gh api "repos/${GH_ORG_REPO}" --jq '.id')"
+readonly GH_ORG_REPO_SUBJECT="${GH_ORG}@${GH_ORG_ID}/${GH_REPO_NAME}@${GH_REPO_ID}"
 readonly FIC_ISSUER="https://token.actions.githubusercontent.com"
 readonly FIC_AUDIENCE="api://AzureADTokenExchange"
-readonly SUB_MAIN="repo:${GH_ORG_REPO}:ref:refs/heads/main"
-readonly SUB_ENV="repo:${GH_ORG_REPO}:environment:${ENV_TOKEN}"
+readonly SUB_MAIN="repo:${GH_ORG_REPO_SUBJECT}:ref:refs/heads/main"
+readonly SUB_ENV="repo:${GH_ORG_REPO_SUBJECT}:environment:${ENV_TOKEN}"
 readonly FIC_NAME_MAIN="gha-${ENV_TOKEN}-main"
 readonly FIC_NAME_ENV="gha-${ENV_TOKEN}-environment"
 

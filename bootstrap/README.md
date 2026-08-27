@@ -132,11 +132,17 @@ assignment를 다시 만들 수 없다(`CannotDelete`가 RBAC 할당 삭제까�
 |------|-----|
 | issuer | `https://token.actions.githubusercontent.com` |
 | audience | `api://AzureADTokenExchange` |
-| subject 패턴 | `repo:<org>/<repo>:ref:refs/heads/main`, `repo:<org>/<repo>:environment:<env>` |
+| subject 패턴 | `repo:<org>@<org_id>/<repo>@<repo_id>:ref:refs/heads/main`, `repo:<org>@<org_id>/<repo>@<repo_id>:environment:<env>` |
 | 배포 승인 방식 | **배포 브랜치 정책만**(사용자 확정, 필수 리뷰어 없음, 무인 자동화 유지) |
 
 `<org>/<repo>`는 `skax-ca/aks-reference-infra`로 확정됐다(2026-08-27, GitHub repo 생성 후
 `GH_ORG_REPO` 기본값을 갱신, `bootstrap/config.sh` 참고).
+
+🔴 **`<org>@<org_id>/<repo>@<repo_id>` 형식이다. 이름만 쓴 subject는 인증에 실패한다.**
+이 조직/계정에서는 GitHub가 org·repo 이름 뒤에 불변 숫자 ID를 붙여 OIDC `sub` 클레임을
+발급한다(2026-08-27 hub CI 최초 실행에서 `AADSTS700213: No matching federated identity
+record found`로 실측 확인). `config.sh`가 `gh api`로 실제 ID를 조회해 자동으로 조합하므로
+사람이 직접 계산할 필요는 없다.
 
 ⛔ 와일드카드를 쓰지 않는다. Entra ID의 Federated Identity Credential은 애초에
 와일드카드를 지원하지 않는다(생성 자체가 거부된다). 실제 위험은 문법적으로 유효하지만
