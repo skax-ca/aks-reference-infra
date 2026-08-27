@@ -27,13 +27,18 @@ provider "azurerm" {
 # 그런 체인이 없어 provider 최소 배선만으로는 개인 az login으로도 로컬 apply가 그대로
 # 성립해버린다 — 그 차이를 메우는 것이 이 가드다.
 #
+# ⚠️ 인증 방식(ARM_USE_OIDC 등 환경변수)을 이 조건에서 직접 읽지 않는다. Terraform/
+# OpenTofu 언어에는 임의 환경변수를 읽는 함수가 없다(getenv 같은 함수는 존재하지 않는다 —
+# 최초 설계가 이를 오인해 "Call to unknown function"으로 실패, 2026-08-27 hub CI 최초
+# plan에서 실측). 대신 CI 워크플로만 명시적으로 심어주는 var.ci_run으로 우회한다.
+#
 # terraform_data(provider 없는 내장 리소스)를 쓴 이유: 이 검사는 어떤 클라우드 API도 부르지
-# 않는 순수 환경변수 검사라, 별도 provider(null/terraform)를 추가로 선언할 이유가 없다.
+# 않는 순수 변수 값 검사라, 별도 provider(null/terraform)를 추가로 선언할 이유가 없다.
 resource "terraform_data" "require_oidc_guard" {
   lifecycle {
     precondition {
-      condition     = !var.require_oidc || nonsensitive(getenv("ARM_USE_OIDC")) == "true"
-      error_message = "ARM_USE_OIDC=true가 아닌 인증 경로(로컬 az login 등)로는 apply할 수 없다. CI(GitHub Actions OIDC)에서 실행하거나, 의도적 로컬 검증이면 -var=\"require_oidc=false\"를 명시한다."
+      condition     = !var.require_oidc || var.ci_run
+      error_message = "CI(GitHub Actions) 경로가 아니면 apply할 수 없다(var.ci_run이 설정되지 않음). 의도적 로컬 검증이면 -var=\"require_oidc=false\"를 명시한다."
     }
   }
 }

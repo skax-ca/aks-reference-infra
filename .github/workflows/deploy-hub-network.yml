@@ -58,6 +58,9 @@ env:
   # provider "azurerm" { subscription_id = var.subscription_id }가 소비한다. ARM_*는
   # provider 자동 인증에만 쓰이고 이 변수엔 자동 연결되지 않는다.
   TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  # providers.tf의 require_oidc_guard가 "CI에서 왔는가"를 판단하는 유일한 신호. 로컬
+  # az login 경로는 이 값을 절대 설정하지 않는다.
+  TF_VAR_ci_run: "true"
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────

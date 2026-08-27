@@ -62,12 +62,25 @@ variable "subscription_id" {
 
 variable "require_oidc" {
   description = <<-EOT
-    true면 ARM_USE_OIDC 환경변수가 "true"가 아닐 때 plan/apply 자체를 막는다(로컬 az login
-    인증 경로 차단). GitHub Actions(OIDC) 실행에서는 azure/login 액션이 ARM_USE_OIDC=true를
-    설정하므로 자동으로 통과한다. 로컬 검증이 필요한 드문 경우에만
-    -var="require_oidc=false"로 명시적으로 낮춘다 — 기본값은 항상 켜져 있어야 한다.
+    true면 var.ci_run이 true가 아닐 때 plan/apply 자체를 막는다(로컬 az login 인증 경로
+    차단). Terraform/OpenTofu 언어에는 임의 환경변수를 직접 읽는 함수가 없다(getenv 같은
+    함수는 존재하지 않는다 — 최초 설계가 이를 오인해 "Call to unknown function"으로 실패,
+    2026-08-27 hub CI 최초 plan에서 실측). 인증 방식 자체를 introspect하는 대신 CI
+    워크플로만 명시적으로 심어주는 변수(var.ci_run)로 우회한다. 로컬 검증이 필요한 드문
+    경우에만 -var="require_oidc=false"로 명시적으로 낮춘다 — 기본값은 항상 켜져 있어야 한다.
   EOT
   type        = bool
   default     = true
+  nullable    = false
+}
+
+variable "ci_run" {
+  description = <<-EOT
+    CI 워크플로가 TF_VAR_ci_run=true로만 설정하는 신호값. 로컬 실행에서는 항상 false
+    (기본값)다. require_oidc 가드가 "이 apply가 CI에서 왔는가"를 판단하는 유일한 근거이니
+    로컬에서 이 값을 직접 true로 넘기지 않는다 — 가드 자체를 무력화하는 것과 같다.
+  EOT
+  type        = bool
+  default     = false
   nullable    = false
 }
