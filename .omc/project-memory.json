@@ -1,0 +1,24 @@
+{
+  "techStack": "Azure CLI(az) bash 스크립트 + OpenTofu/Terraform(예정). bootstrap/ 계층은 순수 bash(config.sh/bootstrap.sh/verify.sh), Azure 리소스(App Registration, 커스텀 RBAC 역할 2종, Storage Account, 리소스 그룹, 잠금)를 az CLI로 직접 다룬다.",
+  "conventions": "iac-reference-infra(AWS 원본)의 구조·문서 체계를 1:1 참조하되 Azure 대응물로 치환. 문서 규칙(em-dash 금지, 이모지 7종만, 문서 간 절 번호 인용 금지, 400줄 제한)은 iac-module-library의 docs/conventions.md가 SSOT이며 CLAUDE.md·README.md에 적용(shell script 주석에는 적용 안 됨). 네이밍 약어는 iac-module-library의 docs/naming/abbreviations/azure.md가 SSOT인데 storage account/resource group/managed identity/log analytics/virtual wan 약어가 아직 없어 bootstrap/config.sh는 'todo-' placeholder 접두사를 임시로 쓴다.",
+  "structure": "bootstrap/(자격증명 계층, 구현 완료: README.md/config.sh/bootstrap.sh/verify.sh) - 실제 Azure 자격증명으로는 아직 실행 안 됨(사용자가 직접 해야 함). live/*(Terraform/OpenTofu, Phase 1 networking) 아직 없음. 설계 근거는 .omc/plans/bootstrap-credential-design.md(v6, ralplan 5라운드 확정).",
+  "version": "1.0.0",
+  "lastScanned": 1787807672929,
+  "projectRoot": "/Users/a07326/born2k/ai/aks-reference-infra",
+  "customNotes": [
+    {
+      "timestamp": 1787807683942,
+      "source": "manual",
+      "category": "open-items",
+      "content": "2026-08-27 - bootstrap/ 자격증명 계층 구현 완료(ralplan 5R + ralph 4R, APPROVE). 남은 미결: (1) 사용자가 실제 Azure 자격증명으로 bootstrap/README.md의 3-1(멱등성)·3-2(negative test) 절차를 직접 실행해 검증해야 함(이 세션은 가짜 az 스텁으로만 검증) (2) iac-module-library의 docs/naming/abbreviations/azure.md에 storage account/resource group/managed identity/log analytics/virtual wan 약어 등재 필요(현재 placeholder \"todo-\" 접두사 사용 중) (3) hub 신원의 dev 구독 내 크로스 구독 vWAN 권한 스코프 미확정 - modules/azure/vnet 모듈 계약 확인 후 Phase 1에서 결정 (4) Option C(MI-as-FIC 추가 방어 계층)는 사용자가 나중으로 미룸, 30분 실측 스파이크 필요."
+    },
+    {
+      "timestamp": 1787807687657,
+      "source": "manual",
+      "category": "architecture",
+      "content": "macOS 시스템 bash(3.2, GPLv3 문제로 이 버전에 고정)는 `$(...)` 명령 치환 안에서 errexit를 전혀 적용하지 않는다. die() 함수가 단순 exit만 하면 서브셸 경계를 못 넘어 조회 실패가 \"0건 통과\"로 둔갑할 수 있다(verify.sh에서 4라운드 검증 끝에 발견). 해법: TOP_PID=$$ + trap 'exit N' TERM + kill -s TERM \"$TOP_PID\" 패턴으로 exit 코드 전파 대신 프로세스 시그널을 쓴다(config.sh의 die() 구현 참고). bash 스크립트로 검증/게이트 도구를 짤 때 일반적으로 적용 가능."
+    }
+  ],
+  "userDirectives": [],
+  "hotPaths": []
+}

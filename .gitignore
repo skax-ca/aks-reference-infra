@@ -1,0 +1,63 @@
+# Terraform/OpenTofu 로컬 상태 및 캐시
+# 주의: .terraform.lock.hcl 은 커밋 대상(provider 버전 고정). 무시하지 않는다.
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# backend 부분 설정 파일. 절대 커밋하지 않는다.
+#
+# 원본(iac-reference-infra)과 동일한 이유: 계정/구독 식별 정보를 git에 남기지 않는다.
+# backend.tf 는 빈 backend 블록만 갖고, 실제 값(스토리지 계정명 등)은 여기에만 있다.
+backend.hcl
+backend.*.hcl
+
+# 변수 파일(민감정보 포함 가능). example만 커밋
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# plan artifact. plan 파일에는 리소스 속성이 평문으로 들어간다.
+tfplan
+*.tfplan
+plan.json
+
+# 재정의 파일
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI 설정 및 자격증명
+.terraformrc
+terraform.rc
+*.pem
+*.key
+
+# OS / 에디터
+.DS_Store
+.idea/
+.vscode/
+
+# Python 캐시(scripts/*.py 실행 시 생성)
+__pycache__/
+*.pyc
+
+# OMC 런타임 상태(커밋 제외)
+#
+# 규칙 순서에 의미가 있다. 함부로 재배열하지 말 것.
+#  1) 모든 depth의 .omc/ 를 제외
+#  2) 루트 .omc/ '디렉토리'만 되살린다. git은 디렉토리가 제외되면 내부로
+#     내려가지 않아 하위 `!` 재포함이 무효가 되기 때문(3~5행이 동작하려면 필수)
+#  3) 루트 .omc/ 의 '내용물'을 제외
+#  4~5) 그중 커밋할 것만 재포함
+**/.omc/
+!/.omc/
+/.omc/*
+# 크로스머신 핸드오프용. 유일한 세션 인계 SSOT
+!/.omc/notepad.md
+# 구조화된 영구 사실(open-items 등). notepad.md와 함께 크로스머신 SSOT
+!/.omc/project-memory.json
+# 프로젝트 스코프 스킬(OMC 규약상 커밋 대상)
+!/.omc/skills/
