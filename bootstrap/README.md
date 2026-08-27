@@ -135,8 +135,8 @@ assignment를 다시 만들 수 없다(`CannotDelete`가 RBAC 할당 삭제까�
 | subject 패턴 | `repo:<org>/<repo>:ref:refs/heads/main`, `repo:<org>/<repo>:environment:<env>` |
 | 배포 승인 방식 | **배포 브랜치 정책만**(사용자 확정, 필수 리뷰어 없음, 무인 자동화 유지) |
 
-`<org>/<repo>`는 GitHub repo 생성 후 확정한다(`GH_ORG_REPO` 환경변수). 이번 범위는
-로컬 스캐폴딩까지이며 GitHub repo 생성·push는 별도 승인 대상이다.
+`<org>/<repo>`는 `skax-ca/aks-reference-infra`로 확정됐다(2026-08-27, GitHub repo 생성 후
+`GH_ORG_REPO` 기본값을 갱신, `bootstrap/config.sh` 참고).
 
 ⛔ 와일드카드를 쓰지 않는다. Entra ID의 Federated Identity Credential은 애초에
 와일드카드를 지원하지 않는다(생성 자체가 거부된다). 실제 위험은 문법적으로 유효하지만

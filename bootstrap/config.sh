@@ -115,9 +115,7 @@ readonly WORKLOAD_ROLE_NAME="aks-ref-bootstrap-workload-ci-${ENV_TOKEN}"
 readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
 
 # ── FIC subject (계획 6-0-d 확정: 배포 브랜치 정책만, 필수 리뷰어 없음) ─────
-# TODO: <org>/<repo>는 GitHub repo 생성 후 확정한다(이번 범위는 로컬 스캐폴딩
-# 까지 — CLAUDE.md 2절, repo 생성·push는 별도 승인 대상).
-readonly GH_ORG_REPO="${GH_ORG_REPO:-TODO-org/aks-reference-infra}"
+readonly GH_ORG_REPO="${GH_ORG_REPO:-skax-ca/aks-reference-infra}"
 readonly FIC_ISSUER="https://token.actions.githubusercontent.com"
 readonly FIC_AUDIENCE="api://AzureADTokenExchange"
 readonly SUB_MAIN="repo:${GH_ORG_REPO}:ref:refs/heads/main"
