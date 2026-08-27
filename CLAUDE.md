@@ -6,15 +6,19 @@
 수행하는 배포 루트다. 구조·규칙·문서 체계는 전부 동일하게 유지하고, AWS 고유 메커니즘만 Azure
 대응물로 치환한다. 모듈 자체는 만들지 않는다(`iac-module-library`가 담당).
 
-## 0. 현재 상태: Phase 1 착수, Terraform/OpenTofu 코드는 아직 없음
+## 0. 현재 상태: Phase 1 진행 중, live/hub/networking 스캐폴딩 완료
 
 `bootstrap/`(IaC 밖 자격증명 계층, Azure CLI bash 스크립트)는 구현 완료 + hub 대상
 실제 Azure 실행 검증(3-1 멱등성·3-2 negative test 전 과정)까지 끝났다(2026-08-27,
 `bootstrap/README.md` 3절 참고). 이 과정에서 버그 2건을 고치고 불변식 (b)를
 제거했다 — 상세는 `.omc/plans/bootstrap-credential-design.md`의 추가 기록 참고.
-dev(spoke) 인스턴스는 별도 구독이 필요해 아직 미검증이다. `live/*`(Terraform/
-OpenTofu 코드)는 아직 하나도 없다 - Phase 1 networking 스캐폴딩은 별도 `plan` →
-`execute`로 진행한다(6절 참고).
+dev(spoke) 인스턴스는 별도 구독이 필요해 아직 미검증이다.
+
+`live/hub/networking`(`modules/azure/vnet` 최초 소비)은 스캐폴딩을 완료했다.
+`tofu init -backend=false` + `tofu validate` 통과를 확인했다(2026-08-27). 설계 전문은
+`.omc/plans/live-hub-networking.md` 참고. 실제 Azure 대상 `plan`/`apply`는 아직
+사람이 직접 수행하지 않았다(backend.hcl 준비·CI 인증 필요, 6절 참고). `live/hub/vwan`·
+`live/dev/networking`·`live/dev/aks`·`live/hub/aks`는 아직 없다.
 
 ## 1. 이 repo의 위치 (SSOT 계층)
 
@@ -91,13 +95,14 @@ Blob Container, `azurerm` backend의 네이티브 blob lease 잠금 사용, `use
 + `allowSharedKeyAccess = false`로 계정 키 우회 차단. 상세는 2절 표와
 `bootstrap/README.md`("기대 상태" 절) 참고.
 
-## 5. 저장소 구조(✅ bootstrap/는 구현 완료, 나머지는 Phase 1 완료 후 실제로 존재)
+## 5. 저장소 구조(✅ 완료, ⏳ Phase 1 나머지, 미표시는 Phase 2 이후)
 
 ```
 bootstrap/              ✅ 자격증명·state 저장소 계층(IaC 밖, 4절 설계 구현 완료)
-live/hub/networking/    VNet(hub)
-live/hub/vwan/          Virtual WAN(hub, networking과 분리된 state)
-live/dev/networking/    VNet + Virtual WAN 연결(spoke 첫 인스턴스)
+live/hub/networking/    ✅ VNet(hub). modules/azure/vnet 최초 소비, validate 통과.
+                           실제 Azure apply는 미실행(6절)
+live/hub/vwan/          ⏳ Virtual WAN(hub, networking과 분리된 state)
+live/dev/networking/    ⏳ VNet + Virtual WAN 연결(spoke 첫 인스턴스)
 live/hub/aks/           (Phase 2, 모듈 준비 전까지 생성하지 않음)
 live/dev/aks/           (Phase 2, 모듈 준비 전까지 생성하지 않음)
 docs/                   운영 절차 SSOT(포팅 후) + 이 repo 고유 참조 문서
@@ -118,8 +123,17 @@ scripts/                문서 문체 검증 등(원본에서 기계적으로 �
    `rg`·`st`·`entapp` 3종. `entapp`는 CAF 표에 없는 첫 non-ARM 등재 사례). hub 리소스는
    삭제 후 재생성으로 이름 정리 진행 중. 크로스 구독 vWAN 권한 스코프는 여전히 미확정
    (`modules/azure/vnet` 계약 확인 후 Phase 1에서)
-6. ⏳ 나머지(docs 포팅, Phase 1 networking 스캐폴딩)는 `/oh-my-claudecode:plan` → `execute`
-7. ⏳ 완료 후 `/oh-my-claudecode:verify`
+6. ✅ `live/hub/networking` 스캐폴딩 완료(2026-08-27, `/oh-my-claudecode:plan` → `execute`,
+   설계는 `.omc/plans/live-hub-networking.md`). `modules/azure/vnet ?ref=vnet-v0.2.0` 소비,
+   `tofu validate` 통과. 실제 Azure `plan`/`apply`는 사람이 직접 수행해야 한다.
+   `backend.hcl.example`을 복사해 `backend.hcl`(gitignore됨)을 만들고 실제 Storage Account
+   이름을 채운 뒤 `tofu init -backend-config=backend.hcl`을 실행한다. CI 밖(로컬)에서는
+   `ARM_USE_OIDC` 가드가 기본으로 apply를 막는다(`providers.tf` 참고). 의도적 로컬 검증만
+   `-var="require_oidc=false"`로 낮춘다
+6-1. ⏳ `live/hub/vwan`(Virtual WAN) 신설. 크로스 구독 vWAN 권한 스코프는 여전히 미확정
+7. ⏳ `live/dev/networking`(spoke 첫 인스턴스, CIDR `10.61.0.0/16` 예약됨). 별도 구독 확보 후 진행
+8. ⏳ docs 포팅(원본 `iac-reference-infra`로부터 기계적 이식, 7절 문서 규칙 적용)
+9. ⏳ 완료 후 `/oh-my-claudecode:verify`
 
 ## 7. 문서 작성 규칙
 
