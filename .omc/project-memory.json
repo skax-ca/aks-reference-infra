@@ -17,6 +17,18 @@
       "source": "manual",
       "category": "architecture",
       "content": "macOS 시스템 bash(3.2, GPLv3 문제로 이 버전에 고정)는 `$(...)` 명령 치환 안에서 errexit를 전혀 적용하지 않는다. die() 함수가 단순 exit만 하면 서브셸 경계를 못 넘어 조회 실패가 \"0건 통과\"로 둔갑할 수 있다(verify.sh에서 4라운드 검증 끝에 발견). 해법: TOP_PID=$$ + trap 'exit N' TERM + kill -s TERM \"$TOP_PID\" 패턴으로 exit 코드 전파 대신 프로세스 시그널을 쓴다(config.sh의 die() 구현 참고). bash 스크립트로 검증/게이트 도구를 짤 때 일반적으로 적용 가능."
+    },
+    {
+      "timestamp": 1787813051135,
+      "source": "manual",
+      "category": "open-items",
+      "content": "2026-08-27(2차 세션) - bootstrap/ hub 대상 실제 Azure 검증 완료(3-1 멱등성 + 3-2 음성 테스트 전 과정 통과, verify.sh drift 없음 exit 0 실측 확인). 이전 세션의 미결 항목 갱신: (1) 실제 실행 검증 → 완료. (2) 네이밍 약어 등재 → bootstrap이 실제 쓰는 rg/st/entapp 3종만 iac-module-library의 azure.md에 등재 완료(entapp는 CAF 표에 없는 첫 non-ARM 등재 사례), hub 리소스 전체를 todo- 접두사에서 정식 이름으로 재생성함. managed identity/log analytics/virtual wan 약어는 bootstrap이 안 써서 미등재 상태로 남음(Phase 1 vWAN 때 필요). (3) 크로스 구독 vWAN 권한 스코프 - 여전히 미확정, modules/azure/vnet 계약 확인 후 Phase 1에서 결정. (4) Option C(MI-as-FIC) - 여전히 보류. 신규 미결: dev(spoke) 인스턴스는 이 로그인 계정에 구독이 1개뿐이라 미검증, 두 번째 구독 생기면 BOOTSTRAP_TARGET=spoke SPOKE_ENV=dev로 반복. 커밋 6f088b8(aks-reference-infra), 원격 저장소 없어 push 미해당."
+    },
+    {
+      "timestamp": 1787813060862,
+      "source": "manual",
+      "category": "architecture",
+      "content": "Azure ARM/RBAC 조회는 쓰기 성공 직후 읽기가 즉시 최신 상태를 반영하지 않는 eventual consistency가 실제로 발생한다(2026-08-27 hub bootstrap 실행 중 3회 실측). 세 가지 다른 얼굴로 나타났다: (1) 커스텀 역할 정의 생성 직후 role assignment 생성 시도가 \"Role doesn't exist\"로 실패 - SP 복제 지연만 재시도하던 헬퍼(retry_on_principal_not_found)를 retry_on_replication_delay로 확장해 이 에러 패턴도 재시도 대상에 추가해 해결. (2) 역할 존재를 이미 확인했는데도 그 직후 재조회(--name 단건 조회)가 빈 배열을 반환 - --custom-role-only 전체 조회와 --name 단건 조회가 같은 시점에 다른 결과를 낼 수 있음. 존재 확인 후 재조회에도 최대 5회 재시도(role_definition_list_retry, config.sh 신설)를 적용해 해결. (3) role assignment 조회 시 roleDefinitionName으로 필터링하면 그 값이 role assignment와 role definition 간 조인(join)으로 채워지는 필드라 방금 생성/갱신 직후 null일 수 있어 존재하는 항목을 \"부재\"로 오판 - roleDefinitionId(조인 불필요한 직접 속성)로 필터링해 해결. 교훈: 재시도로 흡수 가능한 지연과, 애초에 지연 없는 필드로 바꿔야 하는 지연은 다른 해법이 필요하다. bash 스크립트로 Azure CLI 기반 idempotent 프로비저닝/검증 도구를 짤 때 일반적으로 적용 가능(macOS bash 3.2의 $() errexit 미적용 이슈와 함께 이 프로젝트의 두 번째 \"실행해봐야 아는\" 계열 교훈)."
     }
   ],
   "userDirectives": [],
