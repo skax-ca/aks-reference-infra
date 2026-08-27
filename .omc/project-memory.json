@@ -29,6 +29,18 @@
       "source": "manual",
       "category": "architecture",
       "content": "Azure ARM/RBAC 조회는 쓰기 성공 직후 읽기가 즉시 최신 상태를 반영하지 않는 eventual consistency가 실제로 발생한다(2026-08-27 hub bootstrap 실행 중 3회 실측). 세 가지 다른 얼굴로 나타났다: (1) 커스텀 역할 정의 생성 직후 role assignment 생성 시도가 \"Role doesn't exist\"로 실패 - SP 복제 지연만 재시도하던 헬퍼(retry_on_principal_not_found)를 retry_on_replication_delay로 확장해 이 에러 패턴도 재시도 대상에 추가해 해결. (2) 역할 존재를 이미 확인했는데도 그 직후 재조회(--name 단건 조회)가 빈 배열을 반환 - --custom-role-only 전체 조회와 --name 단건 조회가 같은 시점에 다른 결과를 낼 수 있음. 존재 확인 후 재조회에도 최대 5회 재시도(role_definition_list_retry, config.sh 신설)를 적용해 해결. (3) role assignment 조회 시 roleDefinitionName으로 필터링하면 그 값이 role assignment와 role definition 간 조인(join)으로 채워지는 필드라 방금 생성/갱신 직후 null일 수 있어 존재하는 항목을 \"부재\"로 오판 - roleDefinitionId(조인 불필요한 직접 속성)로 필터링해 해결. 교훈: 재시도로 흡수 가능한 지연과, 애초에 지연 없는 필드로 바꿔야 하는 지연은 다른 해법이 필요하다. bash 스크립트로 Azure CLI 기반 idempotent 프로비저닝/검증 도구를 짤 때 일반적으로 적용 가능(macOS bash 3.2의 $() errexit 미적용 이슈와 함께 이 프로젝트의 두 번째 \"실행해봐야 아는\" 계열 교훈)."
+    },
+    {
+      "timestamp": 1787819557919,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-08-27(3차 세션) - live/hub/networking 실제 Azure hub 구독 apply 성공(GitHub Actions CI, run 33054015583, Plan: 24 to add/0 change/0 destroy, apply 후 재-plan 수렴 검증 통과). GitHub repo skax-ca/aks-reference-infra(private) 신설. 실행 중 실측한 버그 3건, 이후 이 프로젝트의 모든 live/* CI 배선에 재발 가능: (1) GitHub Actions OIDC의 sub 클레임이 이 조직/계정에서는 \"repo:org/repo:...\" 평문이 아니라 \"repo:org@org_id/repo@repo_id:...\" 불변 숫자 ID 접미사 형식이다(AADSTS700213으로 실측). bootstrap/config.sh가 gh api로 org id·repo id를 조회해 FIC subject를 조합하도록 수정했다(GH_ORG_REPO 값 자체는 그대로 \"org/repo\" 사람이 읽는 형식). 새 GitHub repo/구독 조합마다 이 형식이 유지되는지 확인 필요 - 계정별로 다를 수 있다. (2) azurerm provider 기본값(resource_provider_registrations=\"core\")이 배포와 무관한 프로바이더(Microsoft.Cache 등)까지 구독 스코프에서 자동 등록하려 시도하는데, bootstrap의 CI 신원은 RG 스코프 커스텀 역할뿐이라 그 권한이 없어 조용히 무한 대기한다(에러 없이 멈춤, az provider list로 NotRegistered 확인 후에야 원인 파악). 모든 live/*/providers.tf에 resource_provider_registrations = \"none\"을 기본값으로 둔다. (3) Terraform/OpenTofu 언어에는 getenv() 함수가 없다(존재하지 않는 함수를 있다고 착각해 설계했었음) - 로컬 tofu validate는 이 오류를 잡지 못했다(precondition 표현식을 완전히 평가하지 않음), 실제 tofu plan에서만 \"Call to unknown function\"으로 드러난다. CI 전용 가드가 필요하면 환경변수를 직접 읽지 말고 CI 워크플로가 TF_VAR_*로 명시 주입하는 별도 변수(예: var.ci_run)로 판별한다. 부수 교훈: workflow_dispatch나 gh run cancel로 tofu plan/apply 중인 run을 취소하면 azurerm backend의 blob lease가 정상 해제 안 되고 orphan 상태로 남아 다음 run의 lock 획득을 막는다(az storage blob lease break로 직접 해제 필요, 사람 계정엔 기본적으로 그 권한이 없어 임시 RBAC 부여 후 작업 뒤 회수해야 함)."
+    },
+    {
+      "timestamp": 1787819561908,
+      "source": "manual",
+      "category": "notes",
+      "content": "2026-08-27(3차 세션) - 이전 세션 미결 항목 갱신: live/hub/networking 실제 배포 완료(위 architecture 노트 참고), GitHub repo 생성 완료(skax-ca/aks-reference-infra, private). 신규 미결: (1) live/hub/vwan(Virtual WAN) 아직 미착수, 크로스 구독 vWAN 권한 스코프 여전히 미확정 (2) live/dev/networking - CIDR 10.61.0.0/16만 예약, 코드는 미작성, 별도 구독 필요 (3) dev(spoke) 인스턴스 bootstrap 검증 - 구독 1개뿐이라 계속 블록 (4) Option C(MI-as-FIC) 여전히 보류. 워크로드 RG(rg-demo-hub-krc-workload-01)와 state RG(rg-demo-hub-krc-tfstate-01) 모두 hub 구독에 존재 확인됨, state storage account는 stdemohubc626df26."
     }
   ],
   "userDirectives": [],
