@@ -34,12 +34,24 @@ locals {
   #      이건 이 root(live/hub/networking) 가 소유한 리소스(azurerm_virtual_network)의
   #      속성이라 Phase 2 를 기다릴 이유가 없다.
   #
-  #   ⚠️ live/hub/vwan 신설 시 확인할 것: AWS 는 이 dup 대역을 TGW 라우팅 테이블에서
-  #      선택적으로 제외해 스포크 간 중복을 허용한다(peering 은 CIDR 이 하나라도
-  #      겹치면 연결 자체를 거부하므로 TGW 를 택한 이유, iac-module-library
-  #      docs/decisions.md). Azure Virtual WAN 허브에 이 VNet 을 연결할 때도 같은
-  #      논리가 적용된다 — cidr_pod_dup 를 허브 라우팅 테이블에서 전파 제외해야
-  #      "스포크마다 중복 허용"이 실제로 성립한다. 지금은 vWAN 이 없어 무관하다.
+  #   ⛔ 정정(2026-08-28, live/hub/vwan 설계 세션, .omc/plans/live-hub-vwan-dev-
+  #      networking.md 4-4): 이전 버전의 이 주석은 "AWS 처럼 dup 대역을 스포크마다
+  #      중복 사용하고 vWAN 라우팅에서 전파 제외하면 된다"고 썼다. 틀렸다 — AWS 가
+  #      스포크 간 dup 대역 재사용을 할 수 있었던 이유는 VPC CNI 가 VPC 밖으로 나가는
+  #      Pod 트래픽을 노드 IP 로 SNAT 하기 때문이다. Phase 2 기본값으로 확정한 Azure
+  #      CNI Pod Subnet 은 크로스 VNet 트래픽에도 SNAT 를 하지 않는다("the pod IP is
+  #      always the source address for any traffic from the pod", learn.microsoft.com/
+  #      en-us/azure/aks/concepts-network-legacy-cni) — 즉 hub 와 dev 가 같은
+  #      100.64.0.0/16 을 쓰면 dev 가 그 대역을 자기 로컬 Pod 대역으로 착각해 hub 로
+  #      가는 응답을 돌려보내지 못한다(overlapping CIDR 은 양방향 라우팅과 근본적으로
+  #      양립 불가 — vWAN 의 "Propagate to none" + 정적 라우트로도 못 고친다, 목적지
+  #      주소만으로는 "내 로컬 Pod"와 "hub 로 돌려줄 응답"을 구분할 수 없기 때문이다).
+  #      대신 **스포크마다 고유한 Pod 대역**을 준다 — dev 는 100.65.0.0/16(hub 는 이
+  #      100.64.0.0/16 을 유지, 이 VNet 은 값 변경 없음). 두 vWAN 연결 모두 Default
+  #      라우팅 테이블에 정상 propagate 해 hub↔dev Pod 트래픽이 실제로 왕복한다(Phase 2
+  #      ArgoCD 가 spoke API 서버를 관리하는 이 아키텍처의 존재 이유). 대가: Pod 트래픽이
+  #      vWAN 허브를 건너므로 AWS 원본(TGW 를 건넌 적 없음) 대비 노출면이 넓어지고 NSG 가
+  #      유일한 보상 통제다 — 사용자 승인 완료(같은 계획 문서 참고).
   cidr_pod_dup = "100.64.0.0/16" # RFC 6598, AWS 원본 cidr_dup 과 동일 대역 — Phase 2 AKS Pod Subnet 전용
 
   # 그룹별 CIDR. 10.60.4.0/24~10.60.15.0/24, 10.60.32.0/19 이후는 미할당으로 남겨둔다

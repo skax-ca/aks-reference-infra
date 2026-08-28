@@ -74,8 +74,17 @@ deploy-hub-network.yml`을 이 세션에서 처음 배선했다. 설계 전문·
   설계 철학과 어긋나기 때문이다. Pod IP 대역은 `live/hub/networking`의 VNet secondary
   address_space(`100.64.0.0/16`, RFC 6598, AWS 원본 `cidr_dup`과 동일 대역)에서 뗀다 —
   이미 `live/hub/networking/main.tf`의 `locals`에 연결·주석으로 반영·배포 완료했다.
-  근거 전문은 그 파일의 `cidr_pod_dup` 주석 참고. `live/hub/vwan` 신설 시 이 대역을 허브
-  라우팅 테이블 전파에서 제외해야 "스포크 간 중복 허용"이 실제로 성립한다(같은 주석 참고).
+
+  ⛔ **정정(2026-08-28, live/hub/vwan 설계 세션)**: 스포크마다 이 대역을 중복 사용하고
+  vWAN 라우팅에서 전파 제외하면 된다는 이전 서술은 틀렸다. AWS가 스포크 간 dup 대역
+  재사용을 할 수 있었던 이유는 VPC CNI의 노드 SNAT 때문인데, Azure CNI Pod Subnet은
+  크로스 VNet 트래픽에도 SNAT를 하지 않는다 — 중복 대역이면 hub↔dev Pod 왕복 트래픽이
+  성립하지 않는다(overlapping CIDR은 양방향 라우팅과 근본적으로 양립 불가, vWAN의
+  "Propagate to none"으로도 못 고친다). 대신 **스포크마다 고유한 Pod 대역**을 준다 — dev는
+  `100.65.0.0/16`(hub는 `100.64.0.0/16` 유지). 두 vWAN 연결 모두 Default 라우팅 테이블에
+  정상 propagate한다. 대가로 Pod 트래픽이 vWAN 허브를 건너 노출면이 넓어지고 NSG가 유일한
+  보상 통제다(사용자 승인 완료). 근거 전문은 `live/hub/networking/main.tf`의 `cidr_pod_dup`
+  주석과 `.omc/plans/live-hub-vwan-dev-networking.md` 4-4 참고.
 
 ## 4. bootstrap 자격증명 계층 설계 (해제됨, `/oh-my-claudecode:ralplan` 5라운드로 확정)
 
