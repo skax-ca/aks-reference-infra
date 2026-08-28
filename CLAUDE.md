@@ -65,6 +65,18 @@ deploy-hub-network.yml`을 이 세션에서 처음 배선했다. 설계 전문·
   올라올 때까지 보류한다. 지금은 디렉토리도 만들지 않는다. 빈 스텁을 만들면 나중에 무엇이 진짜
   완성인지 헷갈린다.
 
+  ⚠️ **Pod 네트워킹 기본값은 이미 확정했다**(2026-08-28, AWS 원본·Azure 공식 문서 대조
+  세션). CNI 모드는 Azure CNI **Pod Subnet(flat)**을 기본으로 하고, **Overlay는 채택하지
+  않는다** — Overlay는 성능은 flat과 동급(캡슐화 없음, MS 공식 문서 확인)이지만 클러스터
+  밖으로 나가는 Pod 트래픽이 노드 IP로 SNAT돼 NSG 플로우 로그·Network Watcher·온프레미스
+  방화벽 로그에서 Pod 단위 가시성이 사라진다. AWS 원본이 VPC CNI(underlay, SNAT 없음)를
+  기본으로 하고 IP 고갈 시에도 이 가시성을 포기하지 않는(custom networking으로 대응)
+  설계 철학과 어긋나기 때문이다. Pod IP 대역은 `live/hub/networking`의 VNet secondary
+  address_space(`100.64.0.0/16`, RFC 6598, AWS 원본 `cidr_dup`과 동일 대역)에서 뗀다 —
+  이미 `live/hub/networking/main.tf`의 `locals`에 연결·주석으로 반영·배포 완료했다.
+  근거 전문은 그 파일의 `cidr_pod_dup` 주석 참고. `live/hub/vwan` 신설 시 이 대역을 허브
+  라우팅 테이블 전파에서 제외해야 "스포크 간 중복 허용"이 실제로 성립한다(같은 주석 참고).
+
 ## 4. bootstrap 자격증명 계층 설계 (해제됨, `/oh-my-claudecode:ralplan` 5라운드로 확정)
 
 원본의 `bootstrap/README.md`가 쓰는 AWS OIDC 패턴은 입구 Role(신뢰: OIDC 하나, 권한:
