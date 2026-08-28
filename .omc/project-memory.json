@@ -41,6 +41,12 @@
       "source": "manual",
       "category": "notes",
       "content": "2026-08-27(3차 세션) - 이전 세션 미결 항목 갱신: live/hub/networking 실제 배포 완료(위 architecture 노트 참고), GitHub repo 생성 완료(skax-ca/aks-reference-infra, private). 신규 미결: (1) live/hub/vwan(Virtual WAN) 아직 미착수, 크로스 구독 vWAN 권한 스코프 여전히 미확정 (2) live/dev/networking - CIDR 10.61.0.0/16만 예약, 코드는 미작성, 별도 구독 필요 (3) dev(spoke) 인스턴스 bootstrap 검증 - 구독 1개뿐이라 계속 블록 (4) Option C(MI-as-FIC) 여전히 보류. 워크로드 RG(rg-demo-hub-krc-workload-01)와 state RG(rg-demo-hub-krc-tfstate-01) 모두 hub 구독에 존재 확인됨, state storage account는 stdemohubc626df26."
+    },
+    {
+      "timestamp": 1787877289464,
+      "source": "manual",
+      "category": "open-items",
+      "content": "2026-08-28(4차 세션) - live/hub/networking에 Pod 네트워킹용 secondary CIDR(100.64.0.0/16, RFC 6598, AWS 원본 cidr_dup과 동일 값) 추가해 hub 구독에 apply 완료(CI run: plan 0add/1change/0destroy → azurerm_virtual_network in-place update만, apply 후 재-plan 수렴 검증 통과, az network vnet show로 실물 확인). Phase 2 AKS 네트워킹 기본값을 CLAUDE.md 3절에 확정 기록: Azure CNI Pod Subnet(flat), Overlay는 채택 안 함(근거: Overlay는 캡슐화 없어 성능은 flat과 동급이나 클러스터 밖 Pod 트래픽이 노드 IP로 SNAT돼 NSG 플로우 로그·Network Watcher에서 Pod 단위 가시성 소실 — AWS VPC CNI의 네이티브 가시성 철학과 불일치, AWS EKS Best Practices·Microsoft Learn 공식 문서 대조로 확인). 이전 세션 미결 항목 갱신: (1) live/hub/vwan 아직 미착수 — 착수 시 cidr_pod_dup을 허브 라우팅 테이블 전파에서 제외해야 \"스포크 간 Pod CIDR 중복 허용\"이 실제로 성립(AWS가 VPC Peering 대신 TGW를 택한 것과 동일 논리, iac-module-library docs/decisions.md 확인) (2) live/dev/networking, dev(spoke) bootstrap 검증 — 여전히 별도 구독 필요로 블록 (3) Option C(MI-as-FIC) 여전히 보류. Pod 전용 azurerm_subnet 자체는 아직 안 만듦(Phase 2 AKS 모듈 없어 소비자 없음, 의도적)."
     }
   ],
   "userDirectives": [],
