@@ -51,13 +51,17 @@ env:
   # hub CI 최초 실행, var.subscription_id에 TF_VAR_*를 빠뜨려 실측). TF_INPUT=false로
   # 프롬프트 자체를 차단해 "값이 없다"를 명시적 에러로 즉시 드러낸다.
   TF_INPUT: "false"
-  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  # ⚠️ 2026-08-28, live/hub/vwan+live/dev/networking 설계 세션: 이 repo가 Azure 신원을
+  # 2개(hub·dev) 다루게 되면서 AZURE_CLIENT_ID·AZURE_SUBSCRIPTION_ID를 AZURE_HUB_*로
+  # 개명했다(.omc/plans/live-hub-vwan-dev-networking.md 4-3). AZURE_TENANT_ID는 두
+  # 구독이 같은 테넌트(7d49e97a-...)라 개명하지 않고 공유한다.
+  ARM_CLIENT_ID: ${{ vars.AZURE_HUB_CLIENT_ID }}
   ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_HUB_SUBSCRIPTION_ID }}
   ARM_USE_OIDC: "true"
   # provider "azurerm" { subscription_id = var.subscription_id }가 소비한다. ARM_*는
   # provider 자동 인증에만 쓰이고 이 변수엔 자동 연결되지 않는다.
-  TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_subscription_id: ${{ vars.AZURE_HUB_SUBSCRIPTION_ID }}
   # providers.tf의 require_oidc_guard가 "CI에서 왔는가"를 판단하는 유일한 신호. 로컬
   # az login 경로는 이 값을 절대 설정하지 않는다.
   TF_VAR_ci_run: "true"
