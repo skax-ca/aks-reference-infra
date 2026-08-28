@@ -3,7 +3,13 @@
 
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
-2026-08-28(4차 세션) - live/hub/networking에 Pod 네트워킹용 secondary CIDR(100.64.0.0/16, RFC 6598) 추가·hub 구독 apply 완료(CI plan 0add/1change/0destroy, az CLI 실물 확인). Phase 2 AKS 기본값 확정: Azure CNI Pod Subnet(flat), Overlay 채택 안 함(SNAT로 Pod 단위 가시성 손실 — CLAUDE.md 3절·main.tf locals 주석 근거). 다음: live/hub/vwan 착수 시 cidr_pod_dup을 허브 라우팅 테이블 전파에서 제외할 것. 또는 dev 구독 확보 후 live/dev/networking.
+## Priority Context
+
+2026-08-28(5차) - dev 구독(af8171fb-...) 확보, spoke 구축 중: Pod CIDR 정정(dev=100.65.0.0/16, hub 유지) 완료, dev bootstrap 완료, live/hub/vwan 배포 완료(vHub 10.62.0.0/22, 스포크 없음). live/dev/networking 코드는 push했으나 CI tofu init이 AuthorizationPermissionMismatch로 막힘 — dev SP state-data role(컨테이너 스코프)이 1시간+ Storage 전파 안 됨(SP 직접 로그인 테스트로 GH Actions 문제 아님 확정, 순수 Azure 지연). 다음: CI 재시도(run 33153826604) 또는 storage-account 스코프로 전파속도 비교 테스트. 이후 5단계(크로스 구독 권한+vWAN 연결).
+
+## Priority Context
+
+2026-08-28(5차 세션) - dev 구독(af8171fb-...) 확보, spoke 구축 진행: (1) Pod CIDR 정책 정정 완료(dev=100.65.0.0/16, hub=100.64.0.0/16 유지, Azure CNI Pod Subnet은 SNAT 없어 dup 재사용 불가) (2) dev bootstrap 완료·검증 통과 (3) live/hub/vwan 배포 완료(vHub 10.62.0.0/22, 스포크 연결 없음) (4) live/dev/networking 코드 작성·push 완료했으나 CI의 tofu init이 AuthorizationPermissionMismatch로 막힘 — dev SP의 state-data role assignment(컨테이너 스코프)가 1시간+ Storage 데이터플레인에 전파 안 됨(SP 직접 로그인 테스트로 GH Actions 문제 아님, 순수 Azure 전파 지연 확정). 다음: 전파 확인 후 CI 재시도(gh run rerun 33153826604 --failed), 또는 storage account 스코프로 임시 재할당해 전파 속도 비교. 그 다음 5단계(크로스 구독 권한+vWAN 스포크 연결).
 
 ## Priority Context
 

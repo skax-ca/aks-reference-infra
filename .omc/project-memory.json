@@ -47,6 +47,18 @@
       "source": "manual",
       "category": "open-items",
       "content": "2026-08-28(4차 세션) - live/hub/networking에 Pod 네트워킹용 secondary CIDR(100.64.0.0/16, RFC 6598, AWS 원본 cidr_dup과 동일 값) 추가해 hub 구독에 apply 완료(CI run: plan 0add/1change/0destroy → azurerm_virtual_network in-place update만, apply 후 재-plan 수렴 검증 통과, az network vnet show로 실물 확인). Phase 2 AKS 네트워킹 기본값을 CLAUDE.md 3절에 확정 기록: Azure CNI Pod Subnet(flat), Overlay는 채택 안 함(근거: Overlay는 캡슐화 없어 성능은 flat과 동급이나 클러스터 밖 Pod 트래픽이 노드 IP로 SNAT돼 NSG 플로우 로그·Network Watcher에서 Pod 단위 가시성 소실 — AWS VPC CNI의 네이티브 가시성 철학과 불일치, AWS EKS Best Practices·Microsoft Learn 공식 문서 대조로 확인). 이전 세션 미결 항목 갱신: (1) live/hub/vwan 아직 미착수 — 착수 시 cidr_pod_dup을 허브 라우팅 테이블 전파에서 제외해야 \"스포크 간 Pod CIDR 중복 허용\"이 실제로 성립(AWS가 VPC Peering 대신 TGW를 택한 것과 동일 논리, iac-module-library docs/decisions.md 확인) (2) live/dev/networking, dev(spoke) bootstrap 검증 — 여전히 별도 구독 필요로 블록 (3) Option C(MI-as-FIC) 여전히 보류. Pod 전용 azurerm_subnet 자체는 아직 안 만듦(Phase 2 AKS 모듈 없어 소비자 없음, 의도적)."
+    },
+    {
+      "timestamp": 1787906031240,
+      "source": "manual",
+      "category": "notes",
+      "content": "2026-08-28(5차 세션) - dev 구독(af8171fb-678c-401e-80bc-7be4d0cb6c56, hub와 같은 테넌트) 확보. bootstrap dev 완료·검증 통과(BOOTSTRAP_TARGET=spoke SPOKE_ENV=dev), GitHub 변수 AZURE_HUB_*/AZURE_DEV_* 분리 + dev environment 생성. live/hub/vwan 실제 배포 완료(vwan-demo-hub-krc-main, vhub-demo-hub-krc-main 10.62.0.0/22 Standard, hub VNet 연결만·스포크 없음 — 설계 전문 .omc/plans/live-hub-vwan-dev-networking.md). 이 계획 세션 중 기존 결정(스포크 간 Pod CIDR 중복 허용)을 정정 — Azure CNI Pod Subnet은 크로스 VNet 트래픽에도 SNAT 안 해서 dup 재사용이 성립 안 됨, dev는 고유 100.65.0.0/16(hub는 100.64.0.0/16 유지). live/hub/networking/main.tf 주석과 CLAUDE.md 3절에 근거 전문 반영 완료. live/dev/networking 코드 작성·push 완료(commit b897f48)했으나 CI가 dev SP의 role assignment Storage 전파 지연으로 막힘(architecture 노트 참고). 다음 세션: (1) CI 재시도(gh run rerun 33153826604 --failed) (2) 성공 시 apply (3) 5단계: 크로스 구독 role assignment(peer/action 단일 액션, dev VNet 리소스 스코프) + live/hub/vwan 2차 apply로 스포크 연결."
+    },
+    {
+      "timestamp": 1787906036314,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-08-28(5차 세션) - Azure eventual consistency의 네 번째 얼굴, 이번엔 Storage 데이터플레인: 컨테이너 스코프 role assignment(ARM 조회로는 정상 존재 확인됨)가 실제 Storage Blob 서비스의 권한 판단에는 1시간+ 반영 안 됨(공식 문서 상한은 30분 — learn.microsoft.com/en-us/azure/storage/blobs/authorize-access-azure-active-directory). GitHub Actions/OIDC 문제로 오인하기 쉬운데, 정적 secret으로 SP에 직접 로그인해 같은 명령을 재현하면 CI/OIDC 경로와 무관함을 확실히 구분할 수 있다(사용자 명시 승인 하에 임시 secret 생성 후 진단 즉시 삭제 — bootstrap의 \"정적 자격증명 0건\" 불변식을 일시적으로 깨는 진단 전용 절차이지 상시 관행이 아니다, verify.sh로 복원 확인 필수). 별개로, 완전히 새로 생성/추가된 Azure 구독은 Microsoft.Storage·Microsoft.Network 등 모든 Resource Provider가 미등록 상태로 시작한다 — az storage account create가 알아보기 어려운 \"SubscriptionNotFound\"로 실패하는데 실제 원인은 RP 미등록이다(az provider register --namespace <RP>로 사전 등록 필요, 수 분 소요). AWS는 서비스별 계정 등록 단계 자체가 없어 구조적으로 이 문제가 없다. 다음 스포크 구독을 쓸 때는 bootstrap 전에 Microsoft.Storage/Microsoft.Network/Microsoft.Authorization을 미리 등록해두면 이 지연을 없앨 수 있다."
     }
   ],
   "userDirectives": [],
