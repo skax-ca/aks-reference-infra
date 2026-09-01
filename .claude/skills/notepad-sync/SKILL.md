@@ -14,25 +14,38 @@ description: 이 프로젝트(aks-reference-infra)의 .omc/notepad.md·project-m
 
 ## 0. 가드(OMC가 이 머신에서 꺼져 있으면 전부 건너뛴다)
 
-`~/.claude/.omc-enabled` 파일이 없으면(또는 `oh-my-claudecode:remember`/`mcp__t__*` 툴이 안 보이면)
+`~/.claude/.omc-enabled` 파일이 없으면(또는 `oh-my-claudecode:remember` 스킬이 안 보이면)
 아래 1~2절 전부 건너뛰고 다음 한 줄만 안내한다: "이 머신은 OMC 비활성화 상태라 프로젝트 컨텍스트
 확인/저장을 생략합니다(`touch ~/.claude/.omc-enabled`로 활성화 가능)." 에러로 취급하지 않는다.
 이 프로젝트가 OMC를 쓰기로 한 것과, 지금 이 머신에서 OMC를 켰는지는 별개다.
 
-## ⚠️ `mcp__t__notepad_*`/`mcp__t__project_memory_*`는 "이 repo가 세션 프로젝트 루트일 때만" 동작한다
+## ⛔ 2026-09-01, `mcp__t__notepad_*`/`mcp__t__project_memory_*` 도구 사용을 전면 중단
 
-원본(`iac-reference-infra`)에서 실측 확인된 사실이 그대로 적용된다. 이 툴들이 실제로 쓰는 대상은
-`workingDirectory` 인자가 아니라 **세션이 시작된 시점의 git worktree**로 고정된다(의도된 worktree
-격리, 버그 아님). 그래서 **`iac-reference-infra`나 `iac-module-library`를 프로젝트 루트로 연 세션
-안에서는 이 repo(`aks-reference-infra`)를 대상으로 이 툴을 쓸 수 없다**. 다른 프로젝트를 세션
-중간에 대상으로 지정해도 조용히 그 세션의 원래 repo에 쓴다. **이 repo 작업은 `aks-reference-infra`를
-프로젝트 루트로 하는 별도 Claude Code 세션에서 한다.**
+원인: `iac-module-library`가 실측한 바(2026-08-28·08-30·09-01 여러 차례 재현)로, 이 MCP 도구는
+"읽기"조차 내부적으로 프로젝트를 재스캔해 서술형 필드를 빈 스키마로 덮어쓰거나, `add_note`가
+20개 FIFO로 경고 없이 오래된 항목을 삭제하거나, git 상태가 방금 바뀐 직후(clone/pull 등)
+stale 캐시 기반으로 파일을 통째로 재작성해 헤더를 중복 삽입하는 부수효과를 갖고 있다 — 표준
+Read/Edit 도구엔 없는 숨은 로직이다. 이 repo의 `.omc/notepad.md`에서도 실제로 같은 클래스의
+중복(Priority Context 4중복·세션 서술 3중복)이 발견돼 2026-09-01에 정리했다(과거 어느 세션이
+이 도구로 쓰다가 겪은 것으로 추정, 정확한 발생 시점은 git blame으로 특정 안 함).
+
+대응: `.claude/settings.json`에 `permissions.deny`로 이 두 도구군(`notepad_*`·`project_memory_*`,
+읽기·쓰기 전부)을 등록해 **Claude의 도구 목록에서 아예 제거**했다(호출을 막는 게 아니라 존재
+자체를 안 보이게 하는 방식 — PreToolUse 훅보다 근본적이고, 훅 타임아웃으로 새는 경우도 없다).
+그래서 이제 `.omc/notepad.md`·`.omc/project-memory.json` 두 파일은 **읽기·쓰기 전부 Read/Edit
+도구로 직접** 다룬다 — `CLAUDE.md`를 다루는 것과 완전히 같은 방식이다. 과거에 있던 "이 도구는
+세션이 시작된 worktree에 고정된다"는 worktree 격리 캐비어트도, 도구 자체를 안 쓰니 더 이상
+해당 없음.
+
+이 결정은 `iac-module-library`(2026-09-01 최초 적용, 커밋 `35d7c2b`)에서 먼저 반영·검증됐고,
+`eks-reference-infra`에도 같은 시점에 동일하게 반영 중이다.
 
 ## 세션 시작 시 (session-start 3번에서 호출됨, 가드 통과 후)
 
-1. `mcp__t__notepad_read(section="priority")`로 포인터를 읽어 사용자에게 보여준다.
-2. `mcp__t__project_memory_read(section="notes")`의 `open-items` 카테고리로 미결 항목을 확인한다.
-3. `mcp__t__notepad_read(section="working")`로 최근 7일 내 세션 서술이 있으면 함께 보여준다.
+1. `Read`로 `.omc/notepad.md`를 열어 `## Priority Context` 섹션을 사용자에게 보여준다.
+2. `Read`로 `.omc/project-memory.json`을 열어 `customNotes`에서 미결 항목을 확인한다.
+3. 같은 `.omc/notepad.md`의 `## Working Memory` 섹션에 최근 7일 내 세션 서술이 있으면 함께
+   보여준다.
 4. Priority Context가 눈대중으로 500자를 넘어 보이면 정리하지 말고 사용자에게 먼저 알린다.
 
 ## 세션 종료 시 (session-end 2번에서, 커밋 전에 호출됨, 가드 통과 후)
@@ -40,22 +53,25 @@ description: 이 프로젝트(aks-reference-infra)의 .omc/notepad.md·project-m
 1. **`oh-my-claudecode:remember` 스킬을 호출**해 이번 세션의 발견 사항을 분류·저장시킨다
    (project memory / notepad priority / notepad working / docs 중 어디로 갈지는 그 스킬이 판단한다).
 2. `remember`가 모르는, 이 repo만의 제약을 그 판단에 추가로 적용한다:
-   - ⛔ notepad에 쓸 때는 반드시 `mcp__t__notepad_write_working`/`notepad_write_priority`/
-     `notepad_write_manual`을 통해서만 쓴다. `Edit`로 `.omc/notepad.md` 상단에 직접 prepend하지
-     않는다. `iac-module-library`에서 2026-08-14 Priority Context 200KB 비대화의 직접 원인이 됐던
-     패턴과 같다.
-   - Priority Context는 `notepad_write_priority`로 **전체 교체**한다(append 아님), 500자 이내 유지.
+   - **`.omc/notepad.md`·`.omc/project-memory.json` 두 파일 전부 `Edit`/`Read` 도구로 직접
+     다루는 것이 유일한 경로다**(2026-09-01부터 MCP 도구는 `permissions.deny`로 아예 제거됨,
+     위 절 참조). Priority Context는 500자 이내 유지(전체 교체 방식, append 아님). Working
+     Memory는 최신 항목을 `## Working Memory` 바로 아래(상단)에 추가. 쓴 뒤에는 반드시
+     `git diff`로 의도한 변경만 있는지, 헤더 중복이 없는지 확인한다.
    - `docs/*.md`에는 날짜·사건 서술을 쓰지 않는다(`CLAUDE.md` 1절이 가리키는 module repo
      `docs/conventions.md`를 그대로 적용). `remember`가 "docs"를 저장 후보로 제안해도 서술형
      내용이면 notepad로 돌린다.
    - `project-memory.json`은 `.gitignore` 화이트리스트로 git 커밋 대상이다(notepad.md와 함께
      크로스 머신 SSOT). 이 머신에만 유효한 임시 정보는 넣지 않는다.
+   - ⛔ **fork/서브에이전트(team 모드 포함)는 notepad에 직접 쓰지 않는다.** 결과를 텍스트로
+     보고만 하고, notepad 기록은 **team-lead(메인 세션)가 세션당 한 번만** 통합해서 쓴다 —
+     여러 세션이 각자 notepad를 따로 쓰면 헤더 중복이 재발한다(이 repo가 2026-09-01에 정리한
+     4중복·3중복이 정확히 그 증상).
 3. 이 단계가 끝난 뒤에만 session-end 3번(커밋)으로 넘어간다. 위 변경분이 그 커밋에 함께 실려야 한다.
 
 ## opencode 세션
 
 원본 두 repo(`iac-reference-infra`·`iac-module-library`)는 `.opencode/plugins/notepad.ts`로 같은
-3단 구조를 opencode 세션에서도 제공한다(MCP worktree 격리 문제 없이 repo 프로세스 안에서 직접
-파일을 다룬다). 이 repo는 아직 `.opencode/` 자체가 없다(2026-08-27 deepinit 시점 기준, Phase 0).
-opencode에서 이 repo 작업이 필요해지면 그때 같은 플러그인을 이식한다. 지금은 Claude Code
-세션(`mcp__t__notepad_*`)만 지원 대상이다.
+3단 구조를 opencode 세션에서도 제공한다. 이 repo는 아직 `.opencode/` 자체가 없다(2026-08-27
+deepinit 시점 기준, Phase 0). opencode에서 이 repo 작업이 필요해지면 그때 같은 플러그인을
+이식한다. 지금은 Claude Code 세션만 지원 대상이다.

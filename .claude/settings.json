@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "deny": [
+      "mcp__plugin_oh-my-claudecode_t__notepad_*",
+      "mcp__plugin_oh-my-claudecode_t__project_memory_*"
+    ]
+  }
+}
