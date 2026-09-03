@@ -8,6 +8,51 @@
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->
+### 2026-09-03(8차 세션) - Private cluster Portal 접근 조사 + workbench 설계 갈림길 확인 + 엔터프라이즈 규제 리서치
+
+사용자가 Azure Portal에서 K8s 리소스가 안 보이는 문제로 시작(private cluster 경고 메시지).
+`live/hub/aks/main.tf:108`의 `private_cluster_enabled=true`가 원인이고, 의도된 설계임을
+`.omc/plans/live-hub-aks.md` 3-6절로 확인 — 검증 경로는 `az aks command invoke`/Portal
+내장 `Run command`.
+
+**AWS EKS와의 비교 조사(사용자가 "AWS는 access entries만으로 콘솔 조회된다"고 반박,
+공식문서로 재검증 요청)**: 결정적 차이를 확인함. EKS 콘솔 Resources 탭은 AWS 관리형
+백엔드 `eks-proxy`(`com.amazonaws.region-code.eks-proxy`)가 사용자 브라우저 대신 K8s API를
+호출하는 구조(`docs.aws.amazon.com/eks/latest/userguide/vpc-interface-endpoints.html`:
+"backs cluster resource views in AWS consoles... not called directly by your applications")라,
+private cluster(`endpointPublicAccess=false`)여도 IAM 권한(`eks:AccessKubernetesApi`)+access
+entries만 있으면 그래픽 뷰가 그대로 동작한다. Azure AKS는 이 계층이 없다
+(`learn.microsoft.com/azure/aks/access-private-cluster`: "you must access the Azure portal
+from a network that can reach the subnet") — 유일한 관리형 우회는 `Run command`(kubectl
+한 줄 실행기, 그래픽 브라우징 아님)뿐. 이전 턴에서 "AWS도 private면 똑같이 막힌다"고
+추측성으로 답했던 것은 부정확했음을 정정함.
+
+**workbench 설계 갈림길**: 사용자가 "workbench를 VNet 안에 만들고 거기서 Azure 웹콘솔을
+띄우면 되냐, ubuntu는 어떻게 설치하냐" 질문 → AWS `workbench` 모듈(iac-module-library
+`modules/aws/workbench/README.md`: "private 클러스터 운영 지점(SSM 전용, 인바운드 0)",
+GUI 없이 kubectl/helm/argocd CLI만 부팅 시 설치)의 철학과 "Portal 그래픽 뷰를 보고
+싶다"는 요구가 상충함을 확인. 3가지 경로 제시: ①현행 유지(Run command, 신규 인프라 0)
+②CLI 전용 workbench(AWS SSM 패턴 대응 — Azure AD SSH/Bastion 터널, 실제 kubeconfig로
+kubectl 직접 사용, command invoke보다 강력, Ubuntu Server로 충분) ③GUI 데스크톱
+workbench(Ubuntu Desktop+xfce4+Firefox + Azure Bastion Standard SKU 전용 서브넷, 상시
+과금, AWS 원본 철학과 이질적). `live/hub/networking`의 `vm` 서브넷(10.60.2.0/24)이 이미
+이 용도로 예약돼 있고, aks-cluster 모듈이 `private_dns_zone_id`를 지정하지 않아 Azure
+기본값(`System`)이 적용돼 private DNS zone이 hub VNet 전체에 자동 연결돼 있음을 확인 —
+`vm` 서브넷에서 별도 피어링 없이 바로 AKS API 도달 가능. 사용자는 "고민만 하는 단계"라며
+미결정, 다음 세션으로 넘김.
+
+**엔터프라이즈/규제 리서치**: 사용자가 "private 유지가 금융·산기법 제조업 모범사례가
+맞냐" 질문 → Microsoft 공식 문서(`secure-baseline-aks`)는 업종 무관 프로덕션 베이스라인
+권고. 금융권은 전자금융감독규정 제15조가 원칙적으로 물리적 망분리 요구, 최근 SaaS 예외
+생겼으나 고유식별정보/개인신용정보 처리 시 예외 미적용(원칙 그대로 적용) — 단 "K8s API
+서버는 private이어야 한다"는 문구를 조문에서 직접 찾지 못해 추론임을 사용자에게 명시,
+법무 확인 필요 언급함. 국가핵심기술 보유 제조업(산기법)은 2025 공식 안내서가 "네트워크
+분리"를 명시 요구하나, 이 요건은 국가핵심기술 보유기관에만 한정 적용됨(모든 산기법 대상
+제조업이 아님) — 이 구분을 사용자에게 정정 설명함.
+
+**다음 세션**: workbench 방향(①/②/③) 결정되면 CLAUDE.md 절차대로 `.omc/plans/`에
+설계부터 잡을 것. 그 외 미결 항목은 이전 세션과 동일(docs/ 포팅, GitOps 착수 시
+Karpenter 재검토 등).
 ### 2026-09-03(7차 세션) - Phase 2 착수: live/hub/aks 실배포 완료, 모듈 버그 2건 발견·수정
 
 **1. hub·dev VNet secondary CIDR 제거**: `iac-module-library`가 `aks-cluster` 모듈의
