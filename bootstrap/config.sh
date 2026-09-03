@@ -84,8 +84,8 @@ readonly STATE_RG_NAME="rg-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-tfstate-01"
 readonly APP_NAME="entapp-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-gha-01"
 
 # hub App Registration 이름 — 대상과 무관하게(hub·spoke 어느 쪽에서 소싱하든) 항상
-# "hub" 토큰으로 고정 계산한다. cross-subscription-peer.sh가 dev 구독 컨텍스트에서
-# hub SP를 조회할 때 쓴다(.omc/plans/live-hub-vwan-dev-networking.md 4-1).
+# "hub" 토큰으로 고정 계산한다. bootstrap.sh의 크로스 구독 스포크 연결 절이 dev 구독
+# 컨텍스트에서 hub SP를 조회할 때 쓴다(.omc/plans/live-hub-vwan-dev-networking.md 4-1).
 readonly HUB_APP_NAME="entapp-${WORKLOAD}-hub-${REGION_CODE}-gha-01"
 
 # Storage Account 이름: 3~24자, 소문자+숫자만, 하이픈 불가(Azure 물리 제약) — 등재된
@@ -121,6 +121,52 @@ readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
 # 스포크(dev)에서만 의미가 있다 — hub CI 신원에게 이 스포크 VNet을 vWAN 허브에
 # 연결할 권한(peer/action 단일 액션)을 주는 역할이다(계획 4-1 Option A).
 readonly SPOKE_PEER_ROLE_NAME="aks-ref-bootstrap-spoke-peer-${ENV_TOKEN}"
+
+# ── AKS 클러스터용 identity·권한 (.omc/plans/live-hub-aks.md 「identity·role
+#    assignment (bootstrap 확장)」절) ──────────────────────────────────────────
+# aks-cluster 모듈은 identity도 role assignment도 스스로 만들지 않고 입력으로만
+# 받는다. 그래서 이 두 가지의 소유자는 bootstrap 계층(IaC 밖, 사람이 실행)이다.
+#
+# ⚠️ identity를 **워크로드 RG**에 두는 이유: CI 커스텀 역할의 스코프가 그 RG 하나뿐
+#    이라, identity가 그 밖에 있으면 live/hub/aks apply가 Microsoft.ManagedIdentity/
+#    userAssignedIdentities/assign/action 권한 부족으로 실패한다.
+readonly AKS_IDENTITY_NAME="id-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-aks-01"
+
+# VNet·노드 서브넷 이름은 live/<env>/networking 루트가 소비하는 vnet 모듈이
+# "vnet-<workload>-<env>-<region_code>-<purpose>" · "snet-...-<그룹명>"으로 조합한
+# 값이다(purpose="main", 그룹명="aks-node"). 이 스크립트는 그 서브넷을 만들지 않고
+# role assignment 스코프로 참조만 한다.
+readonly AKS_VNET_NAME="vnet-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-main"
+readonly AKS_NODE_SUBNET_NAME="snet-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-aks-node"
+
+# ⚠️ 이것만 **built-in 역할**이다(커스텀 역할이 아니다). 그래서
+#    role_definition_matches()로 정의 완전 일치를 검사하지 않는다 — 정의를 Azure가
+#    소유하므로 이 저장소가 기대값을 가질 근거 자체가 없다. 검사 대상은 "이 역할을
+#    가리키는 role assignment가 서브넷 스코프에 존재하는가" 하나다. 서브넷 스코프로
+#    좁힌 근거는 Microsoft 공식 문서(concepts-network-cni-overview)의 최소 권고
+#    ("at least Network Contributor permissions on the subnet")다.
+readonly AKS_NODE_ROLE_NAME="Network Contributor"
+
+# 노드 서브넷의 리소스 ID를 찾는다. 없으면 **빈 문자열**을 stdout에 낸다(호출자가
+# 판단한다: bootstrap.sh는 role assignment 단계를 건너뛰고, verify.sh는 na로 보고).
+# 두 스크립트가 **같은 함수**를 써야 한다 — 기준이 갈리면 "bootstrap은 만들었다는데
+# verify는 미판정"처럼 서로 다른 결론이 나온다(role_definition_matches와 같은 이유).
+#
+# ⚠️ VNet 존재 확인과 서브넷 조회를 2단계로 나눈 것이 핵심이다. VNet 부재는 정당한
+#    "아직 안 만들어짐"이지만, VNet이 있는데 조회가 실패하는 것은 권한 문제 등이라
+#    fail-closed(exit 2)여야 한다. 한 번의 `subnet show`로 합치면 그 둘이 구분되지
+#    않아 조회 실패가 "부재"로 둔갑하고, verify.sh 쪽에서는 그것이 na(exit 0)라는
+#    유일한 통과 경로로 새어 나간다.
+aks_node_subnet_id() {
+  az_ network vnet show --resource-group "$RG_NAME" --name "$AKS_VNET_NAME" &>/dev/null \
+    || { echo ""; return; }
+  local id
+  id="$(az_or_die "노드 서브넷 조회($AKS_NODE_SUBNET_NAME)" -- \
+    az_ network vnet subnet list --resource-group "$RG_NAME" --vnet-name "$AKS_VNET_NAME" \
+      --query "[?name=='${AKS_NODE_SUBNET_NAME}'].id | [0]" -o tsv)"
+  [[ "$id" == "None" ]] && id=""
+  echo "$id"
+}
 
 # ── FIC subject (계획 6-0-d 확정: 배포 브랜치 정책만, 필수 리뷰어 없음) ─────
 #
@@ -158,6 +204,10 @@ readonly C_ERR=$'\033[31m'; readonly C_OFF=$'\033[0m'
 ok()      { printf '%s  ok%s      %s\n' "$C_OK" "$C_OFF" "$*" >&2; }
 changed() { printf '%s changed%s  %s\n' "$C_CHG" "$C_OFF" "$*" >&2; CHANGES=$((CHANGES + 1)); }
 mismatch(){ printf '%s  DRIFT%s   %s\n' "$C_ERR" "$C_OFF" "$*" >&2; DRIFTS=$((DRIFTS + 1)); }
+# ⚠️ warn()은 **어떤 카운터도 올리지 않는다**. "지금은 판정할 수 없다"(선행 리소스가
+# 아직 없다)를 drift와 구분해 알리는 용도다. 조회가 실패한 경우에 쓰면 안 된다 —
+# 그건 fail-closed 대상이라 die()로 exit 2여야 한다.
+warn()    { printf '%s   warn%s   %s\n' "$C_CHG" "$C_OFF" "$*" >&2; }
 
 # ⚠️ TOP_PID + kill 패턴: macOS 시스템 bash(3.2, GPLv3 문제로 이 버전에 고정)는
 # `$( )` 명령 치환 안에서 `errexit`를 전혀 적용하지 않는다 —
@@ -334,10 +384,12 @@ state_data_role_definition_json() {  # state_data_role_definition_json <assignab
 }
 
 # ── 스포크 연결 역할: peer/action 단일 액션 (계획 4-1 Option A) ────────────
-# hub CI 신원이 이 역할을 dev VNet 리소스 스코프로 받아 live/hub/vwan의
-# azurerm_virtual_hub_connection.spoke를 성립시킨다. assignable scope는 dev
-# 워크로드 RG(cross-subscription-peer.sh가 넘긴다), 실제 할당 스코프는 그보다
-# 좁은 VNet 리소스 하나뿐이다 — RG 전체가 아니다.
+# hub CI 신원이 이 역할을 dev 워크로드 RG 스코프로 받아 live/hub/vwan의
+# azurerm_virtual_hub_connection.spoke를 성립시킨다. assignable scope와 실제 할당
+# 스코프가 **둘 다 스포크 워크로드 RG**다(bootstrap.sh의 크로스 구독 스포크 연결
+# 절이 $RG_SCOPE를 그대로 양쪽에 넘긴다). VNet 리소스 단위로 좁히는 최초안은
+# 2026-09-03에 기각됐다 — bootstrap.sh는 항상 networking apply보다 먼저 실행돼
+# 그 시점엔 VNet이 아직 없다(bootstrap/README.md 「크로스 구독 연결」절).
 spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignable-scope>
   local scope="$1"
   jq -n \
