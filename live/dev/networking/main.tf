@@ -12,12 +12,11 @@ locals {
   # (live/hub/networking/main.tf와 CLAUDE.md 6절에서 이미 예약된 값).
   vnet_cidr = "10.61.0.0/16"
 
-  # ⛔ hub와 같은 100.64.0.0/16을 쓰지 않는다 — Azure CNI Pod Subnet은 크로스 VNet
-  # 트래픽에도 SNAT를 하지 않아, 중복 대역이면 hub↔dev Pod 트래픽의 응답이 돌아오지
-  # 못한다(overlapping CIDR은 양방향 라우팅과 근본적으로 양립 불가). 전체 근거는
-  # live/hub/networking/main.tf의 cidr_pod_dup 주석 참고 — 여기서는 반복하지 않는다.
-  # 스포크 N번째는 100.(64+N).0.0/16 규칙(계획 문서 3절) — dev는 N=1.
-  cidr_pod_dup = "100.65.0.0/16" # RFC 6598, hub(100.64.0.0/16)와 겹치지 않는 고유 대역
+  # ⛔ 2026-09-03 정정: hub와 같은 이유로 secondary CIDR(구 cidr_pod_dup =
+  # 100.65.0.0/16)을 더 이상 두지 않는다 — aks-cluster 모듈 v0.3.0이 cni_mode
+  # 기본값을 Overlay로 정정해, Pod IP가 VNet 밖 오버레이 대역(모듈의 pod_cidr)에서
+  # 나온다. 근거 전문은 live/hub/networking/main.tf의 해당 locals 주석 참고(반복하지
+  # 않는다).
 
   # hub와 같은 서브넷 그룹 구성을 10.61.x로 그대로 옮긴다(대칭 유지 — 나중에 3번째
   # 스포크가 생겨도 같은 패턴을 복사하면 된다).
@@ -46,7 +45,7 @@ module "vnet" {
   resource_group_name = "rg-${var.workload}-${var.env}-${var.region_code}-workload-01"
   location            = var.location
 
-  address_space = [local.vnet_cidr, local.cidr_pod_dup]
+  address_space = [local.vnet_cidr]
 
   subnet_groups = {
     "pub" = {
@@ -71,8 +70,9 @@ module "vnet" {
       nsg_enabled      = true
     }
 
-    # AKS 노드 자리(Phase 2, 모듈 아직 미소비 — 자리만 미리 확보). Pod IP는 여기서 뜨지
-    # 않는다 — cidr_pod_dup(secondary address_space) 소관(위 locals 참고).
+    # AKS 노드 자리(Phase 2, live/dev/aks 계획에서 소비 예정). Pod IP는 여기서 뜨지
+    # 않는다 — Overlay CNI라 VNet 밖 오버레이 CIDR에서 받는다(hub와 동일 근거,
+    # live/hub/networking/main.tf 참고).
     "aks-node" = {
       address_prefixes = [local.subnet_cidrs["aks-node"]]
       nat_routed       = true

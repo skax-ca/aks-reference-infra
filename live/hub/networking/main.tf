@@ -14,49 +14,33 @@ locals {
   # 충돌 조사는 불필요하다(계정 내 다른 VNet 이 없는 새 구독).
   vnet_cidr = "10.60.0.0/16"
 
-  # ⚠️ Phase 2 AKS 네트워킹 기본값 결정(2026-08-28, AWS 원본·Azure 공식 문서 대조 세션):
+  # ⚠️ Phase 2 AKS 네트워킹 결정(2026-09-03 정정, aks-cluster 모듈 v0.3.0 대응):
   #
-  #   CNI 모드는 Azure CNI **Pod Subnet(flat)** 을 기본으로 한다. Azure CNI **Overlay**
-  #   는 채택하지 않는다 — Overlay 는 성능은 flat 과 동급이지만(캡슐화 없음, MS 공식
-  #   문서 확인), 클러스터 밖으로 나가는 Pod 트래픽이 노드 IP로 SNAT 돼 NSG 플로우
-  #   로그·Network Watcher·온프레미스 방화벽 로그에서 Pod 단위 가시성이 사라진다.
-  #   AWS 원본이 VPC CNI(underlay, SNAT 없음)를 기본으로 하고 IP 고갈 시에도 이
-  #   가시성을 포기하지 않는(custom networking 으로 대응) 설계 철학과 어긋난다.
+  #   CNI 모드는 Azure CNI **Overlay**를 쓴다(모듈 cni_mode 기본값 — Microsoft 공식
+  #   문서 plan-pod-networking·AKS baseline 참조 아키텍처가 일반 권고로 명시). Pod IP는
+  #   VNet 밖 오버레이 CIDR(aks-cluster 모듈의 pod_cidr 인자)에서 받으므로 이 VNet에는
+  #   Pod 전용 대역이 전혀 필요 없다 — secondary address_space도, Pod 전용 서브넷도
+  #   두지 않는다.
   #
-  #   Pod IP 대역은 이 VNet 의 **secondary address_space** 인 cidr_pod_dup 에서
-  #   뗀다 — AWS 원본의 3계층 CIDR(cidr_primary·cidr_uniq·cidr_dup, eks-reference-infra
-  #   의 live/hub/networking/main.tf)과 정확히 같은 구조다. aks-node 서브넷(아래
-  #   subnet_cidrs)은 **노드** IP 전용이고 Pod 는 여기서 뜨지 않는다.
+  #   ⛔ 2026-08-28~2026-09-03 사이엔 Azure CNI Pod Subnet(flat, SNAT 없음)을 택해 이
+  #      VNet에 secondary address_space(구 cidr_pod_dup = 100.64.0.0/16)를 예약해
+  #      뒀었다 — Pod 단위 NSG 플로우 로그 가시성을 지키려는 목적이었다. aks-cluster
+  #      모듈 v0.3.0이 cni_mode를 신설하며 기본값을 Overlay로 정정한 것을 따라 이
+  #      repo도 되돌린다: 가시성 손실은 실재하지만(SNAT로 NSG 플로우 로그에서 Pod IP
+  #      소실), Microsoft 유료 애드온 ACNS의 Container Network Observability(eBPF,
+  #      SNAT 이전 캡처)로 다른 방식으로 메울 수 있고, NAP(Karpenter) 호환·서브넷 IP
+  #      절약 등 Overlay의 이득이 이 트레이드오프를 상쇄한다고 판단했다(모듈 README
+  #      「네트워킹」절 근거 인용). aks-node 서브넷은 계속 노드 전용이다 — Pod IP가
+  #      여기서도 뜨지 않는 건 이전과 동일하지만 이유가 바뀌었다(Pod Subnet 미사용
+  #      때문이 아니라 Overlay라 VNet 서브넷 자체를 안 쓰기 때문).
   #
-  #   ⛔ 아직 하지 않은 것: Pod 전용 azurerm_subnet 자체는 만들지 않는다(Phase 2 AKS
-  #      모듈이 없어 소비자가 없다 — 소비자 없는 리소스를 미리 만들지 않는다,
-  #      .claude/rules/terraform.md). VNet 레벨 secondary CIDR **연결**만 지금 한다 —
-  #      이건 이 root(live/hub/networking) 가 소유한 리소스(azurerm_virtual_network)의
-  #      속성이라 Phase 2 를 기다릴 이유가 없다.
-  #
-  #   ⛔ 정정(2026-08-28, live/hub/vwan 설계 세션, .omc/plans/live-hub-vwan-dev-
-  #      networking.md 4-4): 이전 버전의 이 주석은 "AWS 처럼 dup 대역을 스포크마다
-  #      중복 사용하고 vWAN 라우팅에서 전파 제외하면 된다"고 썼다. 틀렸다 — AWS 가
-  #      스포크 간 dup 대역 재사용을 할 수 있었던 이유는 VPC CNI 가 VPC 밖으로 나가는
-  #      Pod 트래픽을 노드 IP 로 SNAT 하기 때문이다. Phase 2 기본값으로 확정한 Azure
-  #      CNI Pod Subnet 은 크로스 VNet 트래픽에도 SNAT 를 하지 않는다("the pod IP is
-  #      always the source address for any traffic from the pod", learn.microsoft.com/
-  #      en-us/azure/aks/concepts-network-legacy-cni) — 즉 hub 와 dev 가 같은
-  #      100.64.0.0/16 을 쓰면 dev 가 그 대역을 자기 로컬 Pod 대역으로 착각해 hub 로
-  #      가는 응답을 돌려보내지 못한다(overlapping CIDR 은 양방향 라우팅과 근본적으로
-  #      양립 불가 — vWAN 의 "Propagate to none" + 정적 라우트로도 못 고친다, 목적지
-  #      주소만으로는 "내 로컬 Pod"와 "hub 로 돌려줄 응답"을 구분할 수 없기 때문이다).
-  #      대신 **스포크마다 고유한 Pod 대역**을 준다 — dev 는 100.65.0.0/16(hub 는 이
-  #      100.64.0.0/16 을 유지, 이 VNet 은 값 변경 없음). 두 vWAN 연결 모두 Default
-  #      라우팅 테이블에 정상 propagate 해 hub↔dev Pod 트래픽이 실제로 왕복한다(Phase 2
-  #      ArgoCD 가 spoke API 서버를 관리하는 이 아키텍처의 존재 이유). 대가: Pod 트래픽이
-  #      vWAN 허브를 건너므로 AWS 원본(TGW 를 건넌 적 없음) 대비 노출면이 넓어지고 NSG 가
-  #      유일한 보상 통제다 — 사용자 승인 완료(같은 계획 문서 참고).
-  cidr_pod_dup = "100.64.0.0/16" # RFC 6598, AWS 원본 cidr_dup 과 동일 대역 — Phase 2 AKS Pod Subnet 전용
+  #      설계 이력 전문은 .omc/plans/live-hub-vwan-dev-networking.md의 2026-09-03
+  #      추가 기록(13절) 참고 — 이 정정으로 무효화된 vWAN 라우팅 전제들을 그 절이
+  #      기록한다.
 
   # 그룹별 CIDR. 10.60.4.0/24~10.60.15.0/24, 10.60.32.0/19 이후는 미할당으로 남겨둔다
-  # (향후 AzureFirewallSubnet 등 필요 시 재조사 없이 바로 쓴다). Pod 대역은 여기 없다 —
-  # cidr_pod_dup(secondary address_space) 소관이다.
+  # (향후 AzureFirewallSubnet 등 필요 시 재조사 없이 바로 쓴다). Pod 대역은 이 VNet에
+  # 없다 — Overlay CNI라 Pod IP는 aks-cluster 모듈의 pod_cidr(VNet 밖)에서 받는다.
   subnet_cidrs = {
     pub      = "10.60.0.0/24"
     ilb      = "10.60.1.0/24"
@@ -86,7 +70,7 @@ module "vnet" {
   resource_group_name = "rg-${var.workload}-${var.env}-${var.region_code}-workload-01"
   location            = var.location
 
-  address_space = [local.vnet_cidr, local.cidr_pod_dup]
+  address_space = [local.vnet_cidr]
 
   subnet_groups = {
     # 인터넷 대면 LB/App Gateway. AWS pub-uniq 대응.
@@ -118,11 +102,10 @@ module "vnet" {
       nsg_enabled      = true
     }
 
-    # AKS 노드 자리(Phase 2, 모듈 아직 없음 — 자리만 미리 확보). AWS node-uniq 대응.
-    # ⚠️ 이 서브넷은 노드 IP 전용이다 — Pod IP 는 여기서 뜨지 않는다. Phase 2 기본값은
-    #    Azure CNI Pod Subnet(flat)이고 Pod 는 위 locals.cidr_pod_dup(secondary
-    #    address_space)에서 전용 Pod Subnet 으로 배정한다. 근거·Overlay 를 채택하지
-    #    않은 이유는 locals 블록 주석 참고. /20 크기는 노드 수 기준 잠정치다.
+    # AKS 노드 자리(Phase 2, live/hub/aks 계획에서 소비 예정). AWS node-uniq 대응.
+    # ⚠️ 이 서브넷은 노드 IP 전용이다 — Pod IP 는 여기서 뜨지 않는다(Overlay CNI, Pod
+    #    는 VNet 밖 오버레이 CIDR 에서 받는다 — 근거는 위 locals 블록 주석 참고). /20
+    #    크기는 노드 수 기준 잠정치다.
     "aks-node" = {
       address_prefixes = [local.subnet_cidrs["aks-node"]]
       nat_routed       = true
