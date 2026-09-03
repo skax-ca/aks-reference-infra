@@ -66,6 +66,18 @@
       "source": "manual",
       "category": "mcp-tooling-fix",
       "content": "2026-09-03(6차 세션) - 이전 세션(921bbda, notepad_*/project_memory_* MCP 도구 permissions.deny 차단)에도 불구하고 이번 세션 시작 시 techStack/build/conventions/structure가 다시 빈 자동스캔 스키마로 손상돼 있었다(git status가 세션 시작 시점엔 clean이었는데, 세션 도중 확인하니 이 파일만 unstaged modified로 나타남 — Claude가 이 도구를 호출한 적은 이번 세션에 전혀 없었다). iac-module-library가 같은 증상을 먼저 겪고 이틀 앞서(2026-09-03, 커밋 07c2288) 근본원인을 소스 직접 확인으로 규명해뒀다: 진짜 트리거는 MCP 도구 호출이 아니라 OMC 플러그인의 SessionStart 훅(project-memory-session.mjs → shouldRescan())이 매 세션 시작마다 무조건 실행되며 lastScanned가 24시간 넘게 지나면 자동 재스캔·덮어씀. 이 detector(constants.js의 CONFIG_PATTERNS)는 package.json/Cargo.toml/go.mod 등 JS/Rust/Python/Go 계열만 인식하고 Terraform/OpenTofu(.tf)는 목록에 없어, 이 저장소(bash+OpenTofu)에서는 항상 빈 languages:[] 스키마로 귀결된다. permissions.deny는 Claude의 도구 호출 경로만 막을 뿐 이 훅 경로엔 적용되지 않는다(Claude Code에 훅 단위 선택적 비활성화 기능 자체가 없음, disableAllHooks만 존재하나 이 프로젝트의 OMC 훅 전체를 죽이는 과잉 조치라 채택 안 함). 적용한 조치: lastScanned를 9999999999999(먼 미래 sentinel)로 고정해 shouldRescan()이 영구 false가 되게 함 + techStack/build/conventions/structure를 현재 상태를 반영한 서술형 문자열로 복원. 한계: 이 pin은 SessionStart의 rescan-overwrite만 막고, PostToolUse의 hotPaths 추적·customNotes 자동학습(FIFO20, 20개 초과 시 경고 없이 가장 오래된 항목 삭제)은 이 pin과 무관하게 계속 동작한다 — 세션 시작 시 lastScanned가 여전히 sentinel인지, 4개 필드가 여전히 서술형 문자열인지 확인할 것. 근거 전문(소스 코드 경로·공식 문서 인용)은 iac-module-library의 .omc/project-memory.json mcp-tooling-fix 카테고리(2026-09-01·2026-09-03 항목) 참조 — 이 저장소용으로 새로 조사하지 않고 그대로 적용했다."
+    },
+    {
+      "timestamp": 1788397800000,
+      "source": "manual",
+      "category": "notes",
+      "content": "2026-09-03(6차 세션) - Phase 1(네트워킹) 완료 선언. live/dev/networking apply 성공(전파 지연 5일+ 경과로 자연 해소, 재현 불필요 확인됨 — 다음에 비슷한 Azure eventual consistency 증상을 만나면 '얼마나 지났는가'로 재시도 가치를 먼저 판단할 것). 크로스 구독 vWAN 스포크 연결(peer/action, dev 워크로드 RG 스코프, bootstrap.sh 6-1절에 통합)을 실제로 부여·검증하고 live/hub/vwan 2차 apply로 hub↔dev 연결 성립(양방향 라우팅 실측 확인). 이전 세션 미결 항목 갱신: (1) 크로스 구독 vWAN 권한 스코프 → 확정·구현·검증 완료 (2) Option C(MI-as-FIC) → 여전히 보류, 재검토 트리거 없음. 신규 미결: (1) docs/ 포팅(원본 eks-reference-infra에서 기계적 이식, hub/spoke lifecycle·runbooks) (2) .githooks/·scripts/validate-doc-conventions.py 포팅 (3) Phase 2(AKS)는 iac-module-library에 aks 모듈이 올라오면 별도 deepinit/plan 사이클로 착수 — 이번 세션이 완료한 ralplan(live-hub-vwan-dev-networking.md)의 범위 밖임을 확인함. 커밋: 75b28f2(bootstrap 크로스구독권한), 12ae376(project-memory sentinel), 1c32094(CLAUDE.md 재작성+repo명 오기 4곳 정정). 전부 push 완료."
+    },
+    {
+      "timestamp": 1788397800001,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-09-03(6차 세션) - Azure vWAN에는 AWS RAM(Resource Access Manager)의 정확한 대응물이 없다는 것을 실측 확인. AWS는 hub가 TGW를 계정/OU 단위로 한 번 공유하면 스포크가 자기 계정의 이미 가진 전권으로 attachment를 직접 만든다(hub 계정에 새 IAM 권한 불필요, OU 공유 시 이후 스포크는 완전 자동 상속). Azure vWAN 연결(hubVirtualNetworkConnections)은 hub 쪽에 생기는 리소스라 반대 방향(스포크가 소유)을 택하면 스포크 CI가 hub의 공유 컨트롤 플레인 쓰기 권한을 가져야 해 폭발 반경이 훨씬 크다 — 그래서 hub가 연결을 소유하는 방향을 유지하되(peer/action 단일 액션만 원격 구독에 필요), '스포크가 늘 때마다 사람이 최소 1번은 개입해야 하는' AWS 대비 구조적 제약은 그대로 남는다. 다만 스코프를 VNet 리소스 단위에서 워크로드 RG 단위로 완화해 bootstrap.sh에 통합함으로써 '개입 횟수'는 스포크당 1회(부트스트랩 실행 1번)로 최소화했다 — bootstrap.sh는 항상 VNet apply보다 먼저 실행되므로 VNet 존재 여부와 무관해지는 것이 이 완화가 성립하는 핵심 이유(닭과 달걀 문제 해소). 근거 전문은 .omc/plans/live-hub-vwan-dev-networking.md 12절."
     }
   ],
   "directoryMap": {

@@ -4,10 +4,53 @@
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
 
-2026-08-28(5차 세션) - dev 구독(af8171fb-...) 확보, spoke 구축 진행: (1) Pod CIDR 정책 정정 완료(dev=100.65.0.0/16, hub=100.64.0.0/16 유지, Azure CNI Pod Subnet은 SNAT 없어 dup 재사용 불가) (2) dev bootstrap 완료·검증 통과 (3) live/hub/vwan 배포 완료(vHub 10.62.0.0/22, 스포크 연결 없음) (4) live/dev/networking 코드 작성·push 완료했으나 CI의 tofu init이 AuthorizationPermissionMismatch로 막힘 — dev SP의 state-data role assignment(컨테이너 스코프)가 1시간+ Storage 데이터플레인에 전파 안 됨(SP 직접 로그인 테스트로 GH Actions 문제 아님, 순수 Azure 전파 지연 확정). 다음: 전파 확인 후 CI 재시도(gh run rerun 33153826604 --failed), 또는 storage account 스코프로 임시 재할당해 전파 속도 비교. 그 다음 5단계(크로스 구독 권한+vWAN 스포크 연결).
+2026-09-03(6차 세션) - Phase 1(네트워킹) 완료: live/dev/networking apply 성공(전파 지연 자연 해소), 크로스 구독 vWAN 권한을 dev 워크로드 RG 스코프로 bootstrap.sh에 통합해 hub↔dev vWAN 연결 성립(양방향 라우팅 실측 확인, 음성 테스트 2건 통과). project-memory.json SessionStart 자동 재스캔 손상을 lastScanned sentinel로 영구 차단(iac-module-library 07c2288 적용). CLAUDE.md를 eks-reference-infra 8절 구조로 전면 재작성, repo명 오기(iac→eks-reference-infra) 4개 파일 정정. 남은 일: docs/ 포팅, Phase 2(AKS, 모듈 대기).
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->
+### 2026-09-03 09:50
+### 2026-09-03(6차 세션) - Phase 1 완료: live/dev/networking apply + 크로스 구독 vWAN 연결 + 문서 정비
+
+**1. live/dev/networking CI 막힘 해소**: 지난 세션에 발견한 dev SP state-data role
+assignment의 Storage 데이터플레인 전파 지연(공식 문서 상한 30분, 실측 1시간+)이 원인이었던
+`tofu init` 실패를, role assignment 생성 시각(2026-08-28T07:28)과 현재(2026-09-03,
+5일+ 경과)를 비교해 자연 해소됐다고 판단 → 재시도로 실제 확인(CI plan/apply 성공, VNet
+`vnet-demo-dev-krc-main`, `10.61.0.0/16`+`100.65.0.0/16`, 서브넷 5종). "얼마나 기다렸는가"를
+정량화해 재시도 가치를 판단한 사례.
+
+**2. 크로스 구독 vWAN 스포크 연결 권한(5단계) — 설계를 세션 중 개선**: 최초 ralplan
+설계(`peer/action`을 dev VNet 리소스 스코프로, 별도 스크립트 `cross-subscription-peer.sh`
+실행)를 구현하다가, 사용자가 "bootstrap.sh에 애초에 넣을 수 없나? AWS는 스포크 추가 시
+뭘 하나?" 질문 → AWS RAM(계정/OU 단위 공유, 스포크가 자기 계정 전권으로 attachment 생성)과
+Azure vWAN(정확한 대응물 없음, hub가 연결 소유하는 반대 방향 유지)의 근본 차이를 확인한 뒤,
+스코프를 dev **워크로드 RG**로 완화해 `bootstrap.sh` 6-1절에 통합(별도 스크립트 폐기) —
+스포크 부트스트랩 1회 실행만으로 끝나도록 개선. `verify.sh`에 대칭 검사 추가(가드를
+`BOOTSTRAP_TARGET=="spoke"`로 일반화, 다음 스포크에도 자동 적용). hub·dev 양쪽 회귀 없음
+확인, dev 대상 멱등성 + 음성 테스트 2건(RG 스코프 확장, Contributor 치환) 전부 통과 후
+실제 Azure에 적용. `live/hub/vwan` 2차 apply(CI OIDC, 정적 자격증명 전혀 없이)로
+`peer/action` 단일 권한 충분함을 실측 확인, `az network vhub get-effective-routes`로
+hub·dev 4개 대역 양방향 전파 확인. 설계 변경분은 `.omc/plans/live-hub-vwan-dev-networking.md`
+12절 + 5·9절 포인터로 기록. 커밋 `75b28f2`.
+
+**3. project-memory.json 손상 재발 → 근본 해결**: permissions.deny(921bbda) 이후에도
+이번 세션 시작 시 techStack/build/conventions/structure가 또 빈 스키마로 손상돼 있었다.
+iac-module-library가 이틀 앞서 소스 직접 확인으로 규명한 진짜 원인(OMC SessionStart 훅의
+`shouldRescan()`이 24시간 경과 시 무조건 재스캔, permissions.deny는 이 훅 경로를 막지
+못함, Terraform/OpenTofu는 detector 인식 목록에 없어 매번 빈 스키마로 귀결)을 그대로
+적용: `lastScanned`를 9999999999999(먼 미래 sentinel)로 고정, 손상된 4개 필드 복원.
+커밋 `12ae376`.
+
+**4. CLAUDE.md 재작성**: 세션 로그·TODO가 규칙과 뒤섞여 있던 구조를 `eks-reference-infra`와
+동일한 8절 구조(위치→구조→실행모델→네이밍→로컬게이트→브랜치규칙→문서규칙→모듈확인습관)로
+전면 재작성. docs/·.githooks/·`aks-platform-gitops`가 아직 없다는 사실을 ⏳로 명시.
+브랜치·PR 규칙은 원본과 동일 채택(`.tf`·workflows는 브랜치→PR, 지금까지의 main 직접
+커밋은 "규칙 확정 전" 예외로 문서화, 사용자 확인 완료). 부수로 저장소 전체에 남아있던
+repo명 오기(`iac-reference-infra`→`eks-reference-infra`) 4개 파일 정정. 커밋 `1c32094`.
+
+**다음 세션**: (1) `docs/` 포팅(원본 `eks-reference-infra`에서 기계적 이식, hub/spoke
+lifecycle·runbooks) (2) `.githooks/`·`scripts/validate-doc-conventions.py` 포팅
+(3) Phase 2(AKS)는 `iac-module-library`에 `aks` 모듈이 올라오면 별도 deepinit/plan
+사이클로 착수 — 지금 세션의 ralplan 범위 밖.
 ### 2026-08-27 05:15
 2026-08-27 - deepinit으로 CLAUDE.md·notepad-sync 스킬 초기화(HANDOFF.md 삭제, 내용 병합). ralplan(5라운드, Architect/Critic 교차검증)으로 bootstrap/ 설계 v6 확정: AWS 2단 Role 체인 대신 RG스코프 커스텀 역할 2종+7종 권한0건 불변식. 사용자 확정: hub/dev 별도 구독, 배포는 브랜치정책만(무인자동화 유지), Option C는 보류. ralph(4라운드 리뷰)로 bootstrap/{README,config.sh,bootstrap.sh,verify.sh} 구현, ai-slop-cleaner로 검토이력 주석 정리. 핵심 발견: macOS bash 3.2가 $() 안에서 errexit 미적용 - TOP_PID+kill 시그널 패턴으로 해결(project-memory architecture 노트 참고). 최종 APPROVE, 단 실제 Azure 실행 검증은 미완(자격증명 없는 세션).
 ### 2026-08-27 06:44
