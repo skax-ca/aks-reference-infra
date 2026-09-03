@@ -153,12 +153,46 @@ audience 전 필드 완전 일치를 검사해 이를 잡는다.
 ⛔ App Registration/Service Principal에 정적 자격증명(client secret·certificate)을
 절대 만들지 않는다. GitHub OIDC(FIC)만이 유일한 인증 경로다.
 
-### 크로스 구독 연결 (미확정)
+### 크로스 구독 연결 (확정, 2026-09-03)
 
-hub CI 신원이 dev 구독 내 Virtual WAN 연결을 위해 가질 최소 권한의 정확한 스코프는
-아직 확정되지 않았다(설계 계획 문서 참고). `modules/azure/vnet`의 실제 출력값을 Phase 1
-networking 스캐폴딩 단계에서 확인한 뒤 결정한다. 이 절이 채워지기 전까지 이 권한을
-사실인 것처럼 부여하지 않는다.
+hub CI 신원이 스포크 구독의 VNet을 hub Virtual WAN 허브에 연결(`live/hub/vwan`의
+`azurerm_virtual_hub_connection.spoke`)하려면, 연결 리소스 자체는 hub 구독에 생기더라도
+ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/action` 권한을
+호출자(hub SP)에게 요구한다(`learn.microsoft.com/en-us/azure/virtual-wan/roles-permissions`
+"Example 1"). 이 권한은 스포크 구독 안에서 hub SP에게 부여해야 하는 유일한 예외다.
+
+| 항목 | 값 |
+|------|-----|
+| 역할 | `aks-ref-bootstrap-spoke-peer-<env>` — `peer/action` 단일 액션만 |
+| assignable scope / 할당 스코프 | 스포크 **워크로드 RG**(`rg-<workload>-<env>-krc-workload-01`) |
+| 할당 대상 | hub App Registration(`entapp-<workload>-hub-krc-gha-01`)의 SP |
+| 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때만 자동 포함(6-1절) — CI가 아니라 `bootstrap.sh`를 실행하는 사람이 만든다 |
+
+⚠️ **스코프는 특정 VNet 리소스가 아니라 워크로드 RG 전체다.** `bootstrap.sh`는 항상
+`live/*/networking`의 VNet apply보다 먼저 실행되므로, 그 시점엔 VNet이 아직 없어 리소스
+단위로 좁힐 수 없다(닭과 달걀 문제). VNet 리소스 단위로 좁히는 대안도 검토했으나
+(`.omc/plans/live-hub-vwan-dev-networking.md` 4-1 최초안), 그러면 스포크마다 별도
+스크립트를 한 번 더 실행해야 해 `bootstrap.sh` 1회로 끝나지 않는다. `peer/action`은
+단일 액션이라 위험도가 낮으므로, RG 스코프로 완화하고 `bootstrap.sh`에 통합하는 쪽을
+택했다(2026-09-03, 사용자 결정). 대가는 hub SP가 이 RG에 나중에 생길 다른 리소스에도
+`peer/action`을 갖는다는 것이다.
+
+⚠️ **`Contributor` 안내는 이 시나리오의 근거가 아니다.** 검색에서 자주 나오는 "원격 VNet
+구독의 Contributor가 필요하다"는 문장은 크로스 **테넌트** 문서의 것이다. 이 설계는 동일
+테넌트의 크로스 **구독**이고, 위 roles-permissions 문서가 액션 단위로 정확히 답한다.
+
+⚠️ **AWS 원본과 소유 방향이 다르다.** AWS(`eks-reference-infra`)는 AWS RAM으로 hub가 TGW를
+계정/OU 단위로 공유하면 스포크가 자기 계정의 전권으로 attachment를 직접 만든다 — hub 계정에
+새 IAM 권한이 필요 없다. Azure vWAN에는 RAM의 정확한 대응물이 없다. 반대 방향(스포크 CI가
+연결을 소유)을 택하면 스포크 CI가 hub의 공유 컨트롤 플레인 쓰기 권한
+(`hubVirtualNetworkConnections/write`)을 가져야 해 `peer/action` 하나보다 훨씬 위험하다 —
+그래서 이 설계는 hub가 연결을 소유하는 방향을 유지한다. 대가로 **새 스포크를 추가할
+때마다 `bootstrap.sh`(스포크 대상)를 한 번 더 실행해야 한다** — 자동으로 상속되지 않는다.
+
+⛔ `verify.sh`는 스포크 워크로드 RG 스코프에서 "이 대상 자신의 SP를 제외한" role
+assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일치하는지 검사한다
+(`BOOTSTRAP_TARGET=spoke`일 때만). 설계 근거 전문은
+`.omc/plans/live-hub-vwan-dev-networking.md` 4-1, 2026-09-03 추가 기록 참고.
 
 ## 3. 검증
 

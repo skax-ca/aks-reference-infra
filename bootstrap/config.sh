@@ -83,6 +83,11 @@ readonly RG_NAME="rg-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-workload-01"
 readonly STATE_RG_NAME="rg-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-tfstate-01"
 readonly APP_NAME="entapp-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-gha-01"
 
+# hub App Registration 이름 — 대상과 무관하게(hub·spoke 어느 쪽에서 소싱하든) 항상
+# "hub" 토큰으로 고정 계산한다. cross-subscription-peer.sh가 dev 구독 컨텍스트에서
+# hub SP를 조회할 때 쓴다(.omc/plans/live-hub-vwan-dev-networking.md 4-1).
+readonly HUB_APP_NAME="entapp-${WORKLOAD}-hub-${REGION_CODE}-gha-01"
+
 # Storage Account 이름: 3~24자, 소문자+숫자만, 하이픈 불가(Azure 물리 제약) — 등재된
 # `st` 약어에서 하이픈만 뺀 접두사를 쓴다(azure.md A.3의 캐비어트 참고). 원본의
 # "이름을 git에 남기지 않는다" 요건(임의 접미사)을 지키려고 8자리 hex 접미사를 더한다.
@@ -113,6 +118,9 @@ new_storage_account_name() {
 # ── 커스텀 역할 이름 ─────────────────────────────────────────────────────────
 readonly WORKLOAD_ROLE_NAME="aks-ref-bootstrap-workload-ci-${ENV_TOKEN}"
 readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
+# 스포크(dev)에서만 의미가 있다 — hub CI 신원에게 이 스포크 VNet을 vWAN 허브에
+# 연결할 권한(peer/action 단일 액션)을 주는 역할이다(계획 4-1 Option A).
+readonly SPOKE_PEER_ROLE_NAME="aks-ref-bootstrap-spoke-peer-${ENV_TOKEN}"
 
 # ── FIC subject (계획 6-0-d 확정: 배포 브랜치 정책만, 필수 리뷰어 없음) ─────
 #
@@ -320,6 +328,27 @@ state_data_role_definition_json() {  # state_data_role_definition_json <assignab
         "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/delete",
         "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/move/action"
       ],
+      NotDataActions: [],
+      AssignableScopes: [$scope]
+    }'
+}
+
+# ── 스포크 연결 역할: peer/action 단일 액션 (계획 4-1 Option A) ────────────
+# hub CI 신원이 이 역할을 dev VNet 리소스 스코프로 받아 live/hub/vwan의
+# azurerm_virtual_hub_connection.spoke를 성립시킨다. assignable scope는 dev
+# 워크로드 RG(cross-subscription-peer.sh가 넘긴다), 실제 할당 스코프는 그보다
+# 좁은 VNet 리소스 하나뿐이다 — RG 전체가 아니다.
+spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignable-scope>
+  local scope="$1"
+  jq -n \
+    --arg name "$SPOKE_PEER_ROLE_NAME" \
+    --arg scope "$scope" \
+    '{
+      Name: $name,
+      Description: "Single-action grant for the hub CI identity to peer this spoke VNet into the hub Virtual WAN hub (aks-reference-infra live/hub/vwan spoke connection, plan 4-1 Option A).",
+      Actions: ["Microsoft.Network/virtualNetworks/peer/action"],
+      NotActions: [],
+      DataActions: [],
       NotDataActions: [],
       AssignableScopes: [$scope]
     }'

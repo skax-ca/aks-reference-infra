@@ -221,29 +221,54 @@ CONTAINER_SCOPE="${STATE_RG_SCOPE}/providers/Microsoft.Storage/storageAccounts/$
 ensure_custom_role "$WORKLOAD_ROLE_NAME" "$(workload_role_definition_json "$RG_SCOPE")" "workload"
 ensure_custom_role "$STATE_DATA_ROLE_NAME" "$(state_data_role_definition_json "$STATE_RG_SCOPE")" "state-data"
 
-# ── 6. role assignment (CI 신원 = SP_ID) ─────────────────────────────────────
-ensure_role_assignment() {  # ensure_role_assignment <role-name> <scope> <label>
+# ── 6. role assignment (기본 assignee = 이 대상 자신의 CI 신원 SP_ID) ────────
+ensure_role_assignment() {  # ensure_role_assignment <role-name> <scope> <label> <assignee-object-id>
   # ⚠️ roleDefinitionName이 아니라 roleDefinitionId로 필터링한다. roleDefinitionName은
   # role assignment 객체가 조회 시점에 역할 정의 쪽과 조인해서 채우는 값이라, 방금
   # role assignment를 만들거나 역할 정의를 갱신한 직후엔 한동안 null로 보일 수 있다
   # (실측 확인, 2026-08-27 hub 재생성 세션 — role assignment는 실제로 1건만 존재하고
   # verify.sh도 "존재"로 확인했는데, 이 필터만 0건으로 봐서 불필요한 create를 유발했다).
   # roleDefinitionId는 조인이 필요 없는 role assignment 자신의 직접 속성이라 지연이 없다.
-  local role_name="$1" scope="$2" label="$3"
+  #
+  # ⚠️ assignee를 4번째 인자로 명시한다(2026-09-03, live/hub/vwan 5단계 세션에서
+  # 크로스 구독 스포크 연결 권한을 추가하며 리팩터링 — 이전엔 전역 $SP_ID에
+  # 암묵 의존했으나, 그 assignee가 이 대상 자신이 아니라 hub SP인 호출이 생겨
+  # 암묵 의존이 더 이상 성립하지 않는다).
+  local role_name="$1" scope="$2" label="$3" assignee="$4"
   local role_id existing
   role_id="$(jq -r '.[0].id' <<<"$(role_definition_list_retry "$role_name")")"
-  existing="$(az_ role assignment list --assignee "$SP_ID" --scope "$scope" \
+  existing="$(az_ role assignment list --assignee "$assignee" --scope "$scope" \
     --query "[?roleDefinitionId=='$role_id']" -o json)"
   if [[ "$(jq 'length' <<<"$existing")" -eq 0 ]]; then
-    retry_on_replication_delay az_ role assignment create --assignee "$SP_ID" \
+    retry_on_replication_delay az_ role assignment create --assignee "$assignee" \
       --role "$role_name" --scope "$scope"
     changed "[$label] role assignment 생성: $role_name @ $scope"
   else
     ok "[$label] role assignment 존재: $role_name"
   fi
 }
-ensure_role_assignment "$WORKLOAD_ROLE_NAME" "$RG_SCOPE" "workload"
-ensure_role_assignment "$STATE_DATA_ROLE_NAME" "$CONTAINER_SCOPE" "state-data"
+ensure_role_assignment "$WORKLOAD_ROLE_NAME" "$RG_SCOPE" "workload" "$SP_ID"
+ensure_role_assignment "$STATE_DATA_ROLE_NAME" "$CONTAINER_SCOPE" "state-data" "$SP_ID"
+
+# ── 6-1. 크로스 구독 스포크 연결 권한 (스포크 대상만, 계획 4-1 Option A —
+#    2026-09-03 절충: VNet 리소스 스코프 대신 워크로드 RG 스코프로 완화해 dev
+#    VNet이 아직 없는 이 시점(bootstrap.sh는 항상 networking apply보다 먼저
+#    실행된다)에 함께 끝낸다. 대가는 hub SP가 이 RG에 나중에 생길 다른 VNet에도
+#    자동으로 peer 권한을 갖는다는 것 — peer/action은 단일 액션이라 위험도가
+#    낮고, 스포크가 늘 때마다 별도 스크립트를 한 번 더 실행하는 마찰을 없앤다.
+#    AWS 원본(RAM 계정/OU 단위 공유 후 스포크가 자기 계정에서 attachment 생성)과
+#    가장 가까운 근사다 — Azure vWAN엔 RAM의 정확한 대응물이 없다) ──────────
+if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
+  HUB_APP_ID="$(az_or_die "hub App Registration" -- az_ ad app list --display-name "$HUB_APP_NAME" --query "[0].appId" -o tsv)"
+  [[ -n "$HUB_APP_ID" && "$HUB_APP_ID" != "None" ]] \
+    || die "hub App Registration이 없다: $HUB_APP_NAME (hub bootstrap을 먼저 실행할 것)"
+  HUB_SP_ID="$(az_or_die "hub Service Principal" -- az_ ad sp list --filter "appId eq '$HUB_APP_ID'" --query "[0].id" -o tsv)"
+  [[ -n "$HUB_SP_ID" && "$HUB_SP_ID" != "None" ]] || die "hub Service Principal이 없다: $HUB_APP_NAME"
+  ok "[hub] Service Principal 확인: $HUB_SP_ID ($HUB_APP_NAME)"
+
+  ensure_custom_role "$SPOKE_PEER_ROLE_NAME" "$(spoke_peer_role_definition_json "$RG_SCOPE")" "spoke-peer"
+  ensure_role_assignment "$SPOKE_PEER_ROLE_NAME" "$RG_SCOPE" "spoke-peer" "$HUB_SP_ID"
+fi
 
 # ── 7. state RG 잠금 (반드시 마지막 — 이후 어떤 변경도 이 RG 안에서 막힌다) ──
 # 잠금 존재 시 재실행 절차(계획 5절): 이 RG에 변경이 필요하면 (1) 사람이 잠금

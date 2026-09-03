@@ -291,6 +291,50 @@ else
   mismatch "[state-data] role assignment - Storage Account가 없어 스코프를 계산할 수 없다"
 fi
 
+# ── 불변식 (a) 예외: 스포크 워크로드 RG 스코프의 외부(hub) principal role
+#    assignment 허용 목록 완전 일치 (계획 4-1 Option A, 2026-09-03 절충 —
+#    "0건"을 "허용 목록 1건과 완전 일치"로 승격한 유일한 예외. bootstrap.sh
+#    6-1절이 만든다. 스코프는 VNet 리소스가 아니라 워크로드 RG 전체다 — dev
+#    VNet이 아직 없는 bootstrap 시점에 함께 끝내기 위한 의도적 완화, 대가는
+#    hub SP가 이 RG에 나중에 생길 다른 리소스에도 peer/action을 갖는다는 것) ──
+if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
+  HUB_APP_ID_CHECK="$(az_or_die "hub App Registration" -- az_ ad app list --display-name "$HUB_APP_NAME" --query "[0].appId" -o tsv)"
+  if [[ -z "$HUB_APP_ID_CHECK" || "$HUB_APP_ID_CHECK" == "None" ]]; then
+    mismatch "[$ENV_TOKEN] 크로스 구독 스포크 연결 - hub App Registration이 없다: $HUB_APP_NAME"
+  else
+    HUB_SP_ID_CHECK="$(az_or_die "hub Service Principal" -- az_ ad sp list --filter "appId eq '$HUB_APP_ID_CHECK'" --query "[0].id" -o tsv)"
+
+    check_spoke_peer_role() {
+      local current
+      current="$(role_definition_list_retry "$SPOKE_PEER_ROLE_NAME")"
+      role_definition_matches "$(spoke_peer_role_definition_json "$RG_SCOPE")" "$current" && echo ok || echo drift
+    }
+    report "[spoke-peer] 커스텀 역할 Actions 완전 일치" "$(check_spoke_peer_role)"
+
+    # 워크로드 RG 스코프의 role assignment 전체에서 "이 대상 자신의 SP(workload
+    # 역할, 이미 위에서 확인됨)"를 뺀 나머지가 허용 목록(hub SP + spoke-peer
+    # 역할 1건)과 완전히 일치해야 한다. 이렇게 "자기 자신 제외"로 걸러야
+    # workload role assignment 존재 확인과 중복 판정하지 않는다.
+    rg_assignments="$(az_or_die "$ENV_TOKEN 워크로드 RG 스코프 role assignment" -- \
+      az_ role assignment list --scope "$RG_SCOPE" --query "[?scope=='$RG_SCOPE']" -o json)"
+    external_assignments="$(jq --arg sp "$SP_ID" '[.[] | select(.principalId != $sp)]' <<<"$rg_assignments")"
+    external_count="$(jq 'length' <<<"$external_assignments")"
+    require_int "$external_count" "[$ENV_TOKEN] 워크로드 RG 스코프 외부 principal role assignment 개수"
+    if [[ "$external_count" -ne 1 ]]; then
+      mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 외부 principal role assignment - ${external_count}건 존재(정확히 1건이어야 한다)"
+    else
+      spoke_peer_role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$SPOKE_PEER_ROLE_NAME")")"
+      actual_role_id="$(jq -r '.[0].roleDefinitionId' <<<"$external_assignments")"
+      actual_principal_id="$(jq -r '.[0].principalId' <<<"$external_assignments")"
+      if [[ -n "$spoke_peer_role_id" && "$actual_role_id" == "$spoke_peer_role_id" && "$actual_principal_id" == "$HUB_SP_ID_CHECK" ]]; then
+        ok "[$ENV_TOKEN] 워크로드 RG 스코프 외부 principal role assignment: 허용 목록과 완전 일치(hub SP, $SPOKE_PEER_ROLE_NAME)"
+      else
+        mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 외부 principal role assignment - 역할/principal 불일치(기대: $SPOKE_PEER_ROLE_NAME @ hub SP $HUB_SP_ID_CHECK, 실제: role=$actual_role_id principal=$actual_principal_id)"
+      fi
+    fi
+  fi
+fi
+
 # ── state RG 잠금 + 내구성 설정 ──────────────────────────────────────────────
 check_state_lock() {
   az_ lock show --name "state-rg-protect" --resource-group "$STATE_RG_NAME" &>/dev/null \
