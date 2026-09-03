@@ -71,7 +71,13 @@ module "aks_cluster" {
   # "cilium" 으로 켜고 network_policy 는 "azure" 로 고정해 둬, ARM 이 "Cilium dataplane
   # requires network policy cilium." 으로 거부했다(모듈 tofu test 가 mock_provider 라
   # 이 정합성 오류를 구조적으로 못 잡았다). v0.4.0 이 그 조건부화를 정정했다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.4.0&depth=1"
+  #
+  # v0.5.0 으로 올린 이유: v0.4.0 은 default_node_pool·추가 노드 풀에 upgrade_settings
+  # 를 선언하지 않아, Azure 가 채워 넣는 기본값(max_surge="10%")과 매 plan마다 어긋나는
+  # perpetual diff 가 있었다(이 root 의 첫 실배포에서 독립된 plan 3회 연속 실측 —
+  # apply해도 수렴하지 않음, 파괴적이지는 않으나 재-plan 수렴 완료 판정을 통과할 수
+  # 없는 상태였다). v0.5.0 이 두 리소스 모두 명시로 고정해 정정했다.
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.5.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다(모듈 repo 규약).
   # {demo, hub, krc} → aks-demo-hub-krc-main-01
