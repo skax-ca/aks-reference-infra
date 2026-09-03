@@ -4,10 +4,51 @@
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
 
-2026-09-03(6차 세션) - Phase 1(네트워킹) 완료: live/dev/networking apply 성공(전파 지연 자연 해소), 크로스 구독 vWAN 권한을 dev 워크로드 RG 스코프로 bootstrap.sh에 통합해 hub↔dev vWAN 연결 성립(양방향 라우팅 실측 확인, 음성 테스트 2건 통과). project-memory.json SessionStart 자동 재스캔 손상을 lastScanned sentinel로 영구 차단(iac-module-library 07c2288 적용). CLAUDE.md를 eks-reference-infra 8절 구조로 전면 재작성, repo명 오기(iac→eks-reference-infra) 4개 파일 정정. 남은 일: docs/ 포팅, Phase 2(AKS, 모듈 대기).
+2026-09-03(7차 세션) - Phase 2(AKS) 착수: live/hub/aks 실배포 완료(hub 구독, aks-demo-hub-krc-main-01, 노드 2대 Ready, Overlay CNI, Karpenter는 GitOps 부재로 꺼둠). RALPLAN 2라운드(Architect+Critic) 후 team 실행. 배포 중 iac-module-library aks-cluster 모듈 버그 2건 발견·수정(v0.4.0 network_policy ARM 거부, v0.5.0 upgrade_settings perpetual diff). hub·dev VNet secondary CIDR 제거(Overlay 전환). bootstrap.sh AKS identity ID 대소문자 버그 수정. 남은 일: workbench 후속 계획, GitOps(aks-platform-gitops) 착수 시 Karpenter 재검토.
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->
+### 2026-09-03(7차 세션) - Phase 2 착수: live/hub/aks 실배포 완료, 모듈 버그 2건 발견·수정
+
+**1. hub·dev VNet secondary CIDR 제거**: `iac-module-library`가 `aks-cluster` 모듈의
+`cni_mode` 기본값을 Pod Subnet에서 Overlay로 전환(v0.3.0)한 걸 확인하고, hub
+(`100.64.0.0/16`)·dev(`100.65.0.0/16`) VNet의 Pod 전용 secondary CIDR을 실제로
+제거·apply(PR #1). Overlay는 VNet 밖 오버레이 대역에서 Pod IP를 받아 이 CIDR 자체가
+불필요해졌다 — 실물 확인(`az network vnet show`) 후 진행, 어떤 서브넷도 그 대역을
+안 쓰고 있어 in-place 변경(파괴 없음)이었다.
+
+**2. live/hub/aks RALPLAN 2라운드**: `aks-cluster` v0.4.0을 소비하는 신규 배포 루트
+설계. 라운드 1에서 Architect가 모듈 자체의 ARM 레벨 버그(overlay+cilium 조합을
+ARM이 거부)를 발견 — `iac-module-library`에서 직접 수정해 `aks-cluster-v0.4.0` 태그
+발행 후 계획 재작성. 라운드 2에서 Architect(조건부 승인, 3건 지적)·Critic(REVISE,
+내부 일관성 결함 다수 — 여러 차례 개정 중 폐기한 근거가 다른 절에 남아있는 문제,
+완료 판정 명령 오류 등) 전부 반영해 최종 승인.
+
+**3. team 실행 + 배포 중 두 번째 모듈 버그 발견**: worker-1(bootstrap 확장:
+identity·서브넷 스코프 Network Contributor role assignment 조건부·수렴형 설계,
+RP 등록, verify.sh `na` 상태 추가)·worker-2(live/hub/aks 신규 root 스캐폴딩) 병렬
+실행, 둘 다 고품질로 완료. bootstrap.sh 실행 중 `az identity show`가 반환하는
+리소스 ID의 `resourcegroups`(소문자)가 azurerm provider(v5 타입 SDK)의
+`resourceGroups` 요구와 안 맞아 첫 apply 실패 → `bootstrap.sh`에 `sed` 정규화 추가로
+해결. apply 성공 후 완료 판정 §4-8(재-plan 수렴) 확인 중 두 번째 버그 발견:
+`default_node_pool`이 `upgrade_settings`를 선언 안 해 Azure 기본값(`max_surge=10%`)과
+매번 어긋나는 perpetual diff(독립 plan 3회 연속 실측, 파괴적이진 않음) —
+`iac-module-library`에서 정정해 `aks-cluster-v0.5.0` 발행, 이 root를 올려 재적용 후
+완전 수렴(`No changes`) 확인.
+
+**결과**: hub 구독에 `aks-demo-hub-krc-main-01` 클러스터 실제 가동(노드 2대 Ready,
+networkProfile이 overlay/cilium/cilium/10.244.0.0/16/userAssignedNATGateway로 의도대로
+적용됨을 실측 확인, VMSS 인스턴스 NIC가 `aks-node` 서브넷에 실제로 join). Karpenter는
+`enable_karpenter=false`로 시작(GitOps 계층 없어 죽은 설정 방지, 나중에 in-place
+전환 가능하도록 `auto_scaling_enabled=false` 전제조건 미리 맞춤). `deletion_protection
+=false`는 리스크 수용이 아니라 `network_profile`/`private_cluster_enabled`가 ForceNew라
+`true`가 기술적으로 불가능한 상태(GitOps 착수 후 그 축이 확정되면 전환).
+
+**다음 세션**: (1) workbench 후속 계획(Azure에 AWS `workbench` 대응 모듈이 아직
+없음, 별도 설계 필요) (2) `aks-platform-gitops` 착수 시 Karpenter·Entra RBAC·
+`deletion_protection=true` 재검토 (3) GitOps가 `ilb` 서브넷에 내부 LB를 세울 때
+identity role assignment 스코프(현재 `aks-node` 단일 서브넷) 확장 필요 여부 재검토.
+
 ### 2026-09-03 09:50
 ### 2026-09-03(6차 세션) - Phase 1 완료: live/dev/networking apply + 크로스 구독 vWAN 연결 + 문서 정비
 
