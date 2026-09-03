@@ -4,7 +4,7 @@
 
 state Storage Account, App Registration, 커스텀 RBAC 역할 2종, 리소스 잠금을 Azure CLI
 스크립트로 만든다. `tofu`가 이것들을 만들려면 이미 state 저장소가 있어야 하는 닭과 달걀
-문제가 있어서, 이 한 겹만 IaC 밖에 둔다(원본 `iac-reference-infra`와 동일한 이유).
+문제가 있어서, 이 한 겹만 IaC 밖에 둔다(원본 `eks-reference-infra`와 동일한 이유).
 
 설계 근거는 `.omc/plans/bootstrap-credential-design.md`(v6, ralplan 5라운드 확정)다. AWS
 원본의 "입구 Role → 실행 Role" 2단 체인을 Azure Entra ID에 그대로 재현할 수 없어, 대신

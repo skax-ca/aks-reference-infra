@@ -5,9 +5,9 @@ description: 이 프로젝트(aks-reference-infra)의 .omc/notepad.md·project-m
 
 # Notepad Sync (project-scoped)
 
-이 프로젝트는 `iac-reference-infra`·`iac-module-library`와 **동일한** OMC notepad 3단 구조
+이 프로젝트는 `eks-reference-infra`·`iac-module-library`와 **동일한** OMC notepad 3단 구조
 (**Priority** 포인터, 500자 이내 / **Working** 세션 서술, 7일 자동 소멸 / **MANUAL** 영구 아카이브,
-자동 로드 안 됨)와 `project-memory.json`(구조화 영구 사실)을 쓴다(원본 `iac-reference-infra`가
+자동 로드 안 됨)와 `project-memory.json`(구조화 영구 사실)을 쓴다(원본 `eks-reference-infra`가
 2026-08-19에 통일한 방식을 deepinit 시점부터 그대로 적용). 세션 종료 시 "무엇을 어디에 저장할지"
 판단은 **OMC가 이미 제공하는 `oh-my-claudecode:remember` 스킬에 위임**한다. 그 판단 로직을 여기서
 다시 만들지 않는다. 이 파일은 그 위임 전 가드와, `remember`가 모르는 이 repo 고유의 제약만 얹는다.
@@ -71,7 +71,7 @@ Read/Edit 도구엔 없는 숨은 로직이다. 이 repo의 `.omc/notepad.md`에
 
 ## opencode 세션
 
-원본 두 repo(`iac-reference-infra`·`iac-module-library`)는 `.opencode/plugins/notepad.ts`로 같은
+원본 두 repo(`eks-reference-infra`·`iac-module-library`)는 `.opencode/plugins/notepad.ts`로 같은
 3단 구조를 opencode 세션에서도 제공한다. 이 repo는 아직 `.opencode/` 자체가 없다(2026-08-27
 deepinit 시점 기준, Phase 0). opencode에서 이 repo 작업이 필요해지면 그때 같은 플러그인을
 이식한다. 지금은 Claude Code 세션만 지원 대상이다.

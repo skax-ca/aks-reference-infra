@@ -4,7 +4,7 @@
   "projectRoot": "/Users/a07326/born2k/ai/aks-reference-infra",
   "techStack": "Azure CLI(az) bash 스크립트(bootstrap/) + OpenTofu(live/*, 1.12.5) + GitHub Actions OIDC(azurerm 5.x). bootstrap/은 순수 bash(config.sh/bootstrap.sh/verify.sh)로 App Registration·커스텀 RBAC 역할 3종(workload/state-data/spoke-peer)·Storage Account·리소스 그룹·잠금을 az CLI로 직접 다룬다. live/hub/networking·live/hub/vwan·live/dev/networking은 iac-module-library의 modules/azure/vnet을 소비하는 raw OpenTofu 루트, 전부 hub·dev 구독에 실제 배포 완료.",
   "build": "로컬 apply는 require_oidc 가드로 차단(var.ci_run=true인 CI 전용). GitHub Actions(.github/workflows/deploy-*.yml)가 push 시 자동 tofu plan, workflow_dispatch로 apply. bootstrap/verify.sh가 부트스트랩 계층의 drift 감지(읽기 전용, tofu plan 없는 IaC 밖 계층 대응) 담당.",
-  "conventions": "iac-reference-infra(AWS 원본)의 구조·문서 체계를 1:1 참조하되 Azure 대응물로 치환. 문서 규칙(em-dash 금지, 이모지 7종만, 문서 간 절 번호 인용 금지, 400줄 제한)은 iac-module-library의 docs/conventions.md가 SSOT. 네이밍 약어는 iac-module-library의 docs/naming/abbreviations/azure.md가 SSOT(rg/st/entapp/vwan/vhub 등재 완료).",
+  "conventions": "eks-reference-infra(AWS 원본)의 구조·문서 체계를 1:1 참조하되 Azure 대응물로 치환. 문서 규칙(em-dash 금지, 이모지 7종만, 문서 간 절 번호 인용 금지, 400줄 제한)은 iac-module-library의 docs/conventions.md가 SSOT. 네이밍 약어는 iac-module-library의 docs/naming/abbreviations/azure.md가 SSOT(rg/st/entapp/vwan/vhub 등재 완료).",
   "structure": "bootstrap/(자격증명 계층, hub·dev 양쪽 실제 Azure 검증 완료) + live/hub/networking·live/hub/vwan·live/dev/networking(전부 배포 완료, hub↔dev vWAN 연결까지 성립) + live/hub/aks·live/dev/aks(Phase 2, iac-module-library에 aks 모듈 준비 전까지 미착수).",
   "customNotes": [
     {
@@ -91,9 +91,15 @@
   },
   "hotPaths": [
     {
+      "path": "CLAUDE.md",
+      "accessCount": 15,
+      "lastAccessed": 1788397765945,
+      "type": "file"
+    },
+    {
       "path": "bootstrap/config.sh",
-      "accessCount": 5,
-      "lastAccessed": 1788394893916,
+      "accessCount": 6,
+      "lastAccessed": 1788397896894,
       "type": "file"
     },
     {
@@ -103,15 +109,15 @@
       "type": "file"
     },
     {
-      "path": "bootstrap/bootstrap.sh",
-      "accessCount": 2,
-      "lastAccessed": 1788395853647,
+      "path": "bootstrap/README.md",
+      "accessCount": 3,
+      "lastAccessed": 1788397894047,
       "type": "file"
     },
     {
-      "path": "bootstrap/README.md",
+      "path": "bootstrap/bootstrap.sh",
       "accessCount": 2,
-      "lastAccessed": 1788396187172,
+      "lastAccessed": 1788395853647,
       "type": "file"
     },
     {
@@ -142,6 +148,12 @@
       "path": "bootstrap/cross-subscription-peer.sh",
       "accessCount": 1,
       "lastAccessed": 1788394927131,
+      "type": "file"
+    },
+    {
+      "path": ".claude/skills/notepad-sync/SKILL.md",
+      "accessCount": 1,
+      "lastAccessed": 1788397900243,
       "type": "file"
     }
   ],

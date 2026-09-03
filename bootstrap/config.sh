@@ -2,7 +2,7 @@
 # 부트스트랩 기대 상태 — bootstrap.sh 와 verify.sh 가 공유한다.
 #
 # ⚠️ 이 파일이 "기대 상태"의 코드 측면이고, README.md 의 표가 문서 측면이다.
-#    둘이 어긋나면 README를 고친다 — 사람이 읽는 쪽이 SSOT다(원본 iac-reference-infra와
+#    둘이 어긋나면 README를 고친다 — 사람이 읽는 쪽이 SSOT다(원본 eks-reference-infra와
 #    동일 원칙).
 #
 # 설계 근거: .omc/plans/bootstrap-credential-design.md (v6, ralplan 5라운드 확정)
@@ -23,7 +23,7 @@ set -euo pipefail
 readonly REGION="koreacentral"
 readonly REGION_CODE="krc"
 # TODO: 이 저장소의 workload 코드는 아직 CLAUDE.md 확정 결정 표에 없다. 원본
-# iac-reference-infra와 동일한 관례(workload=demo)를 임시로 따르되, 확정되면
+# eks-reference-infra와 동일한 관례(workload=demo)를 임시로 따르되, 확정되면
 # 이 기본값을 갱신한다.
 readonly WORKLOAD="${WORKLOAD:-demo}"
 
