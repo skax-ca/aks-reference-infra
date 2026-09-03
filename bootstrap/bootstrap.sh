@@ -292,8 +292,15 @@ ensure_aks_identity() {
   # ⚠️ create의 --query 출력을 그대로 받지 않고 다시 show로 조회한다. az의 create
   # 계열은 경고를 stderr로 섞어 내보내는 경우가 있어, 값을 얻는 경로를 조회 하나로
   # 통일하는 편이 안전하다(기존 ensure_app_registration의 create→list 패턴과 동일).
+  #
+  # ⚠️ `az identity show`가 반환하는 리소스 ID는 `/resourcegroups/`(소문자)다. ARM
+  # 자체는 대소문자를 구분하지 않지만, azurerm provider(v5, 타입 SDK)는 세그먼트
+  # 리터럴을 정확히 `/resourceGroups/`로 요구해 그대로 넘기면 "the segment at
+  # position 2 didn't match"로 plan이 실패한다(2026-09-03 live/hub/aks 첫 apply
+  # 실측). sed로 그 세그먼트만 정규화한다.
   AKS_IDENTITY_ID="$(az_or_die "AKS identity 리소스 ID" -- \
-    az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" --query id -o tsv)"
+    az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" --query id -o tsv \
+    | sed 's#/resourcegroups/#/resourceGroups/#')"
   AKS_IDENTITY_PRINCIPAL_ID="$(az_or_die "AKS identity principalId" -- \
     az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" --query principalId -o tsv)"
 }
