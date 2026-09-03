@@ -27,7 +27,7 @@ hub-spoke AKS GitOps 패턴의 **레퍼런스 배포 루트**다(`eks-reference-
 ## 1. 저장소 구조
 
 ```
-bootstrap/              ✅ state Storage Account · App Registration · 커스텀 역할(IaC 밖, 사람이 스크립트로 실행)
+bootstrap/              ✅ state Storage Account · App Registration · 커스텀 역할 · AKS identity(IaC 밖, 사람이 스크립트로 실행)
 live/hub/networking/    ✅ VNet(hub)
 live/hub/vwan/          ✅ Virtual WAN(hub, networking과 분리된 state)
 live/dev/networking/    ✅ VNet(spoke 첫 인스턴스), vWAN 스포크 연결 완료

@@ -2,8 +2,8 @@
 
 **읽는 사람**: 부트스트랩 스크립트를 처음 실행하거나 고치는 사람.
 
-state Storage Account, App Registration, 커스텀 RBAC 역할 2종, 리소스 잠금을 Azure CLI
-스크립트로 만든다. `tofu`가 이것들을 만들려면 이미 state 저장소가 있어야 하는 닭과 달걀
+state Storage Account, App Registration, 커스텀 RBAC 역할 2종, 리소스 잠금, 그리고 AKS
+클러스터용 user-assigned identity를 Azure CLI 스크립트로 만든다. `tofu`가 이것들을 만들려면 이미 state 저장소가 있어야 하는 닭과 달걀
 문제가 있어서, 이 한 겹만 IaC 밖에 둔다(원본 `eks-reference-infra`와 동일한 이유).
 
 설계 근거는 `.omc/plans/bootstrap-credential-design.md`(v6, ralplan 5라운드 확정)다. AWS
@@ -166,7 +166,7 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 | 역할 | `aks-ref-bootstrap-spoke-peer-<env>` — `peer/action` 단일 액션만 |
 | assignable scope / 할당 스코프 | 스포크 **워크로드 RG**(`rg-<workload>-<env>-krc-workload-01`) |
 | 할당 대상 | hub App Registration(`entapp-<workload>-hub-krc-gha-01`)의 SP |
-| 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때만 자동 포함(6-1절) — CI가 아니라 `bootstrap.sh`를 실행하는 사람이 만든다 |
+| 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때만 자동 포함(「크로스 구독 스포크 연결 권한」절) — CI가 아니라 `bootstrap.sh`를 실행하는 사람이 만든다 |
 
 ⚠️ **스코프는 특정 VNet 리소스가 아니라 워크로드 RG 전체다.** `bootstrap.sh`는 항상
 `live/*/networking`의 VNet apply보다 먼저 실행되므로, 그 시점엔 VNet이 아직 없어 리소스
@@ -193,6 +193,53 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일치하는지 검사한다
 (`BOOTSTRAP_TARGET=spoke`일 때만). 설계 근거 전문은
 `.omc/plans/live-hub-vwan-dev-networking.md` 4-1, 2026-09-03 추가 기록 참고.
+
+### AKS 클러스터용 identity·권한 (hub 대상만, 확정 2026-09-03)
+
+`live/hub/aks`가 소비하는 `aks-cluster` 모듈은 identity도 role assignment도 스스로
+만들지 않고 **입력으로만 받는다**. 그리고 CI 신원에는
+`Microsoft.Authorization/roleAssignments/write`를 주지 않는다(위 「커스텀 RBAC 역할
+2종」절의 원칙). 두 제약이 겹쳐 이 산출물들은 구조적으로 부트스트랩 계층에서만 만들 수
+있다. 설계 근거 전문은 `.omc/plans/live-hub-aks.md`의 「identity·role assignment
+(bootstrap 확장)」절 참고.
+
+| 항목 | 값 |
+|------|-----|
+| user-assigned identity | `id-<workload>-hub-krc-aks-01` |
+| identity의 거처 | **워크로드 RG**(`rg-<workload>-hub-krc-workload-01`) |
+| role assignment | built-in `Network Contributor` |
+| role assignment 스코프 | `aks-node` 서브넷 리소스 하나(`snet-<workload>-hub-krc-aks-node`) |
+| 할당 대상 | 위 identity의 principal |
+| 리소스 프로바이더 | `Microsoft.ContainerService`가 `Registered` |
+
+⚠️ **identity를 워크로드 RG에 두는 것은 선택이 아니라 제약이다.** CI 커스텀 역할의
+스코프가 그 RG 하나뿐이라, identity가 그 밖에 있으면 `live/hub/aks` apply가
+`Microsoft.ManagedIdentity/userAssignedIdentities/assign/action` 권한 부족으로 실패한다.
+
+⚠️ **role assignment 단계만 조건부다.** 스코프가 서브넷 리소스 하나라, 그 서브넷을
+만드는 `live/hub/networking` apply보다 `bootstrap.sh`가 먼저 실행되는 상황이 성립한다
+(위 「크로스 구독 연결」절의 `peer/action`이 RG 스코프로 완화됐던 것과 같은 닭과 달걀
+문제). 그래서 서브넷이 없으면 **이 단계만** 경고 후 건너뛰고 나머지는 정상 진행하며,
+서브넷이 생긴 뒤 재실행하면 수렴한다. `peer/action`처럼 스코프를 RG로 완화하지 않은
+이유는 위험도 차이다(액션 1개 대 대상 1개). hub는 `aks-node` 서브넷이 이미 배포돼 있어
+실제로는 이 분기를 타지 않지만, 다음 스포크를 위해 지금 만들어 둔다.
+
+⚠️ **`verify.sh`의 이 절 검사는 위 권한 불변식과 범주가 다르다.** 불변식들은 CI 신원의
+권한이 0건 또는 허용 목록과 완전히 일치하는지 보는 음성 검사인데, 여기 검사는 CI 신원이
+아닌 다른 principal에 대한 **양성 존재 확인**이다. 서브넷 부재로 판정할 수 없을 때는
+`warn`으로 보고하고 drift로 세지 않는다(`exit 0` 유지). 조회 자체가 실패하는 경우는
+여전히 `exit 2`다.
+
+⛔ **identity 존재 확인만으로는 부족해 role assignment 존재까지 검사한다.** identity는
+있는데 서브넷 권한이 없으면 `live/hub/aks` apply는 성공으로 끝나고 노드만 조용히 join에
+실패한다. 그 죽은 경로를 잡는 것이 이 검사의 목적이다.
+
+⚠️ **`Microsoft.ContainerService` 등록을 사람이 미리 처리하는 이유**: CI 신원은 구독
+스코프 `*/register/action`을 갖지 않는다(워크로드 커스텀 역할의 스코프가 RG 하나뿐이다).
+미등록 상태로 apply가 시작되면 CI가 스스로 복구할 수 없는 실패로 막힌다. 등록은
+비동기라 `bootstrap.sh`는 `--wait`로 완료까지 기다린다(그래야 재실행이 변경 0건으로
+수렴한다). 2026-09-03 hub 구독 실측 기준 이미 `Registered`라, 이 단계는 사실상 멱등
+안전망이다.
 
 ## 3. 검증
 
@@ -286,6 +333,7 @@ import {
 | `AZURE_CLIENT_ID` (App Registration의 appId) | GitHub repo 변수 |
 | `AZURE_TENANT_ID` | GitHub repo 변수 |
 | `AZURE_SUBSCRIPTION_ID` | GitHub repo 변수 |
+| `AZURE_HUB_AKS_IDENTITY_ID` (AKS 클러스터용 identity의 리소스 ID) | GitHub repo 변수. **hub 대상 실행에서만 출력된다.** `live/hub/aks` 워크플로가 `TF_VAR_aks_identity_id`로 주입한다 |
 | state Storage Account명·컨테이너명 | 로컬 `backend.hcl`(각 `live/<env>/` 디렉토리, gitignore됨). `tofu init -backend-config=backend.hcl` |
 
 새 spoke 인스턴스(`dev`가 아닌 환경)를 추가하면 워크플로 배선(repo 변수 이름,

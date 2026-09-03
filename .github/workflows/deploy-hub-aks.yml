@@ -1,0 +1,277 @@
+# live/hub/aks — plan → (사람이 dispatch) → plan → apply
+#
+# deploy-hub-vwan.yml과 같은 구조(plan은 push에서 자동, apply는 workflow_dispatch로만)
+# — 같은 hub 구독, 같은 CI 신원(environment: hub)을 쓰는 별도 state root다. 설계 전문은
+# .omc/plans/live-hub-aks.md 참고.
+#
+# ⛔ plan job에 `environment:`를 추가하지 않는다(deploy-hub-network.yml과 동일 근거 —
+#    FIC subject의 ref:refs/heads/main / environment:hub 대응을 어긋나게 하지 않는다).
+# ⛔ apply를 `tofu apply`(재-plan)로 바꾸지 않는다.
+#
+# ⚠️ 이 root는 apply 전에 사람이 끝내야 하는 사전조건이 둘 있다(.omc/plans/live-hub-aks.md 3-1):
+#    ① bootstrap이 만든 identity의 리소스 ID가 repo 변수 AZURE_HUB_AKS_IDENTITY_ID에 있을 것
+#    ② Microsoft.ContainerService 리소스 프로바이더가 등록돼 있을 것
+#    CI 신원은 구독 스코프 */register/action이 없어 ②를 스스로 복구할 수 없다.
+
+name: deploy · live/hub/aks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - live/hub/aks/**
+      - .github/workflows/deploy-hub-aks.yml
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "apply = 생성·수정 / destroy = 파기"
+        type: choice
+        options: [apply, destroy]
+        default: apply
+      confirm:
+        description: "destroy일 때만 필수. 정확히 `destroy live/hub/aks`를 입력한다"
+        type: string
+        default: ""
+
+# state는 단일 자원이다. cancel-in-progress는 false여야 한다.
+concurrency:
+  group: live-hub-aks
+  cancel-in-progress: false
+
+env:
+  TF_ROOT: live/hub/aks
+  TOFU_VERSION: 1.12.5
+  TF_IN_AUTOMATION: "1"
+  TF_INPUT: "false"
+  ARM_CLIENT_ID: ${{ vars.AZURE_HUB_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_HUB_SUBSCRIPTION_ID }}
+  ARM_USE_OIDC: "true"
+  TF_VAR_subscription_id: ${{ vars.AZURE_HUB_SUBSCRIPTION_ID }}
+  TF_VAR_ci_run: "true"
+  # bootstrap이 만든 user-assigned managed identity의 리소스 ID. 이 root도 모듈도 이
+  # identity를 만들지 않는다(CI 신원에 roleAssignments/write를 주지 않기 위해서다 —
+  # CLAUDE.md 2절). 값이 비어 있으면 plan이 nullable=false 위반으로 실패한다.
+  TF_VAR_aks_identity_id: ${{ vars.AZURE_HUB_AKS_IDENTITY_ID }}
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # plan — main push와 dispatch 양쪽에서 돈다. environment를 선언하지 않는다.
+  # ──────────────────────────────────────────────────────────────────────────
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: destroy 확인
+        if: inputs.action == 'destroy'
+        run: |
+          if [ "${{ inputs.confirm }}" != "destroy live/hub/aks" ]; then
+            echo "::error::destroy 하려면 confirm에 정확히 'destroy live/hub/aks'를 입력한다."
+            exit 1
+          fi
+          echo "::warning::destroy 계획을 세운다 — live/hub/aks"
+
+      - uses: actions/checkout@v7.0.1
+
+      - name: 모듈 repo 읽기 토큰 발급
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.MODULE_READER_CLIENT_ID }}
+          private-key: ${{ secrets.MODULE_READER_KEY }}
+          owner: skax-ca
+          repositories: iac-module-library
+
+      - name: git insteadOf 주입
+        run: |
+          git config --global \
+            url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf \
+            "https://github.com/"
+
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: backend 설정 조립
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          cat > backend.hcl <<EOF
+          resource_group_name  = "rg-demo-hub-krc-tfstate-01"
+          storage_account_name = "${{ vars.HUB_TF_STATE_ACCOUNT }}"
+          container_name       = "tfstate"
+          key                  = "hub/aks.tfstate"
+          use_azuread_auth     = true
+          EOF
+
+      - name: tofu init
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          for i in 1 2 3; do
+            tofu init -backend-config=backend.hcl && exit 0
+            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3) — 10초 후 재시도"; sleep 10; }
+          done
+          echo "::error::tofu init 3회 재시도 후에도 실패"
+          exit 1
+
+      - name: tofu plan
+        id: plan
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          DESTROY=""
+          if [ "${{ inputs.action }}" = "destroy" ]; then
+            DESTROY="-destroy"
+            echo "destroy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "destroy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          set +e
+          tofu plan $DESTROY -no-color -input=false -lock-timeout=5m -out=tfplan -detailed-exitcode
+          code=$?
+          set -e
+          case "$code" in
+            0) echo "changes=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "changes=true"  >> "$GITHUB_OUTPUT" ;;
+            *) exit "$code" ;;
+          esac
+
+      - name: plan 요약 작성
+        id: summary
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          tofu show -no-color tfplan > plan.txt
+          {
+            if [ "${{ steps.plan.outputs.destroy }}" = "true" ]; then
+              echo "### 🔴 \`tofu plan -destroy\` — live/hub/aks"
+              echo
+              echo "> **파기 계획이다.** 이 run의 apply를 승인하면 아래 목록이 전부 사라진다."
+            else
+              echo "### \`tofu plan\` — live/hub/aks"
+            fi
+            echo
+            echo "변경 있음: **${{ steps.plan.outputs.changes }}**"
+            echo
+            echo "#### ⚠️ destroy / replace 대상"
+            echo "> hub 구독이다. 이 목록은 승인 전에 사람이 읽는다."
+            echo
+            echo '```'
+            grep -E 'will be destroyed|must be replaced|will be replaced' plan.txt || echo '(없음)'
+            echo '```'
+            echo
+            echo "<details><summary>plan 전문 (앞 50KB)</summary>"
+            echo
+            echo '```hcl'
+            head -c 50000 plan.txt
+            echo '```'
+            echo
+            echo "</details>"
+          } > summary.md
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: plan artifact 업로드
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: tfplan-${{ github.run_id }}
+          path: ${{ env.TF_ROOT }}/tfplan
+          retention-days: 1
+          if-no-files-found: error
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # apply — workflow_dispatch에서만. main push에서는 skip된다.
+  # ──────────────────────────────────────────────────────────────────────────
+  apply:
+    name: apply
+    needs: plan
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: hub
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: 모듈 repo 읽기 토큰 발급
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.MODULE_READER_CLIENT_ID }}
+          private-key: ${{ secrets.MODULE_READER_KEY }}
+          owner: skax-ca
+          repositories: iac-module-library
+
+      - name: git insteadOf 주입
+        run: |
+          git config --global \
+            url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf \
+            "https://github.com/"
+
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: backend 설정 조립
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          cat > backend.hcl <<EOF
+          resource_group_name  = "rg-demo-hub-krc-tfstate-01"
+          storage_account_name = "${{ vars.HUB_TF_STATE_ACCOUNT }}"
+          container_name       = "tfstate"
+          key                  = "hub/aks.tfstate"
+          use_azuread_auth     = true
+          EOF
+
+      - name: tofu init
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          for i in 1 2 3; do
+            tofu init -backend-config=backend.hcl && exit 0
+            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3) — 10초 후 재시도"; sleep 10; }
+          done
+          echo "::error::tofu init 3회 재시도 후에도 실패"
+          exit 1
+
+      - name: plan artifact 내려받기
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: tfplan-${{ github.run_id }}
+          path: ${{ env.TF_ROOT }}
+
+      - name: tofu apply tfplan
+        working-directory: ${{ env.TF_ROOT }}
+        run: tofu apply -no-color -lock-timeout=5m tfplan
+
+      - name: apply 후 수렴 검증 (읽기 전용 재-plan)
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          DESTROY=""
+          [ "${{ inputs.action }}" = "destroy" ] && DESTROY="-destroy"
+
+          set +e
+          tofu plan $DESTROY -no-color -input=false -lock-timeout=5m -detailed-exitcode -refresh=true
+          code=$?
+          set -e
+          if [ "$code" = 2 ]; then
+            echo "::error::apply 직후인데 재-plan이 여전히 변경사항을 보고한다 — 일부 리소스가 반영되지 않았을 가능성이 높다. Azure 포털/CLI로 실물을 직접 대조할 것."
+            exit 1
+          elif [ "$code" != 0 ]; then
+            exit "$code"
+          fi
+
+      - name: apply 결과 요약
+        if: always()
+        working-directory: ${{ env.TF_ROOT }}
+        run: |
+          {
+            echo "### \`tofu apply\` — live/hub/aks"
+            echo
+            echo "적용한 계획: run \`${{ github.run_id }}\`의 artifact \`tfplan-${{ github.run_id }}\`"
+            echo "커밋: \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

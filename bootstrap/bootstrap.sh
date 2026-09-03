@@ -12,7 +12,8 @@
 #   ③ App Registration + Service Principal
 #   ④ Federated Identity Credential
 #   ⑤ role assignment(워크로드 커스텀 역할, state 데이터 커스텀 역할)
-#   ⑥ state RG 잠금 — 반드시 마지막
+#   ⑥ AKS 클러스터용 identity + 노드 서브넷 권한 + RP 등록(hub 대상만)
+#   ⑦ state RG 잠금 — 반드시 마지막
 #
 # ⛔ 워크로드 리소스 그룹에는 잠금을 걸지 않는다. Azure 리소스 잠금은 상속되므로
 #    워크로드 RG에 걸면 그 안의 모든 리소스 교체(destroy → create)가 막혀 무인
@@ -270,6 +271,75 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
   ensure_role_assignment "$SPOKE_PEER_ROLE_NAME" "$RG_SCOPE" "spoke-peer" "$HUB_SP_ID"
 fi
 
+# ── 6-2. AKS 클러스터용 identity·권한·RP 등록 (hub 대상만, 계획
+#    .omc/plans/live-hub-aks.md 「identity·role assignment (bootstrap 확장)」절) ─
+# aks-cluster 모듈은 identity도 role assignment도 만들지 않고 입력으로만 받는다.
+# 그리고 CI 신원에는 roleAssignments/write를 주지 않는다는 제약(CLAUDE.md 2절)이
+# 있어, 이 둘은 구조적으로 CI 밖(여기)에서만 만들 수 있다.
+ensure_aks_identity() {
+  local existing
+  existing="$(az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" \
+    --query id -o tsv 2>/dev/null)" || existing=""
+  if [[ -z "$existing" || "$existing" == "None" ]]; then
+    az_ identity create --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" \
+      --location "$REGION" \
+      --tags "Workload=$TAG_WORKLOAD" "Environment=$TAG_ENVIRONMENT" "ManagedBy=$TAG_MANAGED_BY" \
+      >/dev/null
+    changed "[aks] user-assigned identity 생성: $AKS_IDENTITY_NAME"
+  else
+    ok "[aks] user-assigned identity 존재: $AKS_IDENTITY_NAME"
+  fi
+  # ⚠️ create의 --query 출력을 그대로 받지 않고 다시 show로 조회한다. az의 create
+  # 계열은 경고를 stderr로 섞어 내보내는 경우가 있어, 값을 얻는 경로를 조회 하나로
+  # 통일하는 편이 안전하다(기존 ensure_app_registration의 create→list 패턴과 동일).
+  AKS_IDENTITY_ID="$(az_or_die "AKS identity 리소스 ID" -- \
+    az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" --query id -o tsv)"
+  AKS_IDENTITY_PRINCIPAL_ID="$(az_or_die "AKS identity principalId" -- \
+    az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" --query principalId -o tsv)"
+}
+
+# ⚠️ **조건부·수렴형**이다. 이 스크립트는 새 스포크에서도 다시 실행되는데, 그
+# 시점의 최초 실행은 언제나 live/<env>/networking apply보다 먼저 온다(peer/action이
+# RG 스코프로 완화됐던 것과 같은 닭과 달걀 문제, bootstrap/README.md 「크로스 구독
+# 연결」절). 그래서 대상 서브넷이 없으면 **이 단계만** 건너뛰고 나머지는 정상
+# 진행한다. 서브넷이 생긴 뒤 재실행하면 수렴한다. peer/action과 달리 스코프를
+# 완화하지 않고 이 방식을 택한 이유는 위험도 차이다(액션 1개 대 대상 1개).
+ensure_aks_node_subnet_role() {
+  local subnet_id
+  subnet_id="$(aks_node_subnet_id)"
+  if [[ -z "$subnet_id" ]]; then
+    warn "[aks] 노드 서브넷이 아직 없어 role assignment를 건너뛴다: $AKS_NODE_SUBNET_NAME"
+    warn "[aks] live/$ENV_TOKEN/networking apply 후 이 스크립트를 다시 실행하면 수렴한다"
+    return 0
+  fi
+  ensure_role_assignment "$AKS_NODE_ROLE_NAME" "$subnet_id" "aks" "$AKS_IDENTITY_PRINCIPAL_ID"
+}
+
+# CI 신원은 구독 스코프 */register/action을 갖지 않는다(워크로드 커스텀 역할의
+# 스코프가 RG 하나뿐이다). 미등록 상태로 apply가 시작되면 CI가 스스로 복구할 수
+# 없는 실패로 막히므로 사람이 여기서 사전에 처리한다.
+#
+# ⚠️ --wait를 붙인다. 등록은 비동기라 --wait 없이는 다음 실행이 아직 "Registering"을
+# 보고 다시 register를 호출해 "재실행하면 변경 0건"이라는 이 스크립트의 수용 기준이
+# 깨진다.
+ensure_container_service_provider() {
+  local state
+  state="$(az_or_die "Microsoft.ContainerService 등록 상태" -- \
+    az_ provider show --namespace Microsoft.ContainerService --query registrationState -o tsv)"
+  if [[ "$state" == "Registered" ]]; then
+    ok "[aks] Microsoft.ContainerService 리소스 프로바이더 등록됨"
+  else
+    az_ provider register --namespace Microsoft.ContainerService --wait >/dev/null
+    changed "[aks] Microsoft.ContainerService 리소스 프로바이더 등록(이전 상태: $state)"
+  fi
+}
+
+if [[ "$BOOTSTRAP_TARGET" == "hub" ]]; then
+  ensure_aks_identity
+  ensure_aks_node_subnet_role
+  ensure_container_service_provider
+fi
+
 # ── 7. state RG 잠금 (반드시 마지막 — 이후 어떤 변경도 이 RG 안에서 막힌다) ──
 # 잠금 존재 시 재실행 절차(계획 5절): 이 RG에 변경이 필요하면 (1) 사람이 잠금
 # 해제 → (2) 이 스크립트 재실행으로 수렴 → (3) 잠금 재적용을 수동으로 거친다.
@@ -302,6 +372,14 @@ cat <<OUT
   GitHub repo 변수  AZURE_CLIENT_ID       = $APP_ID
   GitHub repo 변수  AZURE_TENANT_ID       = $EXPECTED_TENANT
   GitHub repo 변수  AZURE_SUBSCRIPTION_ID = $EXPECTED_SUBSCRIPTION
+OUT
+
+# hub 대상에서만 나온다 — live/hub/aks가 TF_VAR로 주입받는 값이다.
+if [[ "$BOOTSTRAP_TARGET" == "hub" ]]; then
+  printf '  GitHub repo 변수  AZURE_HUB_AKS_IDENTITY_ID = %s\n' "$AKS_IDENTITY_ID"
+fi
+
+cat <<OUT
 
   로컬 backend.hcl (live/$ENV_TOKEN/*, gitignore됨):
     resource_group_name  = "$STATE_RG_NAME"
