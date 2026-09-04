@@ -41,6 +41,14 @@ data "azurerm_subnet" "vm" {
 # nsg_enabled=true). 그 모듈은 규칙을 만들지 않는다 — "룰은 이 모듈이 만들지 않는다.
 # 소비자가 azurerm_network_security_rule 별도 리소스로 얹는다"(vnet 모듈 main.tf 주석) —
 # 그래서 지금은 커스텀 규칙이 0개다. 이 root가 그 소비자다(아래 azurerm_network_security_rule).
+#
+# ⚠️ vm 서브넷은 workbench 전용이 아니다(live/hub/networking 주석: "관리·workbench VM") —
+# 이 규칙은 이 서브넷에 붙는 모든 VM에 적용된다(NIC 레벨이 아니라 서브넷 레벨이라
+# 구조적으로 그렇다). 나중에 이 서브넷에 다른 관리 VM이 추가되면 그 VM도 같은
+# ssh_ingress_cidrs를 물려받는다는 뜻 — 의도된 트레이드오프이지 결함이 아니다(서브넷
+# 자체가 "관리 전용" 용도로 분리돼 있어 워크로드 트래픽과 섞이지 않는다). 우선순위
+# 100-199는 이 root가 예약한다 — live/hub/networking이나 다른 소비자가 이 NSG에 규칙을
+# 더 얹을 땐 이 범위를 피해야 충돌(우선순위 중복은 apply 시점 Azure API 에러) 없다.
 data "azurerm_network_security_group" "vm_subnet" {
   name                = "nsg-${var.workload}-${var.env}-${var.region_code}-vm"
   resource_group_name = local.resource_group_name
