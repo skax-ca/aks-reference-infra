@@ -8,10 +8,10 @@
 #    FIC subject의 ref:refs/heads/main / environment:hub 대응을 어긋나게 하지 않는다).
 # ⛔ apply를 `tofu apply`(재-plan)로 바꾸지 않는다.
 #
-# ⚠️ 이 root는 apply 전에 사람이 끝내야 하는 사전조건이 둘 있다(.omc/plans/live-hub-aks.md 3-1):
-#    ① bootstrap이 만든 identity의 리소스 ID가 repo 변수 AZURE_HUB_AKS_IDENTITY_ID에 있을 것
-#    ② Microsoft.ContainerService 리소스 프로바이더가 등록돼 있을 것
-#    CI 신원은 구독 스코프 */register/action이 없어 ②를 스스로 복구할 수 없다.
+# ⚠️ 이 root는 apply 전에 사람이 끝내야 하는 사전조건이 하나 있다(.omc/plans/live-hub-aks.md 3-1):
+#    Microsoft.ContainerService 리소스 프로바이더가 등록돼 있을 것(bootstrap.sh가 처리).
+#    AKS 컨트롤 플레인 identity·role assignment는 2026-09-04부로 이 root가 Terraform으로
+#    직접 만든다(옛 사전조건이었던 AZURE_HUB_AKS_IDENTITY_ID repo 변수는 더 이상 안 쓴다).
 
 name: deploy · live/hub/aks
 
@@ -49,10 +49,6 @@ env:
   ARM_USE_OIDC: "true"
   TF_VAR_subscription_id: ${{ vars.AZURE_HUB_SUBSCRIPTION_ID }}
   TF_VAR_ci_run: "true"
-  # bootstrap이 만든 user-assigned managed identity의 리소스 ID. 이 root도 모듈도 이
-  # identity를 만들지 않는다(CI 신원에 roleAssignments/write를 주지 않기 위해서다 —
-  # CLAUDE.md 2절). 값이 비어 있으면 plan이 nullable=false 위반으로 실패한다.
-  TF_VAR_aks_identity_id: ${{ vars.AZURE_HUB_AKS_IDENTITY_ID }}
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────

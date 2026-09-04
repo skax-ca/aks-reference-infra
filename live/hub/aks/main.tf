@@ -3,10 +3,14 @@
 # iac-module-library 의 modules/azure/aks-cluster 를 실제로 처음 소비하는 root다.
 # 설계 전문(ADR·완료 판정·리스크)은 .omc/plans/live-hub-aks.md 참조.
 #
-# ⚠️ 이 root 는 identity 도 role assignment 도 만들지 않는다 — bootstrap 계층이 처리하고
-#    결과 ID 만 var.aks_identity_id 로 받는다(variables.tf 의 순서 의존 서술 참고).
-#    CI 신원에 Microsoft.Authorization/roleAssignments/write 를 주지 않는다는 이 repo 의
-#    방어선(CLAUDE.md 2절)이 그 이유다.
+# ⚠️ 2026-09-04부터 이 root가 자기 identity·role assignment를 직접 만든다(아래
+#    azurerm_user_assigned_identity·azurerm_role_assignment). 이전에는 bootstrap
+#    계층이 만들고 결과 ID만 var.aks_identity_id로 받았는데, "CI 신원에
+#    roleAssignments/write를 주지 않는다"던 방어선이 이제 없다(CI가 구독 전체 Owner
+#    등가 — .omc/plans/bootstrap-credential-design.md 2026-09-04 추가 기록) —
+#    그 구조적 제약이 사라져 identity 생성도 Terraform으로 옮겼다. aks-cluster
+#    모듈 자체가 identity를 안 만드는 경계 원칙(iac-module-library ADR)은 그대로다 —
+#    이 root가 소비자로서 만들어 입력으로 넘기는 것뿐이다.
 #
 # ⚠️ 네트워킹은 live/hub/networking 이 소유한다. 이 root 는 이미 배포된 aks-node 서브넷을
 #    Name 기반 data 로 조회만 한다 — 서브넷을 새로 만들지 않는다.
@@ -63,6 +67,33 @@ data "azurerm_subnet" "aks_node" {
   resource_group_name  = local.resource_group_name
 }
 
+# AKS 컨트롤 플레인이 쓰는 user-assigned managed identity. aks-cluster 모듈은 이걸
+# 만들지 않고 입력으로만 받는다(모듈 경계 원칙, iac-module-library ADR) — 소비자인
+# 이 root가 만들어 넘긴다. 이름은 이전 bootstrap 산출물과 동일하게 유지한다
+# (naming 컨벤션 일관성, 실제로는 별개 리소스로 재생성됨 — 2026-09-04 destroy·재배포).
+resource "azurerm_user_assigned_identity" "aks" {
+  name                = "id-${var.workload}-${var.env}-${var.region_code}-aks-01"
+  resource_group_name = local.resource_group_name
+  location            = var.location
+  tags                = local.tags
+}
+
+# MS 공식 문서(concepts-network-cni-overview)의 BYO-VNet 최소 권고: "at least Network
+# Contributor permissions on the subnet". AKS가 네트워킹까지 자동 관리하는 기본
+# 시나리오의 기본값(노드 리소스 그룹 전체 Contributor)보다 훨씬 좁다 — 이 root는
+# VNet을 live/hub/networking이 소유하는 BYO-VNet 시나리오라 이 최소치로 충분하다.
+#
+# skip_service_principal_aad_check: 방금 만든 identity에 role을 붙이는 것이라 AAD
+# 복제 지연으로 PrincipalNotFound가 날 수 있다 — provider가 이 플래그로 그 검사를
+# 건너뛰고 흡수한다(bootstrap.sh가 예전에 bash 재시도로 흡수하던 문제와 동일 클래스,
+# 이제 provider가 대신 해결한다).
+resource "azurerm_role_assignment" "aks_node_subnet" {
+  scope                            = data.azurerm_subnet.aks_node.id
+  role_definition_name             = "Network Contributor"
+  principal_id                     = azurerm_user_assigned_identity.aks.principal_id
+  skip_service_principal_aad_check = true
+}
+
 module "aks_cluster" {
   # ⛔ 소싱 URL 은 git::https:// 하나로 유지한다(모듈 repo 규약, AWS 원본과 동일 근거).
   # ⛔ ?ref= 는 정확 태그 핀이다. git 소싱에 ~> 는 동작하지 않는다.
@@ -90,7 +121,13 @@ module "aks_cluster" {
   resource_group_name = local.resource_group_name
   location            = var.location
 
-  identity_id = var.aks_identity_id
+  identity_id = azurerm_user_assigned_identity.aks.id
+
+  # role assignment는 module의 identity_id 참조만으로는 자동으로 순서가 안 잡힌다
+  # (모듈이 role assignment 리소스를 참조하지 않으므로 암묵적 의존이 없다) — 명시한다.
+  # 이게 없으면 role assignment 전에 identity가 클러스터에 붙어 노드가 서브넷 join에
+  # 조용히 실패할 수 있다(옛 bootstrap의 "순서 의존" 문제를 Terraform 그래프로 재현한 것).
+  depends_on = [azurerm_role_assignment.aks_node_subnet]
 
   # ── 네트워킹 ────────────────────────────────────────────────────────────────
   #
