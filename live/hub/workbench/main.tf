@@ -1,6 +1,6 @@
 # live/hub/workbench — AKS 운영 workbench 배포 루트 (허브)
 #
-# iac-module-library 의 modules/azure/aks-workbench(aks-workbench-v0.1.0) 를 소비한다.
+# iac-module-library 의 modules/azure/aks-workbench(aks-workbench-v0.2.0) 를 소비한다.
 # 설계 전문(ADR·완료 판정·리스크)은 .omc/plans/live-hub-workbench.md 참조.
 #
 # ⚠️ 네트워킹은 live/hub/networking 이 소유한다. 이 root 는 이미 배포된 vm 서브넷을
@@ -136,7 +136,12 @@ resource "azurerm_network_security_rule" "vm_subnet_allow_ssh" {
 module "aks_workbench" {
   # ⛔ 소싱 URL 은 git::https:// 하나로 유지한다(모듈 repo 규약).
   # ⛔ ?ref= 는 정확 태그 핀이다. git 소싱에 ~> 는 동작하지 않는다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.1.0&depth=1"
+  #
+  # v0.2.0으로 올린 이유: v0.1.0의 custom_data가 apt-get 락 경합 시 재시도 없이
+  # 실패해(2026-09-04 첫 실배포 실측 — "Could not get lock /var/lib/dpkg/lock-frontend")
+  # az CLI 설치·kubeconfig 부트스트랩이 연쇄 실패했다. custom_data는 ForceNew라 이 값
+  # 변경 자체가 VM 재생성을 유발한다 — 의도된 것(9절 사고 기록 참고).
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.2.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다.
   # {demo, hub, krc} → vm-demo-hub-krc-workbench-01
