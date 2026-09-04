@@ -4,10 +4,45 @@
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
 
-2026-09-03(7차 세션) - Phase 2(AKS) 착수: live/hub/aks 실배포 완료(hub 구독, aks-demo-hub-krc-main-01, 노드 2대 Ready, Overlay CNI, Karpenter는 GitOps 부재로 꺼둠). RALPLAN 2라운드(Architect+Critic) 후 team 실행. 배포 중 iac-module-library aks-cluster 모듈 버그 2건 발견·수정(v0.4.0 network_policy ARM 거부, v0.5.0 upgrade_settings perpetual diff). hub·dev VNet secondary CIDR 제거(Overlay 전환). bootstrap.sh AKS identity ID 대소문자 버그 수정. 남은 일: workbench 후속 계획, GitOps(aks-platform-gitops) 착수 시 Karpenter 재검토.
+2026-09-04(9차 세션) - CI 신원 권한을 RG 스코프 커스텀 역할→구독 전체 Owner 등가로 전환(AWS AdministratorAccess 대칭, 방어선=FIC subject 하나). state-data 역할은 blob data-plane 별개 축이라 유지(한 번 오판 삭제 후 재도입). hub·dev 재부트스트랩 완료. AKS identity·role assignment를 bootstrap→live/hub/aks Terraform 이관(destroy 후 재배포, 노드 Ready 확인, PR #4). 설계 근거: .omc/plans/bootstrap-credential-design.md(로컬 전용). 다음: live/hub/workbench 착수(aks-workbench-v0.1.0 소비).
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->
+### 2026-09-04(9차 세션) - CI 신원 권한 모델 전면 재검토(RG→구독 Owner) + AKS identity Terraform 이관
+
+workbench 착수 준비 중 사용자가 "bootstrap/Terraform 분리는 AWS 패턴의 형태만 빌린 안티패턴
+아니냐"고 문제제기 → AWS 원본(`eks-reference-infra`) 실측 확인: 실행 Role이 이미
+`AdministratorAccess`였고, 방어선은 권한 크기가 아니라 FIC subject 하나로 좁힌 도달
+경로였다. Azure ABAC 조건부 위임(role assignment write에 RoleDefinitionId 허용목록
+조건)도 조사했으나 최종 결정은 AWS와 문자 그대로 대칭(구독 전체 Owner) — 사용자 명시
+선택.
+
+**실행**: hub·dev 양쪽 실제 재부트스트랩 완료(3-1·3-2 통과). 과정에서 az CLI
+create/update 스키마 불일치(`roleName` vs `name`)·bash `IFS='|' read <<<"$(fn)"`
+접두사 할당 누수·`AssignableScopes` 변경 직후 ARM 전파 지연, 총 3건의 실측 버그
+발견·수정(상세는 project-memory.json architecture 항목·`.omc/plans/
+bootstrap-credential-design.md`).
+
+**사고 1건**: "워크로드 역할이 이미 state RG·컨테이너를 포괄한다"고 오판해
+state-data 역할(blob data-plane)을 삭제했다가, `Owner`도 `dataActions:[]`임을
+`az role definition list`로 실측 확인해 같은 날 정정·재도입. 교훈: control-plane
+권한이 아무리 넓어도 blob data-plane 접근은 별개 축.
+
+**AKS identity 이관**: 사용자가 `id-demo-hub-krc-aks-01`을 왜 bootstrap이 만드는지
+질문 → CI가 이제 구독 전체 Owner라 그 구조적 제약이 사라졌음을 확인 → 사용자 결정으로
+`live/hub/aks` destroy → bootstrap의 구식 identity·role assignment 정리 →
+`azurerm_user_assigned_identity`·`azurerm_role_assignment`를 Terraform 리소스로
+신설(PR #4) → 재배포 → 노드 2대 Ready 실물 확인. 서브넷 스코프(MS 공식 BYO-VNet
+최소 권고)는 변경 없음.
+
+**커밋**: `05f86f4`·`7d838ea`·`14fe30d`(main 직접, bootstrap/*.sh·README) + PR #4
+`b7d6225`(브랜치→머지, live/hub/aks·workflow — CLAUDE.md 5절 `.tf`/workflows 규칙).
+`.omc/plans/bootstrap-credential-design.md`(로컬 전용, git 밖)에 이번 재검토 전문
+기록.
+
+**다음 세션**: `live/hub/workbench` 착수 — `aks-workbench-v0.1.0`(SSH가 일상 경로,
+Run Command가 브레이크글래스, ②CLI 전용 workbench 설계) 소비, identity·role
+assignment 처음부터 Terraform으로.
 ### 2026-09-03(8차 세션) - Private cluster Portal 접근 조사 + workbench 설계 갈림길 확인 + 엔터프라이즈 규제 리서치
 
 사용자가 Azure Portal에서 K8s 리소스가 안 보이는 문제로 시작(private cluster 경고 메시지).
