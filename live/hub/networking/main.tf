@@ -109,6 +109,12 @@ module "vnet" {
     }
 
     # 관리·workbench VM. AWS vm-uniq 대응. NAT 아웃바운드.
+    #
+    # ⚠️ 이 그룹의 서브넷 레벨 NSG(nsg-demo-hub-krc-vm)는 이 root가 규칙을 만들지 않는다
+    # (vnet 모듈 설계: "룰은 이 모듈이 만들지 않는다, 소비자가 얹는다"). live/hub/workbench가
+    # SSH 인바운드 규칙을 우선순위 100-199로 예약해 얹고 있다(live/hub/workbench/main.tf
+    # 참고) — 이 서브넷에 다른 규칙을 추가할 땐 그 범위를 피한다(우선순위 중복은 apply
+    # 시점 Azure API 에러).
     "vm" = {
       address_prefixes = [local.subnet_cidrs["vm"]]
       nat_routed       = true
