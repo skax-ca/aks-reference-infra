@@ -41,8 +41,11 @@
 #    대칭), "구독 스코프 role assignment 0건"이 아니라 "정확히 워크로드 역할
 #    1건, 이 구독에만"이 기대 상태다. 권한 크기로 좁히던 방어선은 폐기됐고,
 #    (c)~(g)(신뢰 경로·정적 자격증명·그룹 멤버십 관련 불변식)만 방어선으로
-#    남는다 — 그래서 이 검사들은 지금부터 이전보다 더 중요하다. state 데이터
-#    역할(옛 (a) 인접 검사)은 워크로드 역할이 이미 포괄해 제거했다.
+#    남는다 — 그래서 이 검사들은 지금부터 이전보다 더 중요하다. **state 데이터
+#    역할은 그대로 유지한다** — control-plane(`Actions`)과 blob data-plane
+#    (`DataActions`)은 완전히 분리된 축이라, 워크로드 역할이 아무리 넓어도(Owner도
+#    `dataActions: []`다, 실측 확인) blob 데이터 접근은 대체하지 못한다. 당일
+#    한 번 "포괄한다"고 잘못 판단해 제거했다가 재도입했다(design doc 참고).
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./config.sh
@@ -256,6 +259,7 @@ report "[$ENV_TOKEN] FIC ($FIC_NAME_ENV)"  "$(check_fic "$FIC_NAME_ENV" "$SUB_EN
 # drift 감지가 각자 다른 기준을 쓰면 "bootstrap은 ok인데 verify는 실패"가
 # 생겨 verify.sh가 소음이 된다).
 RG_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}/resourceGroups/${RG_NAME}"
+STATE_RG_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}/resourceGroups/${STATE_RG_NAME}"
 
 check_workload_role() {
   local current
@@ -264,11 +268,16 @@ check_workload_role() {
 }
 report "[workload] 커스텀 역할 Actions/NotActions 완전 일치" "$(check_workload_role)"
 
-# ⚠️ state 데이터 역할 검사는 2026-09-04부로 제거했다(config.sh 참고 — 워크로드
-# 역할이 이미 구독 전체 Owner라 그 역할 자체가 무의미해졌다). 이전 실행이 만든
-# 실물이 아직 Azure에 남아있어도 이 스크립트는 더 이상 그 존재·정의를 검사
-# 대상으로 삼지 않는다(사람이 수동 정리할 대상, config.sh STATE_DATA_ROLE_NAME
-# 주석 참고).
+# ⚠️ state 데이터 역할은 2026-09-04에 "워크로드 역할이 이미 커버한다"는 잘못된
+# 판단으로 한 번 제거했다가 같은 날 재도입했다(config.sh 참고 — Azure RBAC는
+# control-plane Actions와 blob data-plane DataActions가 완전히 분리된 축이라,
+# Owner 등가 워크로드 역할이 아무리 넓어도 blob 데이터 접근은 별도로 필요하다).
+check_state_data_role() {
+  local current
+  current="$(role_definition_list_retry "$STATE_DATA_ROLE_NAME")"
+  role_definition_matches "$(state_data_role_definition_json "$STATE_RG_SCOPE")" "$current" && echo ok || echo drift
+}
+report "[state-data] 커스텀 역할 Actions/DataActions 완전 일치" "$(check_state_data_role)"
 
 # ── 리소스 그룹 존재 확인 ────────────────────────────────────────────────────
 # ⚠️ 순서: RG 존재 -> Storage Account 조회(RG가 있어야 유효한 조회다) -> 그
@@ -307,10 +316,25 @@ check_container_exists() {
 }
 report "[state] 컨테이너 존재" "$(check_container_exists)"
 
-# ⚠️ 별도 "role assignment 존재" 확인 블록은 2026-09-04부로 제거했다. 워크로드
-# 역할 assignment 존재 확인은 위 불변식 (a)(구독 스코프 정확히 1건 검사)가 이미
-# 포함한다(둘 다 role_definition_list_retry + roleDefinitionId 필터를 쓰는 동일
-# 로직이라 중복 검사였다). state-data 항목은 그 역할 자체가 없어져 함께 제거.
+# ⚠️ 워크로드 역할의 별도 "role assignment 존재" 확인은 위 불변식 (a)(구독
+# 스코프 정확히 1건 검사)가 이미 포함해 여기서 다시 안 한다(중복 판정 방지).
+# state-data는 (a)가 보지 않는 컨테이너 스코프라 여기서 별도로 확인한다 — 이것이
+# 없으면 role assignment가 지워져도 verify.sh가 drift 없음을 보고한다.
+check_role_assignment_exists() {  # check_role_assignment_exists <role-name> <scope>
+  local role_name="$1" scope="$2" role_id count
+  role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$role_name")")"
+  [[ -n "$role_id" ]] || { echo absent; return; }
+  count="$(az_or_die "role assignment($role_name @ $scope)" -- \
+    az_ role assignment list --assignee "$SP_ID" --scope "$scope" \
+      --query "length([?roleDefinitionId=='$role_id'])" -o tsv)"
+  [[ "$count" -gt 0 ]] && echo ok || echo absent
+}
+if [[ -n "$SA_NAME" ]]; then
+  CONTAINER_SCOPE="${STATE_RG_SCOPE}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}/blobServices/default/containers/${CONTAINER_NAME}"
+  report "[state-data] role assignment 존재" "$(check_role_assignment_exists "$STATE_DATA_ROLE_NAME" "$CONTAINER_SCOPE")"
+else
+  mismatch "[state-data] role assignment - Storage Account가 없어 스코프를 계산할 수 없다"
+fi
 
 # ── 불변식 (a) 예외: 스포크 워크로드 RG 스코프의 외부(hub) principal role
 #    assignment 허용 목록 완전 일치 (계획 4-1 Option A, 2026-09-03 절충 —

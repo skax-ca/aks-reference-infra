@@ -2,7 +2,7 @@
 
 **읽는 사람**: 부트스트랩 스크립트를 처음 실행하거나 고치는 사람.
 
-state Storage Account, App Registration, 커스텀 RBAC 역할 1종, 리소스 잠금, 그리고 AKS
+state Storage Account, App Registration, 커스텀 RBAC 역할 2종, 리소스 잠금, 그리고 AKS
 클러스터용 user-assigned identity를 Azure CLI 스크립트로 만든다. `tofu`가 이것들을 만들려면 이미 state 저장소가 있어야 하는 닭과 달걀
 문제가 있어서, 이 한 겹만 IaC 밖에 둔다(원본 `eks-reference-infra`와 동일한 이유).
 
@@ -84,36 +84,44 @@ placeholder를 썼었다.
 | 내구성 | blob 버전 관리 + blob soft delete(30일) + **컨테이너 소프트 삭제**(30일, blob soft delete와 별개 기능이라 반드시 함께 켠다) |
 | 컨테이너 | `tfstate` 1개. **동일 이름으로 재사용 금지**(소프트 삭제된 컨테이너와 같은 이름으로 새로 만들면 그 소프트 삭제분은 영구 복구 불가) |
 
-### CI 신원 권한 (2026-09-04부터 구독 전체 Owner 등가 역할 1종)
+### CI 신원 권한 (2026-09-04부터 워크로드 역할=구독 전체 Owner 등가)
 
-CI 신원(App Registration) 하나에 **커스텀 역할 1종**만 부여한다. built-in `Owner`를
+CI 신원(App Registration) 하나에 **커스텀 역할 2종**을 부여한다. built-in `Owner`를
 그대로 쓰지 않는 이유는 "워크로드 RG 자체를 실수로 삭제하는" 흔한 사고를 값싸게
-막기 위해서다(아래 참고). 그 외에는 `Owner`와 동일하다.
+막기 위해서다(아래 참고). 워크로드 역할은 그 외엔 `Owner`와 동일하다.
 
 | 역할 | 스코프 | 정의 방식 |
 |------|--------|-----------|
 | 워크로드 CI 역할 | **구독 전체** | `Actions:["*"]`, `NotActions:["Microsoft.Resources/subscriptions/resourceGroups/delete"]`(고정값 1개) |
+| state 데이터 역할 | state 컨테이너 | Storage Blob Data Contributor에서 `containers/delete`만 제외한 고정 델타 |
 
-⚠️ **2026-08-27~2026-09-03까지는 RG 스코프 + `NotActions`를 built-in Contributor에서
-런타임 조회한 값이었고, state 데이터용 역할(Storage Blob Data Contributor 델타)이
-별도로 있었다.** 2026-09-04에 이 설계를 전면 재검토해 폐기했다. AWS 원본
+⚠️ **2026-08-27~2026-09-03까지는 워크로드 역할이 RG 스코프 + `NotActions`를
+built-in Contributor에서 런타임 조회한 값이었다.** 2026-09-04에 이 설계를 전면
+재검토해 워크로드 역할의 **스코프**를 RG → 구독 전체로 넓혔다. AWS 원본
 (`eks-reference-infra`)을 실측한 결과 실행 Role이 이미 `AdministratorAccess`를
 쓰고 있었고, 방어선은 "권한 크기를 좁힌다"가 아니라 "이 신원에 도달할 수 있는
 경로를 하나로 좁힌다"(입구 Role 신뢰 정책, Azure에서는 FIC subject)였다는 것을
 확인했다. Azure도 이미 그 "도달 경로 하나" 방어선을 FIC subject 완전 일치 검사로
-동등하게 갖고 있어, 권한 크기로 좁히는 두 번째 방어선은 AWS 원본에 없는
-과잉설계였다고 판단했다. 전체 근거·마이그레이션 경위는
-`.omc/plans/bootstrap-credential-design.md`의 2026-09-04 추가 기록을 참고. 워크로드
-역할이 이제 state RG·컨테이너까지 전부 포괄하므로 state 데이터 역할은 무의미해져
-제거했다. 이전에 만들어진 실물(`aks-ref-bootstrap-state-data-<env>`)은 자동
-삭제되지 않으며, 실제 재부트스트랩 시 사람이 `az role assignment delete`·
-`az role definition delete`로 정리한다.
+동등하게 갖고 있어, 워크로드 역할을 RG로 좁히던 건 AWS 원본에 없는 과잉설계였다고
+판단했다. 전체 근거·마이그레이션 경위는
+`.omc/plans/bootstrap-credential-design.md`의 2026-09-04 추가 기록을 참고.
 
-⚠️ `NotActions`는 deny 규칙이 아니다. `resourceGroups/delete` 제외는 이제 **보안
-경계가 아니라 사고 방지 안전망**이다. 이 역할은 Owner와 거의 동등하므로 RG
-안의 다른 모든 리소스는 어차피 지울 수 있다. 이 역할의 실제 안전성은 전적으로
-아래 「GitHub OIDC」절의 FIC subject 완전 일치·정적 자격증명 0건·그룹 멤버십
-0건 검사가 항상 참이라는 것에 의존한다.
+⛔ **state 데이터 역할은 이 재검토와 무관하게 그대로 유지한다.** 같은 날 "워크로드
+역할이 이제 state RG·컨테이너까지 전부 포괄하니 무의미하다"고 판단해 한 번
+제거했다가 **틀린 판단임을 실측으로 바로 확인해 재도입했다.** Azure RBAC는
+control-plane(`Actions`)과 storage blob data-plane(`DataActions`)이 완전히 분리된
+축이다. `az role definition list --name Owner`로 직접 확인한 결과 `Owner`도
+`dataActions: []`다. 이 backend는 `use_azuread_auth = true`를 쓰므로, 워크로드
+역할이 아무리 넓어도 state 데이터 역할 없이는 `tofu init`/`plan`/`apply`가 tfstate
+blob 접근 자체에서 실패한다(모든 live root가 이 backend를 공유하므로 영향 범위가
+전체다). 교훈: control-plane 권한이 넓다고 data-plane 접근이 자동으로 딸려온다고
+가정하지 않는다. Azure RBAC에서는 항상 별개다.
+
+⚠️ `NotActions`는 deny 규칙이 아니다. 워크로드 역할의 `resourceGroups/delete`
+제외는 이제 **보안 경계가 아니라 사고 방지 안전망**이다. 이 역할은 Owner와 거의
+동등하므로 RG 안의 다른 모든 리소스는 어차피 지울 수 있다. 이 역할의 실제
+안전성은 전적으로 아래 「GitHub OIDC」절의 FIC subject 완전 일치·정적 자격증명
+0건·그룹 멤버십 0건 검사가 항상 참이라는 것에 의존한다.
 
 ### 리소스 잠금
 
@@ -126,8 +134,11 @@ CI 신원(App Registration) 하나에 **커스텀 역할 1종**만 부여한다.
 그룹·계정 자체의 삭제)만 막고 blob 데이터(data-plane)는 보호하지 않는다. tfstate의
 실제 보호는 위 내구성 설정(soft delete 30일 + versioning) 한 층으로 수렴한다.
 **2026-09-04 이전에는 여기에 "state 데이터 역할이 `containers/delete`를 갖지 않는다"는
-두 번째 층이 있었으나, 그 역할 자체가 제거돼(위 「CI 신원 권한」절) 더 이상 성립하지
-않는다.** CI 신원은 이제 구독 전체 Owner 등가라 컨테이너 삭제 권한도 갖는다. "즉시
+두 번째 층이 있었는데, 그 역할은 그대로 유지되지만(위 「CI 신원 권한」절, data-plane
+접근 자체가 여전히 필요해 재도입) 이 두 번째 층의 방어 효과는 사라졌다.** `containers/
+delete`는 control-plane 액션이라, 워크로드 역할이 구독 전체 Owner 등가로 넓어지면서
+이미 그 액션(`Actions:["*"]`)을 갖는다. state 데이터 역할이 그 액션을 계속 빼고
+있어도 워크로드 역할을 통해 컨테이너 자체를 지울 수 있다. "즉시
 영구 삭제는 안 된다(30일 내 복구 가능), CI가 아예 못 지운다는 보장은 없다"로
 방어 수준이 낮아졌음을 인지한다(`.omc/plans/bootstrap-credential-design.md`
 2026-09-04 추가 기록 Consequence 12 참고).

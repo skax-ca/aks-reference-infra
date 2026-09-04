@@ -125,9 +125,9 @@ new_storage_account_name() {
 
 # ── 커스텀 역할 이름 ─────────────────────────────────────────────────────────
 readonly WORKLOAD_ROLE_NAME="aks-ref-bootstrap-workload-ci-${ENV_TOKEN}"
-# 2026-09-04부로 이 스크립트는 state 데이터 역할을 더 이상 만들지 않는다(위
-# 「워크로드 커스텀 역할」절 참고). 이 이름은 이전 실행이 만든 실물을 사람이
-# 수동 정리할 때 오타 없이 참조하기 위한 용도로만 남긴다.
+# control-plane과 storage blob data-plane이 분리된 축이라 워크로드 역할과 별개로
+# 유지한다(위 「state 데이터 커스텀 역할」절 — 2026-09-04에 한 번 제거했다가 같은
+# 날 재도입).
 readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
 # 스포크(dev)에서만 의미가 있다 — hub CI 신원에게 이 스포크 VNet을 vWAN 허브에
 # 연결할 권한(peer/action 단일 액션)을 주는 역할이다(계획 4-1 Option A).
@@ -362,14 +362,48 @@ workload_role_definition_json() {  # workload_role_definition_json <assignable-s
     }'
 }
 
-# ⚠️ state 데이터 역할(Storage Blob Data Contributor 델타, RG_NAME 안 컨테이너
-# 스코프)은 2026-09-04부로 이 스크립트가 더 이상 만들지 않는다 — 워크로드 역할이
-# 이미 구독 전체 Owner라 그 안에 포함된 state RG·컨테이너까지 전부 커버해 별도
-# role assignment가 무의미해졌다. 이전에 실행된 bootstrap.sh가 만든 실제 role
-# 정의·assignment(이름: aks-ref-bootstrap-state-data-<env>)는 이 스크립트가
-# 자동으로 지우지 않는다(이 저장소의 스크립트는 항상 추가·수렴만 하지 삭제하지
-# 않는다) — 실제 재부트스트랩 시 사람이 확인 후 `az role assignment delete`·
-# `az role definition delete`로 정리한다.
+# ── state 데이터 커스텀 역할: Storage Blob Data Contributor에서
+#    containers/delete만 뺀 고정 델타(계획 2절, 실측 확정값이라 하드코딩 유지) ──
+#
+# ⛔ **2026-09-04 재도입(당일 취소 결정 정정).** 워크로드 역할을 구독 전체
+# Owner로 바꾸며 "이제 state RG·컨테이너까지 전부 커버하니 이 역할은 무의미"라고
+# 판단해 한 번 제거했는데, **틀린 판단이었다.** Azure RBAC는 control-plane
+# (`Actions`)과 storage blob data-plane(`DataActions`)이 완전히 분리된 축이라,
+# `Actions: ["*"]`(Owner·Contributor 둘 다 그렇다 — `az role definition list
+# --name Owner`로 실측 확인, `dataActions: []`) 는 blob **데이터**(tfstate 파일
+# 자체) 읽기/쓰기를 전혀 포함하지 않는다. 이 backend는 `use_azuread_auth = true`
+# 라 blob data-plane 접근이 반드시 RBAC data role(`Microsoft.Storage/
+# storageAccounts/blobServices/containers/blobs/*`)로 별도 부여돼야 한다 — 이
+# 역할이 없으면 워크로드 역할이 아무리 넓어도 `tofu init`/`plan`/`apply`가 tfstate
+# blob 접근 실패로 깨진다(live/hub/networking·vwan·aks 등 모든 root가 이 backend를
+# 공유한다). 원인은 "control-plane 권한이 넓으면 data-plane도 당연히 포함"이라는
+# 잘못된 가정이었다 — 실제로는 그 반대다.
+state_data_role_definition_json() {  # state_data_role_definition_json <assignable-scope>
+  local scope="$1"
+  jq -n \
+    --arg name "$STATE_DATA_ROLE_NAME" \
+    --arg scope "$scope" \
+    '{
+      Name: $name,
+      RoleName: $name,
+      Description: "state container data role for aks-reference-infra bootstrap: Storage Blob Data Contributor minus containers/delete. Kept separate from the workload role because Actions (control-plane) never implies DataActions (blob data-plane) in Azure RBAC.",
+      Actions: [
+        "Microsoft.Storage/storageAccounts/blobServices/containers/read",
+        "Microsoft.Storage/storageAccounts/blobServices/containers/write",
+        "Microsoft.Storage/storageAccounts/blobServices/generateUserDelegationKey/action"
+      ],
+      NotActions: [],
+      DataActions: [
+        "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read",
+        "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write",
+        "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/add/action",
+        "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/delete",
+        "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/move/action"
+      ],
+      NotDataActions: [],
+      AssignableScopes: [$scope]
+    }'
+}
 
 # ── 스포크 연결 역할: peer/action 단일 액션 (계획 4-1 Option A) ────────────
 # hub CI 신원이 이 역할을 dev 워크로드 RG 스코프로 받아 live/hub/vwan의

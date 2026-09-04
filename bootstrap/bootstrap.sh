@@ -11,8 +11,10 @@
 #   ② Storage Account + 컨테이너
 #   ③ App Registration + Service Principal
 #   ④ Federated Identity Credential
-#   ⑤ role assignment(워크로드 커스텀 역할, 구독 전체 스코프 — 2026-09-04부터.
-#     이전엔 워크로드 역할이 RG 스코프 + state 데이터 역할이 별도였다)
+#   ⑤ role assignment(워크로드 커스텀 역할 — 구독 전체 스코프, 2026-09-04부터.
+#     이전엔 RG 스코프였다 / state 데이터 커스텀 역할 — 컨테이너 스코프, control-
+#     plane과 분리된 blob data-plane 축이라 워크로드 역할이 아무리 넓어도 대체
+#     못 한다, config.sh 참고)
 #   ⑥ AKS 클러스터용 identity + 노드 서브넷 권한 + RP 등록(hub 대상만)
 #   ⑦ state RG 잠금 — 반드시 마지막
 #
@@ -217,8 +219,10 @@ ensure_custom_role() {  # ensure_custom_role <role-name> <definition-json> <labe
 }
 
 RG_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}/resourceGroups/${RG_NAME}"
+STATE_RG_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}/resourceGroups/${STATE_RG_NAME}"
 
 ensure_custom_role "$WORKLOAD_ROLE_NAME" "$(workload_role_definition_json "$SUBSCRIPTION_SCOPE")" "workload"
+ensure_custom_role "$STATE_DATA_ROLE_NAME" "$(state_data_role_definition_json "$STATE_RG_SCOPE")" "state-data"
 
 # ── 6. role assignment (기본 assignee = 이 대상 자신의 CI 신원 SP_ID) ────────
 ensure_role_assignment() {  # ensure_role_assignment <role-name> <scope> <label> <assignee-object-id>
@@ -247,9 +251,8 @@ ensure_role_assignment() {  # ensure_role_assignment <role-name> <scope> <label>
   fi
 }
 ensure_role_assignment "$WORKLOAD_ROLE_NAME" "$SUBSCRIPTION_SCOPE" "workload" "$SP_ID"
-# ⚠️ state 데이터 역할 assignment는 2026-09-04부로 여기서 만들지 않는다(위
-# 「role_definition_json」·config.sh 참고 — 워크로드 역할이 이미 구독 전체 Owner라
-# state RG·컨테이너까지 포함한다). 이전 실행이 만든 실물은 사람이 수동 정리한다.
+CONTAINER_SCOPE="${STATE_RG_SCOPE}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}/blobServices/default/containers/${CONTAINER_NAME}"
+ensure_role_assignment "$STATE_DATA_ROLE_NAME" "$CONTAINER_SCOPE" "state-data" "$SP_ID"
 
 # ── 6-1. 크로스 구독 스포크 연결 권한 (스포크 대상만, 계획 4-1 Option A —
 #    2026-09-03 절충: VNet 리소스 스코프 대신 워크로드 RG 스코프로 완화해 dev
