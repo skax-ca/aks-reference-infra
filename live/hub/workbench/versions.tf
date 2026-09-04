@@ -9,5 +9,11 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 5.0"
     }
+    # role assignment 전파 유예(main.tf의 time_sleep.role_propagation)에만 쓴다 —
+    # 이 repo에 선례는 없지만 단일 목적의 HashiCorp 1급 provider다.
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.9"
+    }
   }
 }

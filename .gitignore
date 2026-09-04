@@ -35,6 +35,13 @@ terraform.rc
 *.pem
 *.key
 
+# SSH private key. *.pem·*.key는 확장자가 있는 키만 잡는다 — ssh-keygen 기본 산출물은
+# 확장자가 없다(예: workbench_ed25519, 대응하는 .pub만 커밋 대상 — live/hub/workbench).
+# 이 확장자 없는 이름 패턴을 명시로 잡아야 실수로 private key를 커밋하는 사고를 막는다
+# (code-review 2026-09-04: CI 신원이 구독 전체 Owner라 파급력이 크다).
+workbench_ed25519
+!workbench_ed25519.pub
+
 # OS / 에디터
 .DS_Store
 .idea/

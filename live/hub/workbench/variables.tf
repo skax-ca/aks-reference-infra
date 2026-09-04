@@ -79,6 +79,28 @@ variable "ssh_ingress_cidrs" {
     로컬 : export TF_VAR_ssh_ingress_cidrs='["1.2.3.4/32"]'
   EOT
   type        = list(string)
+
+  validation {
+    # 형식만 검증한다(진짜 CIDR인지, 즉 호스트 비트가 0인지는 안 본다) — plan 단계에서
+    # 잡아야 할 것은 "AllowSsh NSG 규칙이 명백히 깨진 문자열로 만들어지는 사고"이지, 유효한
+    # 축소 표기(예: 1.2.3.4/24, 호스트 비트 켜짐)까지 막을 이유는 없다(Azure NSG가 그 값을
+    # 그대로 받아들인다).
+    condition = alltrue([
+      for cidr in var.ssh_ingress_cidrs : can(regex("^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d{1,2}$", cidr))
+    ])
+    error_message = "ssh_ingress_cidrs의 각 항목은 IPv4 CIDR 표기(예: \"1.2.3.4/32\")여야 한다."
+  }
+}
+
+variable "workbench_enabled" {
+  description = <<-EOT
+    aks-workbench 모듈의 kill switch(파괴 방향)를 그대로 통과시킨다. false면 이 root가
+    만드는 identity·role assignment는 남긴 채 VM만 파기한다(모듈 README:
+    "AWS workbench와 동일하게 삭제 보호 대상이 아니다, 수시 생성·파기가 정상 운용이다").
+  EOT
+  type        = bool
+  default     = true
+  nullable    = false
 }
 
 variable "admin_login_principal_id" {

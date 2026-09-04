@@ -69,6 +69,19 @@ resource "azurerm_role_assignment" "workbench_aks_cluster_user" {
   skip_service_principal_aad_check = true
 }
 
+# skip_service_principal_aad_check(위)는 role assignment "생성" 시점의 AAD 존재 확인만
+# 우회한다 — 생성된 role이 실제 인가 판단(authorization)에 반영되기까지의 캐시 전파
+# 지연은 별개다(이 repo가 이미 여러 차례 실측한 클래스, .omc/plans/
+# bootstrap-credential-design.md 9차 세션 기록 — "역할 정의 AssignableScopes 변경 직후
+# role assignment 생성이 거부" 등). VM의 custom_data는 provider 스키마상 ForceNew라
+# cloud-init이 최초 부팅 시 1회만 az aks get-credentials를 실행하고 재시도가 없다
+# (aks-workbench 모듈 README「부팅 후 확인」절) — 이 유예 없이 실패하면 VM 재생성이
+# 유일한 복구 경로가 된다. 첫 apply 한정 비용(60초)으로 그 리스크를 피한다.
+resource "time_sleep" "role_propagation" {
+  depends_on      = [azurerm_role_assignment.workbench_aks_cluster_user]
+  create_duration = "60s"
+}
+
 # Entra SSH 로그인 시 sudo 권한(모듈 README「전제 role assignment」표). 스코프는 VM 단위가
 # 아니라 RG 단위 — Azure 플랫폼 자체의 최소 요구사항이다(MS Learn, 모듈 README 인용: "VM이
 # 아니라 그 VM·NIC·공용 IP·NSG를 포함하는 리소스 그룹"), 이 root가 임의로 넓힌 게 아니다.
@@ -101,7 +114,13 @@ module "aks_workbench" {
 
   # role assignment 순서 의존 명시(live/hub/aks/main.tf의 동일 클래스 문제와 같은 이유) —
   # 이게 없으면 kubeconfig 부트스트랩이 role assignment 전에 실행돼 조용히 실패할 수 있다.
-  depends_on = [azurerm_role_assignment.workbench_aks_cluster_user]
+  # time_sleep을 거치는 이유는 위 time_sleep.role_propagation 주석 참고(AAD 전파 지연).
+  depends_on = [time_sleep.role_propagation]
+
+  # 모듈이 설계한 kill switch(파괴 방향, README: "수시 생성·파기가 정상 운용") — VM만
+  # 다시 만들고 싶을 때 identity·role assignment까지 건드리는 전체 CI destroy 없이
+  # 이 값 하나로 끝내려고 변수로 연다(기본값 true, variables.tf 참고).
+  workbench_enabled = var.workbench_enabled
 
   # ── 접속 모델 — SSH가 일상 경로, Run Command가 브레이크글래스 ────────────────────
   #
