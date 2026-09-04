@@ -4,10 +4,50 @@
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
 
-2026-09-04(10차 세션) - aks-platform-gitops repo 신설(skax-ca, 계층2 GitOps). GitOps엔진=self-managed ArgoCD·Ingress=AGFC(Managed전략) 6+라운드 리서치+RALPLAN(Critic 1차 REJECT→v2)으로 확정. hub 실배포: alb 위임 서브넷(PR#5)+ALB controller IAM 4종+provider등록2종(PR#6), workload_identity_enabled in-place 전환, 전부 수렴검증 통과. ⚠️이 환경은 세션 간 로컬 git 체크아웃을 공유(별도 worktree 아님) - 브랜치 전환 전 옆 세션 확인 필수. 다음: egress canary, ArgoCD 자기관리 매니페스트, addon YAML 실작성.
+2026-09-04(11차) - egress canary 완료(command invoke, mcr.microsoft.com 200/0.1s). aks-platform-gitops에 self-managed ArgoCD 매니페스트 11개 작성·push(argocd-app/values/root-app/seed.sh·platform.yaml·cluster-secret+values.yaml·alb-controller AppSet 2종·로컬 helm 차트), seed 실행은 workbench 대기로 보류. 실측: albSubnetId 라벨 K8s 제약 위반→values.yaml+matrix generator 전환. GitHub App은 기존 skax-ca-gitops-reader 재사용. ⚠️옆 세션이 workbench 브랜치로 공유 체크아웃 전환(활성)-worktree로 우회 기록. 다음: workbench 대기, App 설치범위 추가, seed 실행.
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->
+### 2026-09-04(11차 세션) - egress canary 검증 + aks-platform-gitops self-managed ArgoCD 매니페스트 작성
+
+**egress canary(계획서 5절 검증 5번)**: `az aks command invoke`로 private hub 클러스터에
+임시 파드(`mcr.microsoft.com/azure-cli`)를 띄워 `curl https://mcr.microsoft.com/v2/` 실행 -
+`http_code=200`, `time_total=0.1s`로 NAT Gateway 경유 egress 확인, 파드는 `--rm`으로 자동
+정리. `.omc/plans/aks-platform-gitops-scaffold.md` 5절에 반영(로컬 전용, git 밖).
+
+**Follow-up 1(ArgoCD 자기관리) 착수 전 사용자 확인 2건**: (1) GitHub App - 기존
+`skax-ca-gitops-reader`(eks-platform-gitops용, 2026-08-07 발급) 재사용 확정, 신규 발급
+안 함 - 설치 범위에 이 repo 추가는 남은 작업. (2) 이번 세션 범위 - workbench(다른 세션이
+`live/hub/workbench`에서 진행 중, 미완료)가 없어 seed **실행**은 불가 → 매니페스트 준비까지만.
+
+**작성(aks-platform-gitops repo, 커밋 `acc9608`, push 완료)**: AWS 원본 `eks-platform-gitops`의
+`bootstrap/argocd-app.yaml`·`argocd-values.yaml`·`root-app.yaml`·`argocd-seed.sh`(module-library
+커밋 `0d342a0` vendoring)를 1:1 대조해 포팅, `projects/platform.yaml`·
+`clusters/hub/aks-demo-hub-krc-main-01/cluster-secret.yaml`·`addons/baseline/alb-controller.yaml`
+(ApplicationSet 2종: 컨트롤러+CR)·`addons/alb-controller/loadbalancer/`(로컬 helm 차트) 신규
+작성. 전체 YAML 구문 검증 + `helm template` 렌더 검증 통과.
+
+**계획 대비 실측으로 바뀐 것 2건**: (1) `albSubnetId`를 cluster Secret 라벨에 넣으려던 계획
+(1-1절 "실측 필요"로 유보된 항목)이 실제로 깨짐 - 실측 서브넷 리소스 ID가 191자(한도 63자)
++ `/` 포함(라벨 값 비허용 문자)이라 K8s 라벨 값 제약 위반, `clusters/hub/*/values.yaml` +
+`alb-loadbalancer` ApplicationSet의 matrix generator(cluster+git files)로 전환 - 단 이
+generator는 이름 기준 join이 아니라 Cartesian product라 **클러스터 2개 이상이 되면 재검증
+필수**(파일에 명시). (2) AWS 원본의 `workload-class=system` taint 우회 tolerations를
+`argocd-values.yaml`에 이식하지 않음 - `az aks show`로 hub 노드풀(`npsystem`)에 taint가
+없음을 실측 확인 후 판단(맹목적 1:1 포팅이 아니라 검증 후 차이를 명시).
+
+**세션 중 발견 - 공유 체크아웃 위험 재현**: 세션 종료 시점에 `aks-reference-infra` 로컬
+브랜치가 `main`이 아니라 `fix/live-hub-workbench-subnet-nsg`로 바뀌어 있었다(10차 세션이
+이미 경고한 위험의 실제 재발). 최근 커밋(`bce7acd`)이 4분 전이라 옆 세션이 활성 중으로
+판단 - 그 브랜치를 건드리지 않고, `git worktree add`로 임시 별도 경로에 `main`을 체크아웃해
+이 notepad 갱신만 안전하게 커밋·push함(사용자 확인 후 결정). aks-platform-gitops는 이
+로컬 디렉토리와 별개라 이 위험과 무관, `main` 직접 커밋(사용자 결정, 이 repo는 아직 CI
+게이트 없음).
+
+**다음 세션**: (1) `live/hub/workbench` 완료 대기 (2) GitHub App(`skax-ca-gitops-reader`)
+설치 범위에 `aks-platform-gitops` repo 추가 (3) workbench 준비 후 `argocd-seed.sh
+--dry-run` → `--to 4` 실행 → `argocd app diff argocd --core`로 diff 실측 확인 후에만
+`bootstrap/argocd-app.yaml`의 `automated` 블록 최종 확정(AWS 원본과 동일 순서).
 ### 2026-09-04(10차 세션) - aks-platform-gitops 착수: GitOps 엔진·Ingress addon 설계 확정 + hub 실배포
 
 **설계 리서치(6+라운드, 전부 공식문서 기반)**: GitOps 엔진은 self-managed ArgoCD 확정
