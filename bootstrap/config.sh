@@ -5,12 +5,15 @@
 #    둘이 어긋나면 README를 고친다 — 사람이 읽는 쪽이 SSOT다(원본 eks-reference-infra와
 #    동일 원칙).
 #
-# 설계 근거: .omc/plans/bootstrap-credential-design.md (v6, ralplan 5라운드 확정)
+# 설계 근거: .omc/plans/bootstrap-credential-design.md (v6, ralplan 5라운드 확정 +
+# 2026-09-04 추가 기록 — CI 신원 권한 모델을 RG 스코프 커스텀 역할에서 구독 전체
+# Owner로 전환, AWS 원본 AdministratorAccess와 스코프 축 대칭)
 #
-# ⛔ 이 파일 어디에도 built-in Contributor의 notActions를 하드코딩하지 않는다.
-#    설계 v4/v5가 그 값을 문서에 옮겨 적다 두 번 연속 틀렸다(3차 Architect 검토가
-#    실측으로 확인) — 대신 워크로드 커스텀 역할 생성 시 매 실행 az role definition
-#    list로 런타임 조회한다. 같은 실수를 세 번째로 반복하지 않기 위한 구조적 결정이다.
+# ⚠️ 2026-09-04 이전에는 워크로드 커스텀 역할의 notActions를 built-in Contributor
+#    에서 매 실행 런타임 조회했다(v4/v5가 이 값을 문서에 옮겨 적다 두 번 연속
+#    틀렸던 것의 대체). 이제 워크로드 역할은 Owner 기반(NotActions는 고정값 1개,
+#    resourceGroups/delete)이라 그 조회 로직 자체가 불필요해졌다 — Owner는 애초에
+#    NotActions가 비어 있어 조회할 대상이 없다.
 
 set -euo pipefail
 
@@ -83,6 +86,11 @@ readonly RG_NAME="rg-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-workload-01"
 readonly STATE_RG_NAME="rg-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-tfstate-01"
 readonly APP_NAME="entapp-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-gha-01"
 
+# 워크로드 커스텀 역할의 스코프(2026-09-04부터 구독 전체 — 이전에는 RG_NAME 하나).
+# bootstrap.sh·verify.sh 둘 다 이 값을 쓴다(각자 계산하면 갈릴 위험이 있어 공유
+# 계층으로 올렸다).
+readonly SUBSCRIPTION_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}"
+
 # hub App Registration 이름 — 대상과 무관하게(hub·spoke 어느 쪽에서 소싱하든) 항상
 # "hub" 토큰으로 고정 계산한다. bootstrap.sh의 크로스 구독 스포크 연결 절이 dev 구독
 # 컨텍스트에서 hub SP를 조회할 때 쓴다(.omc/plans/live-hub-vwan-dev-networking.md 4-1).
@@ -117,6 +125,9 @@ new_storage_account_name() {
 
 # ── 커스텀 역할 이름 ─────────────────────────────────────────────────────────
 readonly WORKLOAD_ROLE_NAME="aks-ref-bootstrap-workload-ci-${ENV_TOKEN}"
+# 2026-09-04부로 이 스크립트는 state 데이터 역할을 더 이상 만들지 않는다(위
+# 「워크로드 커스텀 역할」절 참고). 이 이름은 이전 실행이 만든 실물을 사람이
+# 수동 정리할 때 오타 없이 참조하기 위한 용도로만 남긴다.
 readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
 # 스포크(dev)에서만 의미가 있다 — hub CI 신원에게 이 스포크 VNet을 vWAN 허브에
 # 연결할 권한(peer/action 단일 액션)을 주는 역할이다(계획 4-1 Option A).
@@ -265,20 +276,28 @@ assert_subscription_tenant() {
 # ── 재시도 헬퍼 (계획 5절, 특정 오류 코드일 때만 재시도. 맹목적 재시도는 진짜
 #    실패를 감춘다) ───────────────────────────────────────────────────────────
 #
-# role assignment 생성 직후 실행 시 두 가지 복제 지연이 독립적으로 터질 수 있다:
+# role assignment 생성 직후 실행 시 여러 복제 지연이 독립적으로 터질 수 있다:
 #   - PrincipalNotFound: SP 생성 직후 Entra 복제 지연(원본 README 128~131행이
 #     AWS IAM에 대해 경고한 것과 같은 계열)
 #   - "Role '...' doesn't exist.": 커스텀 역할 정의(ensure_custom_role) 생성 직후
 #     ARM 캐시 전파 지연. 실측(2026-08-27 hub 부트스트랩 1차 실행)으로 확인 —
 #     원래는 PrincipalNotFound만 재시도 대상이었는데, workload 커스텀 역할 생성
 #     직후 role assignment가 이 오류로 즉시 die했다.
+#   - RoleAssignmentScopeNotAssignableToRoleDefinition: 역할 정의의
+#     AssignableScopes를 update로 바꾼 직후(2026-09-04, RG 스코프 → 구독 스코프
+#     마이그레이션) 그 변경이 아직 전파되지 않은 상태에서 새 스코프로 role
+#     assignment를 만들면 "이 스코프에서 사용 불가"로 거부된다. hub에서는
+#     우연히 안 걸렸지만 dev 재부트스트랩에서 실측(2026-09-04) — 같은 ARM 캐시
+#     전파 지연 계열의 새 얼굴이다. AssignableScopes가 바뀐 건 이번이 처음이라
+#     (그 전엔 Actions/NotActions만 바뀌었다) 이전엔 드러날 기회가 없었다.
 retry_on_replication_delay() {
   local attempt=0 err
   while :; do
     if err="$("$@" 2>&1 >/dev/null)"; then return 0; fi
     attempt=$((attempt + 1))
     if [[ "$err" != *"PrincipalNotFound"* && "$err" != *"does not exist in the directory"* \
-          && "$err" != *"doesn't exist"* ]] \
+          && "$err" != *"doesn't exist"* \
+          && "$err" != *"RoleAssignmentScopeNotAssignableToRoleDefinition"* ]] \
        || (( attempt >= 10 )); then
       die "재시도 초과 또는 다른 오류: $err"
     fi
@@ -312,76 +331,45 @@ retry_on_conflict() {
   done
 }
 
-# ── 워크로드 커스텀 역할: notActions를 런타임 조회한다 (계획 1절, 하드코딩 금지) ─
-# built-in Contributor의 notActions를 그대로 물려받고 RG 삭제만 추가로 뺀다.
-# Azure가 Contributor 정의를 바꿔도 다음 실행이 자동으로 따라간다 — "문서가 값을
-# 옮겨 적고 사람이 대조하는 방식" 자체가 v4·v5에서 두 번 틀렸던 근본 원인이었다.
-workload_role_not_actions_json() {
-  local contributor_not_actions
-  # ⚠️ 이 호출은 워크로드 커스텀 역할(가장 권한이 넓은 대상)의 기대값을
-  # 만드는 유일한 az 호출이다. 실패하면 die로 즉시 중단하고, 성공하더라도
-  # 결과가 "비어있지 않은 배열"인지 검증한다 -
-  # jq의 `. + [...]`는 null이 와도 오류 없이 통과시키므로, 조회가 조용히
-  # null/빈 배열을 반환하면 워크로드 역할의 notActions가 실제 Contributor
-  # 정의보다 크게 좁아져(예: RG 삭제 제외 하나만 남음) CI 신원이 사실상
-  # 스스로에게 상위 역할을 부여할 수 있는 상태가 되고, bootstrap.sh와
-  # verify.sh가 이 같은 함수를 공유하므로 verify.sh도 그 축소된 값을
-  # "일치"로 보고한다 - 이 검증이 그 경로를 막는다.
-  if ! contributor_not_actions="$(az_ role definition list --name Contributor \
-    --query "[0].permissions[0].notActions" -o json 2>&1)"; then
-    die "Contributor 역할 정의 조회 실패: $contributor_not_actions"
-  fi
-  jq -e 'type == "array" and length > 0' <<<"$contributor_not_actions" >/dev/null \
-    || die "Contributor notActions 조회 결과가 유효한 배열이 아니다(받은 값: $contributor_not_actions)"
-  jq -c '. + ["Microsoft.Resources/subscriptions/resourceGroups/delete"]' <<<"$contributor_not_actions"
-}
-
+# ── 워크로드 커스텀 역할: 구독 전체 Owner 등가, RG 자기 삭제만 제외 (2026-09-04
+#    결정, .omc/plans/bootstrap-credential-design.md 추가 기록) ─────────────────
+# Owner는 built-in 정의 자체가 NotActions: []다 — Contributor처럼 런타임 조회할
+# 대상이 없다(그 조회 로직이 v4·v5에서 두 번 틀렸던 근본 원인이었는데, Owner
+# 기반으로 바꾸면서 그 실수 클래스 자체가 사라졌다). "RG 자체 삭제 방지"만
+# 값싼 사고 방지 안전망으로 유지한다 — 더 이상 보안 경계가 아니다(Owner는 RG
+# 안의 다른 모든 리소스를 어차피 지울 수 있다).
 workload_role_definition_json() {  # workload_role_definition_json <assignable-scope>
-  local scope="$1" not_actions
-  not_actions="$(workload_role_not_actions_json)"
+  local scope="$1"
   jq -n \
     --arg name "$WORKLOAD_ROLE_NAME" \
     --arg scope "$scope" \
-    --argjson notActions "$not_actions" \
     '{
       Name: $name,
-      Description: "CI identity for aks-reference-infra bootstrap: full RG control except deleting the RG itself and Contributor-excluded actions (notActions inherited at runtime from built-in Contributor).",
+      # ⚠️ az CLI 실측 버그(azure-cli 2.89.1, ensure_custom_role의 update 경로):
+      # `az role definition update`는 카멜케이스 변환 후 role_definition["roleName"]을
+      # 직접 읽는데, create는 role_definition.get("name")을 읽는다 — 같은 명령군인데
+      # 요구하는 키가 다르다. Name만 쓰면 update 시 KeyError: 'roleName'으로 죽는다
+      # (2026-09-04 hub 재부트스트랩 실측). RoleName을 추가로 넣어 두 경로 다 만족시킨다
+      # (create/worker.create_role_definition은 role_name을 별도 인자로 받아 role_definition
+      # dict의 여분 키를 무시하므로 부작용 없음).
+      RoleName: $name,
+      Description: "CI identity for aks-reference-infra: subscription-wide Owner except deleting the workload resource group itself (2026-09-04 decision, AWS AdministratorAccess parity — see .omc/plans/bootstrap-credential-design.md).",
       Actions: ["*"],
-      NotActions: $notActions,
+      NotActions: ["Microsoft.Resources/subscriptions/resourceGroups/delete"],
       DataActions: [],
       NotDataActions: [],
       AssignableScopes: [$scope]
     }'
 }
 
-# ── state 데이터 커스텀 역할: Storage Blob Data Contributor에서
-#    containers/delete만 뺀 고정 델타(계획 2절, 실측 확정값이라 하드코딩 유지 —
-#    이 값은 Contributor처럼 플랫폼이 바꿀 여지가 적은 안정된 built-in 정의다) ──
-state_data_role_definition_json() {  # state_data_role_definition_json <assignable-scope>
-  local scope="$1"
-  jq -n \
-    --arg name "$STATE_DATA_ROLE_NAME" \
-    --arg scope "$scope" \
-    '{
-      Name: $name,
-      Description: "state container data role for aks-reference-infra bootstrap: Storage Blob Data Contributor minus containers/delete.",
-      Actions: [
-        "Microsoft.Storage/storageAccounts/blobServices/containers/read",
-        "Microsoft.Storage/storageAccounts/blobServices/containers/write",
-        "Microsoft.Storage/storageAccounts/blobServices/generateUserDelegationKey/action"
-      ],
-      NotActions: [],
-      DataActions: [
-        "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read",
-        "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write",
-        "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/add/action",
-        "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/delete",
-        "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/move/action"
-      ],
-      NotDataActions: [],
-      AssignableScopes: [$scope]
-    }'
-}
+# ⚠️ state 데이터 역할(Storage Blob Data Contributor 델타, RG_NAME 안 컨테이너
+# 스코프)은 2026-09-04부로 이 스크립트가 더 이상 만들지 않는다 — 워크로드 역할이
+# 이미 구독 전체 Owner라 그 안에 포함된 state RG·컨테이너까지 전부 커버해 별도
+# role assignment가 무의미해졌다. 이전에 실행된 bootstrap.sh가 만든 실제 role
+# 정의·assignment(이름: aks-ref-bootstrap-state-data-<env>)는 이 스크립트가
+# 자동으로 지우지 않는다(이 저장소의 스크립트는 항상 추가·수렴만 하지 삭제하지
+# 않는다) — 실제 재부트스트랩 시 사람이 확인 후 `az role assignment delete`·
+# `az role definition delete`로 정리한다.
 
 # ── 스포크 연결 역할: peer/action 단일 액션 (계획 4-1 Option A) ────────────
 # hub CI 신원이 이 역할을 dev 워크로드 RG 스코프로 받아 live/hub/vwan의
@@ -397,6 +385,8 @@ spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignab
     --arg scope "$scope" \
     '{
       Name: $name,
+      # RoleName 중복 이유는 workload_role_definition_json 주석 참고(az CLI update 경로 버그).
+      RoleName: $name,
       Description: "Single-action grant for the hub CI identity to peer this spoke VNet into the hub Virtual WAN hub (aks-reference-infra live/hub/vwan spoke connection, plan 4-1 Option A).",
       Actions: ["Microsoft.Network/virtualNetworks/peer/action"],
       NotActions: [],

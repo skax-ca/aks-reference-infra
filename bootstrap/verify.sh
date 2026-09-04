@@ -21,9 +21,10 @@
 #    (a) ARM RBAC 스코프 검사(구독)는 Reader 권한으로 충분해 CI 분리 실행이
 #    가능하지만, (c)~(g)(Entra 디렉터리 역할, Graph 앱 권한, 정적 자격증명·
 #    owners, FIC 전 필드, 그룹 멤버십)는 Microsoft Graph 디렉터리 읽기 권한
-#    (Application.Read.All/Directory.Read.All 또는 앱 소유권)을 요구하는데,
-#    원칙 1이 CI 신원에 그 권한 자체를 0건으로 금지한다. 이 스크립트는 **사람
-#    관리자 자격증명으로 수동 실행**하는 것을 전제로 작성됐다.
+#    (Application.Read.All/Directory.Read.All 또는 앱 소유권)을 요구하는데, 이
+#    저장소는 CI 신원에 Graph 권한 자체를 0건으로 유지한다(2026-09-04 이후에도
+#    바뀌지 않은 축 — 아래 참고). 이 스크립트는 **사람 관리자 자격증명으로 수동
+#    실행**하는 것을 전제로 작성됐다.
 #
 # ⚠️ 원래 (b) 관리 그룹 스코프 role assignment 0건 검사가 있었으나 제거했다
 #    (2026-08-27, 실제 Azure 검증 세션). 이 설계의 OIDC 배포 경로는 관리 그룹을
@@ -33,6 +34,15 @@
 #    Owner/UAA)보다 훨씬 넓은 권한을 검증자에게만 요구하는 불균형이라 사용자가
 #    직접 삭제를 확정했다. 이 판단의 전체 맥락은
 #    `.omc/plans/bootstrap-credential-design.md`의 2026-08-27 추가 기록을 참고.
+#
+# ⚠️ **2026-09-04, 불변식 (a)의 성격이 반전됐다**(`.omc/plans/
+#    bootstrap-credential-design.md` 추가 기록 참고). CI 신원이 이제 구독 전체
+#    Owner 등가 역할을 가지므로(AWS 원본 `AdministratorAccess`와 스코프 축
+#    대칭), "구독 스코프 role assignment 0건"이 아니라 "정확히 워크로드 역할
+#    1건, 이 구독에만"이 기대 상태다. 권한 크기로 좁히던 방어선은 폐기됐고,
+#    (c)~(g)(신뢰 경로·정적 자격증명·그룹 멤버십 관련 불변식)만 방어선으로
+#    남는다 — 그래서 이 검사들은 지금부터 이전보다 더 중요하다. state 데이터
+#    역할(옛 (a) 인접 검사)은 워크로드 역할이 이미 포괄해 제거했다.
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./config.sh
@@ -122,28 +132,51 @@ else
   mismatch "[$ENV_TOKEN] Entra 그룹 멤버십 - ${group_count}건 존재(0건이어야 한다). 그룹 경유 role assignment가 이 검사를 우회할 수 있다"
 fi
 
-# ── 불변식 (a): 구독 스코프 role assignment 0건 (관련 구독 전체 순회) ───────
-# ⚠️ 이 세션에서는 az account list로 접근 가능한 구독만 순회한다. 실행자의
-#    Azure 계정이 모든 관련 구독을 볼 수 있어야 이 검사가 완전하다. 구독
-#    목록 조회나 개별 role assignment 조회가 실패하면 die로 즉시 중단한다
-#    (fail-closed) - "이 구독은 못 봤다"를 "이 구독엔 0건"으로 넘기지 않는다.
+# ── 불변식 (a): 구독 스코프 role assignment 정확히 1건(워크로드 역할, 이 구독) ──
+# 2026-09-04 결정(.omc/plans/bootstrap-credential-design.md 추가 기록)으로 반전:
+# CI가 이제 구독 전체 Owner 등가 역할을 가지므로 "0건"이 아니라 "정확히 워크로드
+# 역할 1건, 그 구독에만"이 기대 상태다. 다른(엉뚱한) 구독에 role assignment가
+# 있으면 여전히 drift다 — 방어선이 FIC subject 하나로 좁아진 지금, 이 검사는
+# "그 도달 경로로 실제로 얻는 권한이 의도한 구독·역할과 정확히 일치하는가"를
+# 확인하는 것으로 성격이 바뀌었다.
+# ⚠️ az account list로 접근 가능한 구독만 순회한다. 실행자의 Azure 계정이 모든
+#    관련 구독을 볼 수 있어야 이 검사가 완전하다. 조회 실패는 die로 즉시 중단
+#    한다(fail-closed).
 check_subscription_scope_assignments() {
-  local subs sub count total=0
+  local subs sub total=0 role_id_here="" workload_role_id
+  workload_role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$WORKLOAD_ROLE_NAME")")"
   subs="$(az_or_die "구독 목록" -- az_ account list --query "[].id" -o tsv)"
   for sub in $subs; do
-    count="$(az_or_die "구독 $sub 의 role assignment" -- \
-      az_ role assignment list --assignee "$SP_ID" --scope "/subscriptions/${sub}" \
-        --subscription "$sub" --query "length([?scope=='/subscriptions/${sub}'])" -o tsv)"
+    local scope assignments count
+    scope="/subscriptions/${sub}"
+    assignments="$(az_or_die "구독 $sub 의 role assignment" -- \
+      az_ role assignment list --assignee "$SP_ID" --scope "$scope" \
+        --subscription "$sub" --query "[?scope=='$scope']" -o json)"
+    count="$(jq 'length' <<<"$assignments")"
     total=$((total + count))
+    [[ "$sub" == "$EXPECTED_SUBSCRIPTION" ]] && role_id_here="$(jq -r '.[0].roleDefinitionId // empty' <<<"$assignments")"
   done
-  echo "$total"
+  if [[ "$total" -eq 1 && -n "$workload_role_id" && "$role_id_here" == "$workload_role_id" ]]; then
+    echo "ok|${total}|${role_id_here}"
+  else
+    echo "drift|${total}|${role_id_here}"
+  fi
 }
-sub_scope_count="$(check_subscription_scope_assignments)"
-require_int "$sub_scope_count" "[$ENV_TOKEN] 구독 스코프 role assignment"
-if [[ "$sub_scope_count" -eq 0 ]]; then
-  ok "[$ENV_TOKEN] 구독 스코프 role assignment: 0건"
+# ⚠️ 명령 치환을 read의 리다이렉션 인자 자리에서 직접 평가하지 않는다. `IFS='|'
+# read ... <<<"$(fn)"`처럼 쓰면 접두사 IFS 할당이 그 명령의 인자 전개(리다이렉션
+# 대상의 명령 치환 포함) 동안에도 적용돼, `fn` 내부의 `for x in $y`(기본 IFS
+# 기대)까지 IFS='|'를 물려받는다(실측 확인, 2026-09-04 hub 재부트스트랩 —
+# check_subscription_scope_assignments 내부의 구독 순회 for문이 `\n` 대신 `|`
+# 로만 쪼개져 두 구독 ID가 한 토큰으로 뭉쳐 az 호출이 깨졌다). 그래서 명령
+# 치환을 먼저 일반 대입으로 캡처한 뒤, 이미 캡처된 순수 문자열에만 IFS='|' read
+# 를 적용한다.
+sub_scope_result="$(check_subscription_scope_assignments)"
+IFS='|' read -r sub_scope_status sub_scope_total sub_scope_role_id <<<"$sub_scope_result"
+require_int "$sub_scope_total" "[$ENV_TOKEN] 구독 스코프 role assignment 개수"
+if [[ "$sub_scope_status" == ok ]]; then
+  ok "[$ENV_TOKEN] 구독 스코프 role assignment: 워크로드 역할 1건과 일치($EXPECTED_SUBSCRIPTION)"
 else
-  mismatch "[$ENV_TOKEN] 구독 스코프 role assignment - ${sub_scope_count}건 존재(0건이어야 한다)"
+  mismatch "[$ENV_TOKEN] 구독 스코프 role assignment - 기대(워크로드 역할 1건 @ $EXPECTED_SUBSCRIPTION)와 다르다(총 ${sub_scope_total}건, 이 구독의 역할 ID: ${sub_scope_role_id:-없음})"
 fi
 
 # ── 불변식 (c): Entra 디렉터리 역할 0건 ─────────────────────────────────────
@@ -218,26 +251,24 @@ check_fic() {  # check_fic <name> <expected-subject>
 report "[$ENV_TOKEN] FIC ($FIC_NAME_MAIN)" "$(check_fic "$FIC_NAME_MAIN" "$SUB_MAIN")"
 report "[$ENV_TOKEN] FIC ($FIC_NAME_ENV)"  "$(check_fic "$FIC_NAME_ENV" "$SUB_ENV")"
 
-# ── 커스텀 역할 정의: Actions/NotActions/DataActions 완전 일치 ──────────────
+# ── 커스텀 역할 정의: Actions/NotActions 완전 일치 ──────────────────────────
 # config.sh의 role_definition_matches()를 bootstrap.sh와 공유한다(수렴 판단과
 # drift 감지가 각자 다른 기준을 쓰면 "bootstrap은 ok인데 verify는 실패"가
 # 생겨 verify.sh가 소음이 된다).
 RG_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}/resourceGroups/${RG_NAME}"
-STATE_RG_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}/resourceGroups/${STATE_RG_NAME}"
 
 check_workload_role() {
   local current
   current="$(role_definition_list_retry "$WORKLOAD_ROLE_NAME")"
-  role_definition_matches "$(workload_role_definition_json "$RG_SCOPE")" "$current" && echo ok || echo drift
+  role_definition_matches "$(workload_role_definition_json "$SUBSCRIPTION_SCOPE")" "$current" && echo ok || echo drift
 }
 report "[workload] 커스텀 역할 Actions/NotActions 완전 일치" "$(check_workload_role)"
 
-check_state_data_role() {
-  local current
-  current="$(role_definition_list_retry "$STATE_DATA_ROLE_NAME")"
-  role_definition_matches "$(state_data_role_definition_json "$STATE_RG_SCOPE")" "$current" && echo ok || echo drift
-}
-report "[state-data] 커스텀 역할 Actions/DataActions 완전 일치" "$(check_state_data_role)"
+# ⚠️ state 데이터 역할 검사는 2026-09-04부로 제거했다(config.sh 참고 — 워크로드
+# 역할이 이미 구독 전체 Owner라 그 역할 자체가 무의미해졌다). 이전 실행이 만든
+# 실물이 아직 Azure에 남아있어도 이 스크립트는 더 이상 그 존재·정의를 검사
+# 대상으로 삼지 않는다(사람이 수동 정리할 대상, config.sh STATE_DATA_ROLE_NAME
+# 주석 참고).
 
 # ── 리소스 그룹 존재 확인 ────────────────────────────────────────────────────
 # ⚠️ 순서: RG 존재 -> Storage Account 조회(RG가 있어야 유효한 조회다) -> 그
@@ -276,27 +307,10 @@ check_container_exists() {
 }
 report "[state] 컨테이너 존재" "$(check_container_exists)"
 
-# ── role assignment 존재 확인 ────────────────────────────────────────────────
-# bootstrap.sh가 만드는 두 role assignment가 실제로 존재하는지 확인한다. 이것이
-# 없으면 CI 신원의 role assignment가 삭제돼도 verify.sh가 drift 없음을 보고한다.
-check_role_assignment_exists() {  # check_role_assignment_exists <role-name> <scope>
-  # roleDefinitionName이 아니라 roleDefinitionId로 필터링한다 — bootstrap.sh의
-  # ensure_role_assignment와 같은 이유(join 지연, 2026-08-27 실측 확인).
-  local role_name="$1" scope="$2" role_id count
-  role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$role_name")")"
-  [[ -n "$role_id" ]] || { echo absent; return; }
-  count="$(az_or_die "role assignment($role_name @ $scope)" -- \
-    az_ role assignment list --assignee "$SP_ID" --scope "$scope" \
-      --query "length([?roleDefinitionId=='$role_id'])" -o tsv)"
-  [[ "$count" -gt 0 ]] && echo ok || echo absent
-}
-report "[workload] role assignment 존재" "$(check_role_assignment_exists "$WORKLOAD_ROLE_NAME" "$RG_SCOPE")"
-if [[ -n "$SA_NAME" ]]; then
-  CONTAINER_SCOPE="${STATE_RG_SCOPE}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}/blobServices/default/containers/${CONTAINER_NAME}"
-  report "[state-data] role assignment 존재" "$(check_role_assignment_exists "$STATE_DATA_ROLE_NAME" "$CONTAINER_SCOPE")"
-else
-  mismatch "[state-data] role assignment - Storage Account가 없어 스코프를 계산할 수 없다"
-fi
+# ⚠️ 별도 "role assignment 존재" 확인 블록은 2026-09-04부로 제거했다. 워크로드
+# 역할 assignment 존재 확인은 위 불변식 (a)(구독 스코프 정확히 1건 검사)가 이미
+# 포함한다(둘 다 role_definition_list_retry + roleDefinitionId 필터를 쓰는 동일
+# 로직이라 중복 검사였다). state-data 항목은 그 역할 자체가 없어져 함께 제거.
 
 # ── 불변식 (a) 예외: 스포크 워크로드 RG 스코프의 외부(hub) principal role
 #    assignment 허용 목록 완전 일치 (계획 4-1 Option A, 2026-09-03 절충 —
