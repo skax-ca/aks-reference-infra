@@ -5,7 +5,7 @@
   "techStack": "Azure CLI(az) bash 스크립트(bootstrap/) + OpenTofu(live/*, 1.12.5) + GitHub Actions OIDC(azurerm 5.x). bootstrap/은 순수 bash(config.sh/bootstrap.sh/verify.sh)로 App Registration·커스텀 RBAC 역할 3종(workload=구독 전체 Owner 등가, 2026-09-04부터/state-data=blob data-plane 별도 축/spoke-peer)·Storage Account·리소스 그룹·잠금을 az CLI로 직접 다룬다. AKS identity·role assignment는 2026-09-04부로 bootstrap이 아니라 live/hub/aks가 Terraform으로 직접 만든다. live/hub/networking·live/hub/vwan·live/dev/networking은 iac-module-library의 modules/azure/vnet을 소비하고, live/hub/aks는 modules/azure/aks-cluster(v0.5.0)를 소비하는 raw OpenTofu 루트 — 전부 hub·dev 구독에 실제 배포 완료.",
   "build": "로컬 apply는 require_oidc 가드로 차단(var.ci_run=true인 CI 전용). GitHub Actions(.github/workflows/deploy-*.yml)가 push 시 자동 tofu plan, workflow_dispatch로 apply. bootstrap/verify.sh가 부트스트랩 계층의 drift 감지(읽기 전용, tofu plan 없는 IaC 밖 계층 대응) 담당.",
   "conventions": "eks-reference-infra(AWS 원본)의 구조·문서 체계를 1:1 참조하되 Azure 대응물로 치환. 문서 규칙(em-dash 금지, 이모지 7종만, 문서 간 절 번호 인용 금지, 400줄 제한)은 iac-module-library의 docs/conventions.md가 SSOT. 네이밍 약어는 iac-module-library의 docs/naming/abbreviations/azure.md가 SSOT(rg/st/entapp/vwan/vhub 등재 완료).",
-  "structure": "bootstrap/(자격증명 계층, hub·dev 양쪽 실제 Azure 검증 완료 — CI 신원은 2026-09-04부터 구독 전체 Owner 등가, AKS identity는 여기서 더 이상 안 만듦) + live/hub/networking·live/hub/vwan·live/dev/networking·live/hub/aks(전부 배포 완료, hub↔dev vWAN 연결 + hub AKS 클러스터 가동, identity·role assignment는 자체 Terraform 관리로 전환) + live/dev/aks(Phase 2 계속, hub 패턴을 그대로 승계해 착수 예정) + live/hub/workbench(계획 단계, aks-workbench-v0.1.0 소비 예정).",
+  "structure": "bootstrap/(자격증명 계층, hub·dev 양쪽 실제 Azure 검증 완료 — CI 신원은 2026-09-04부터 구독 전체 Owner 등가, AKS identity는 여기서 더 이상 안 만듦) + live/hub/networking·live/hub/vwan·live/dev/networking·live/hub/aks(전부 배포 완료, hub↔dev vWAN 연결 + hub AKS 클러스터 가동, identity·role assignment는 자체 Terraform 관리로 전환, live/hub/networking에 AGFC용 alb 위임 서브넷·live/hub/aks에 ALB controller IAM 추가 배포 완료 2026-09-04) + live/dev/aks(Phase 2 계속, hub 패턴을 그대로 승계해 착수 예정) + live/hub/workbench(다른 세션에서 aks-workbench-v0.1.0 소비 진행 중, 2026-09-04). 별도 저장소 skax-ca/aks-platform-gitops(계층2 GitOps, 로컬 ~/born2k/ai/aks-platform-gitops)도 2026-09-04 신설 — 이 저장소의 세션에서 함께 관리, 디렉토리 뼈대+README만 있고 매니페스트는 아직 없음.",
   "customNotes": [
     {
       "timestamp": 1787807683942,
@@ -120,6 +120,24 @@
       "source": "manual",
       "category": "notes",
       "content": "2026-09-04(9차 세션) - CI 권한 모델 전환을 hub·dev 양쪽 실제 재부트스트랩까지 완료(3-1 멱등성·3-2 음성 테스트 통과, orphan role assignment 정리). 이어서 AKS 컨트롤 플레인 identity·role assignment도 bootstrap → live/hub/aks Terraform으로 이관(옛 제약 \"CI에 roleAssignments/write 안 줌\"이 사라져 구조적 이유 소멸) - live/hub/aks destroy(GitHub Actions) → 구식 identity·role assignment 사람이 정리 → azurerm_user_assigned_identity·azurerm_role_assignment를 Terraform 리소스로 신설(skip_service_principal_aad_check=true, depends_on 명시) → PR #4 머지 → 재배포 → az aks show/kubectl get nodes로 노드 2대 Ready 실물 확인. .tf·workflow 변경은 브랜치→PR(CLAUDE.md 5절), bootstrap/*.sh 변경은 사용자 선택으로 main 직접 커밋. 커밋: 05f86f4·7d838ea·14fe30d(main 직접) + PR #4(b7d6225, 머지). 이전 세션 미결 항목 갱신: workbench 방향(①/②/③) 여전히 미결정이나 aks-workbench-v0.1.0 모듈이 iac-module-library에 릴리스됨(RALPLAN-DR 5회 완료, SSH가 일상 경로/Run Command가 브레이크글래스인 ②CLI 전용 workbench 설계) - 다음 세션은 live/hub/workbench 착수(identity·role assignment 처음부터 Terraform)."
+    },
+    {
+      "timestamp": 1788451200000,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-09-04(10차 세션) - AGFC(Application Gateway for Containers) ALB Controller Terraform 배선 중 실측 정정 2건. (1) `azurerm_role_assignment` 필요 역할은 2종(Configuration Manager @ MC RG, Network Contributor @ 위임 서브넷)뿐이다 - 1차 리서치가 Reader를 포함한 3종으로 잘못 결론냈는데, 공식 quickstart 문서(`quickstart-create-application-gateway-for-containers-managed-by-alb-controller`)의 `az role assignment create` 명령을 직접 재확인한 결과 Reader는 어디에도 없었다(다른 배포 전략 문서가 1차 조사에 섞였던 것으로 추정). 실제 apply도 2종만으로 성공. (2) `azurerm_federated_identity_credential`(azurerm v5) 스키마는 `user_assigned_identity_id` 하나가 필수고 `parent_id`·`resource_group_name`은 존재하지 않는 인자다 - 예전 provider 버전 기억으로 잘못 작성했다가 `tofu validate`에서 즉시 발견·수정. 교훈: azurerm 리소스 인자를 기억에 의존해 쓰지 말고 매번 `raw.githubusercontent.com/hashicorp/terraform-provider-azurerm/main/website/docs/r/<resource>.html.markdown`로 재확인할 것 - 이번 세션에 이미 여러 번(Application Load Balancer 계열 리소스 존재 확인 등) 그렇게 해서 실제 문제를 피했다."
+    },
+    {
+      "timestamp": 1788451200001,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-09-04(10차 세션) - 이 개발 환경은 동시에 열린 여러 Claude Code 세션이 **같은 로컬 git 체크아웃(디렉토리)을 공유**한다는 것을 실측 확인했다(별도 git worktree로 격리되지 않음). 세션 종료 절차 중 로컬 브랜치가 이번 세션이 마지막으로 둔 `main`이 아니라 동시에 돌던 다른 세션의 작업 브랜치(`feat/live-hub-workbench`, 커밋까지 있는 상태)로 바뀌어 있는 것을 발견했다. 위험: 한 세션이 임의로 `git checkout`/`git reset --hard`를 실행하면 다른 세션이 다음 명령을 실행할 때 갑자기 다른 브랜치·다른 파일 상태를 보게 되어 그 세션의 작업이 깨지거나 커밋이 엉뚱한 브랜치에 실릴 수 있다. 대응 원칙: 세션 종료 시 `git branch --show-current`로 실제 현재 브랜치를 먼저 확인하고, `main`이 아니면 그 브랜치가 자신이 만든 게 맞는지(자신의 최근 커밋 로그와 대조) 확인 후, 다른 세션 소유로 보이면 브랜치를 건드리지 않고 사용자에게 먼저 확인한다 - 이번 세션은 이 판단을 사용자에게 직접 물어 안전하게 처리했다(사용자가 '옆 세션 끝났다'고 확인한 뒤에만 main으로 전환). 이 프로젝트뿐 아니라 이 사용자의 다른 프로젝트에서도 여러 세션을 동시에 쓸 때 일반적으로 적용 가능한 교훈이다."
+    },
+    {
+      "timestamp": 1788451200002,
+      "source": "manual",
+      "category": "notes",
+      "content": "2026-09-04(10차 세션) - aks-platform-gitops(계층2 GitOps, skax-ca 신설) 착수. GitOps 엔진=self-managed ArgoCD·Ingress(ALBC 대응)=AGFC(Managed 배포 전략) 확정(6+라운드 공식문서 리서치 + RALPLAN, 설계 전문은 이 저장소의 `.omc/plans/aks-platform-gitops-addon-selection.md`·`aks-platform-gitops-scaffold.md` - 둘 다 `.gitignore`가 `/.omc/plans/`를 화이트리스트 안 해서 로컬 전용, git에 없음 주의). hub 실배포: live/hub/networking에 alb 위임 서브넷(PR #5), live/hub/aks에 ALB controller identity·federated credential·role assignment 2종·provider 등록 2종·workload_identity_enabled(PR #6) - 전부 머지·apply·수렴검증(No changes) 통과. 이전 세션 미결 항목 갱신: (1) aks-platform-gitops 착수 시 재검토하기로 했던 Karpenter·Entra RBAC·deletion_protection=true - Karpenter는 AGFC 리서치 과정에서 이번 세션 범위 밖으로 확인(Azure에 Karpenter 자체가 없음, 별개 결정 사항이었음이 이미 7차 세션에 명확해짐), Entra RBAC·deletion_protection은 여전히 미착수. 신규 미결: (2) 5절 검증 잔여(egress canary, ArgoCD 자기관리 매니페스트+GitHub App repository Secret, 실제 addon YAML 4종 작성) (3) live/hub/workbench는 다른 세션이 동시 진행 중이라 이 세션에서 손대지 않음."
     }
   ],
   "directoryMap": {

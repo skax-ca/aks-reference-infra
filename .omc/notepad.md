@@ -4,10 +4,59 @@
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
 
-2026-09-04(9차 세션) - CI 신원 권한을 RG 스코프 커스텀 역할→구독 전체 Owner 등가로 전환(AWS AdministratorAccess 대칭, 방어선=FIC subject 하나). state-data 역할은 blob data-plane 별개 축이라 유지(한 번 오판 삭제 후 재도입). hub·dev 재부트스트랩 완료. AKS identity·role assignment를 bootstrap→live/hub/aks Terraform 이관(destroy 후 재배포, 노드 Ready 확인, PR #4). 설계 근거: .omc/plans/bootstrap-credential-design.md(로컬 전용). 다음: live/hub/workbench 착수(aks-workbench-v0.1.0 소비).
+2026-09-04(10차 세션) - aks-platform-gitops repo 신설(skax-ca, 계층2 GitOps). GitOps엔진=self-managed ArgoCD·Ingress=AGFC(Managed전략) 6+라운드 리서치+RALPLAN(Critic 1차 REJECT→v2)으로 확정. hub 실배포: alb 위임 서브넷(PR#5)+ALB controller IAM 4종+provider등록2종(PR#6), workload_identity_enabled in-place 전환, 전부 수렴검증 통과. ⚠️이 환경은 세션 간 로컬 git 체크아웃을 공유(별도 worktree 아님) - 브랜치 전환 전 옆 세션 확인 필수. 다음: egress canary, ArgoCD 자기관리 매니페스트, addon YAML 실작성.
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->
+### 2026-09-04(10차 세션) - aks-platform-gitops 착수: GitOps 엔진·Ingress addon 설계 확정 + hub 실배포
+
+**설계 리서치(6+라운드, 전부 공식문서 기반)**: GitOps 엔진은 self-managed ArgoCD 확정
+(관리형 확장은 Public Preview, Flux는 AppProject 가드레일 부재). Ingress(ALBC 대응)는
+AGIC→AGFC→App Routing(Istio)→azurerm 미지원 발견→self-managed Helm 재검토(AGIC·AGFC
+둘 다 helm 경로 있음, Istio는 Cilium ConfigMap 충돌 위험)→최종 AGFC self-managed Helm
+확정, WAF 가이드·Architecture Center 교차 확인. 배포 전략은 Managed(BYO 아님) - ALBC가
+Terraform으로 ALB를 안 만들고 컨트롤러가 동적 생성하는 선례 + 계층 분리 원칙(Terraform이
+GitOps가 나중에 선언할 Gateway/HTTPRoute 내용을 몰라도 되게). 설계 전문은
+`.omc/plans/aks-platform-gitops-addon-selection.md`·`aks-platform-gitops-scaffold.md`
+(둘 다 로컬 전용, `.gitignore`가 `/.omc/plans/`를 화이트리스트하지 않음 - notepad.md·
+project-memory.json만 git 추적 대상, 다음 세션도 같은 머신이 아니면 이 두 파일 못 봄).
+
+**RALPLAN**: 1차 Architect+Critic 검토에서 Critic REJECT - 위임 서브넷·역할 3종 중 2종
+누락(Reader만 상정), `ApplicationLoadBalancer` CR 소유 파일 부재, IAM 배치가 옛 방어선
+위반 소지로 열린 질문 방치. v2로 전면 개정해 반영, 2차 재검토는 생략(canary 실측으로
+대체 - `helm template` dry-run + 공식 API 스펙 문서로 clusterResourceWhitelist·CR
+스키마(`spec.associations`는 `[]string`, namespace-scoped) 확정).
+
+**실행**: `skax-ca/aks-platform-gitops` repo 신설(디렉토리 뼈대+README). 세션 도중
+CLAUDE.md에 커밋되지 않은 자격증명 모델 전환(구독 Owner)을 발견 → 확인 결과 이미
+hub·dev 재부트스트랩까지 완료된 상태(다른 세션이 병행 작업 중이었음, 커밋 `05f86f4`) -
+bootstrap 2-phase 없이 IAM 리소스를 바로 Terraform으로. 그 사이 또 다른 동시 세션이
+PR #4(AKS 컨트롤 플레인 identity Terraform 이관)를 머지 - 그 패턴(`skip_service_
+principal_aad_check`)을 그대로 재사용.
+
+**배포**: `live/hub/networking`에 `alb` 위임 서브넷(10.60.4.0/24,
+`Microsoft.ServiceNetworking/trafficControllers`, PR #5) → 머지·apply·수렴 확인.
+`live/hub/aks`에 ALB controller identity·federated credential·role assignment
+2종(Configuration Manager+Network Contributor, Reader는 공식 quickstart 문서 재확인
+결과 불필요로 정정)·provider 등록 2종(`Microsoft.ServiceNetworking`·
+`Microsoft.NetworkFunction`, 신규 구독-Owner 모델에서 처음 성공 확인)·
+`workload_identity_enabled=true`(in-place, ForceNew 아님을 provider 소스로 사전
+확인) 추가(PR #6) → 머지·apply·수렴 확인. 둘 다 파괴 없음.
+
+**사고 처리**: 두 커밋이 실수로 `main`에 직접 들어감(CLAUDE.md 5절 위반) - push 전이라
+브랜치로 옮겨 안전하게 정정. `azurerm_federated_identity_credential` 스키마를
+`parent_id`/`resource_group_name`으로 잘못 추정(v5는 `user_assigned_identity_id`
+하나) - validate 에러로 즉시 발견·수정. 세션 종료 시점에 로컬 체크아웃이 옆 세션의
+`feat/live-hub-workbench` 브랜치로 바뀌어 있음을 발견 - 이 환경이 세션 간 워크트리를
+분리하지 않고 같은 로컬 디렉토리를 공유한다는 사실을 이때 처음 확인(사용자 확인 후
+main으로 안전 전환).
+
+**다음 세션**: 5절 검증 잔여 - mcr.microsoft.com egress canary, Follow-up 1(ArgoCD
+자기관리 매니페스트+GitHub App repository Secret), 그 다음 실제 GitOps 매니페스트
+작성(root-app.yaml·platform.yaml·cluster-secret.yaml·alb-controller.yaml,
+`.omc/plans/aks-platform-gitops-scaffold.md` 1절 스케치 기반). `live/hub/workbench`도
+동시 진행 중(다른 세션, `aks-workbench-v0.1.0` 소비) - 8·9차 세션 미결 항목이었던
+workbench 방향 결정이 실제로 진행되고 있음.
 ### 2026-09-04(9차 세션) - CI 신원 권한 모델 전면 재검토(RG→구독 Owner) + AKS identity Terraform 이관
 
 workbench 착수 준비 중 사용자가 "bootstrap/Terraform 분리는 AWS 패턴의 형태만 빌린 안티패턴
