@@ -1,6 +1,6 @@
 # live/hub/workbench — AKS 운영 workbench 배포 루트 (허브)
 #
-# iac-module-library 의 modules/azure/aks-workbench(aks-workbench-v0.2.0) 를 소비한다.
+# iac-module-library 의 modules/azure/aks-workbench(aks-workbench-v0.3.0) 를 소비한다.
 # 설계 전문(ADR·완료 판정·리스크)은 .omc/plans/live-hub-workbench.md 참조.
 #
 # ⚠️ 네트워킹은 live/hub/networking 이 소유한다. 이 root 는 이미 배포된 vm 서브넷을
@@ -139,9 +139,19 @@ module "aks_workbench" {
   #
   # v0.2.0으로 올린 이유: v0.1.0의 custom_data가 apt-get 락 경합 시 재시도 없이
   # 실패해(2026-09-04 첫 실배포 실측 — "Could not get lock /var/lib/dpkg/lock-frontend")
-  # az CLI 설치·kubeconfig 부트스트랩이 연쇄 실패했다. custom_data는 ForceNew라 이 값
-  # 변경 자체가 VM 재생성을 유발한다 — 의도된 것(9절 사고 기록 참고).
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.2.0&depth=1"
+  # az CLI 설치·kubeconfig 부트스트랩이 연쇄 실패했다.
+  #
+  # v0.3.0으로 올린 이유: v0.2.0은 az aks get-credentials가 root(cloud-init)로 실행돼
+  # kubeconfig가 /root/.kube/config에만 생기고 실제 로그인 계정(admin_username)에는
+  # 없어 sudo 없이는 kubectl을 못 썼다(2026-09-04 실측). 이 root가 admin_username을
+  # 오버라이드하지 않아 모듈 기본값 "azureuser"를 그대로 쓰므로, admin_username 하나에만
+  # 사용자별 kubeconfig 사본이 자동 배포된다. Entra SSH 계정에는 자동으로 안 준다
+  # (모듈 code-review 2라운드로 발견한 보안 회귀 — 로그인 역할 2단계 구분이 무너지는
+  # 문제, iac-module-library PR #45 참고).
+  #
+  # custom_data는 ForceNew라 이 버전 변경 자체가 VM 재생성을 유발한다 — 의도된 것
+  # (9절 사고 기록 참고).
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.3.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다.
   # {demo, hub, krc} → vm-demo-hub-krc-workbench-01
