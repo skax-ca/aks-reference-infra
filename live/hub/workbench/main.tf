@@ -37,6 +37,15 @@ data "azurerm_subnet" "vm" {
   resource_group_name  = local.resource_group_name
 }
 
+# vm 서브넷에는 live/hub/networking이 이미 서브넷 레벨 NSG를 만들어 뒀다(vnet 모듈의
+# nsg_enabled=true). 그 모듈은 규칙을 만들지 않는다 — "룰은 이 모듈이 만들지 않는다.
+# 소비자가 azurerm_network_security_rule 별도 리소스로 얹는다"(vnet 모듈 main.tf 주석) —
+# 그래서 지금은 커스텀 규칙이 0개다. 이 root가 그 소비자다(아래 azurerm_network_security_rule).
+data "azurerm_network_security_group" "vm_subnet" {
+  name                = "nsg-${var.workload}-${var.env}-${var.region_code}-vm"
+  resource_group_name = local.resource_group_name
+}
+
 # 크로스 root 결합: role assignment 스코프에는 실제 리소스 ID가 필요해 Name 기반 data로
 # hub AKS 클러스터를 조회한다(같은 RG, CLAUDE.md 1절 — terraform_remote_state 대신 data).
 data "azurerm_kubernetes_cluster" "hub" {
@@ -91,6 +100,29 @@ resource "azurerm_role_assignment" "workbench_admin_login" {
   scope                = data.azurerm_resource_group.workload.id
   role_definition_name = "Virtual Machine Administrator Login"
   principal_id         = var.admin_login_principal_id
+}
+
+# NIC 레벨 NSG(module.aks_workbench가 만드는 AllowSsh)만으로는 부족하다 — 인터넷發
+# 인바운드는 AllowVNetInBound(플랫폼 기본 규칙)가 커버하지 않아, 서브넷 레벨 NSG의
+# 커스텀 규칙이 0개인 지금은 플랫폼 기본 DenyAllInBound(65500)가 여기서 먼저 막는다.
+# 2026-09-04 실측: 이 규칙 없이 apply한 직후 SSH가 전부 타임아웃됨(TCP 자체가 상대편에
+# 도달 못함, NIC NSG 로그에는 아예 안 잡히는 것으로 실측 — 서브넷 레벨에서 끊긴 것과
+# 정합). workbench_enabled·ssh_ingress_cidrs가 비면(순수 Run Command 프로파일) 이 구멍
+# 자체를 만들지 않는다.
+resource "azurerm_network_security_rule" "vm_subnet_allow_ssh" {
+  count = var.workbench_enabled && length(var.ssh_ingress_cidrs) > 0 ? 1 : 0
+
+  name                        = "AllowSshFromWorkbench"
+  priority                    = 100
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "22"
+  source_address_prefixes     = var.ssh_ingress_cidrs
+  destination_address_prefix  = "*"
+  resource_group_name         = local.resource_group_name
+  network_security_group_name = data.azurerm_network_security_group.vm_subnet.name
 }
 
 module "aks_workbench" {
