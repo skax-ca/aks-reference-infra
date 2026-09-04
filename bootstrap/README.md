@@ -6,11 +6,15 @@ state Storage Account, App Registration, 커스텀 RBAC 역할 2종, 리소스 �
 클러스터용 user-assigned identity를 Azure CLI 스크립트로 만든다. `tofu`가 이것들을 만들려면 이미 state 저장소가 있어야 하는 닭과 달걀
 문제가 있어서, 이 한 겹만 IaC 밖에 둔다(원본 `eks-reference-infra`와 동일한 이유).
 
-설계 근거는 `.omc/plans/bootstrap-credential-design.md`(v6, ralplan 5라운드 확정)다. AWS
-원본의 "입구 Role → 실행 Role" 2단 체인을 Azure Entra ID에 그대로 재현할 수 없어, 대신
-"CI 신원의 권한을 리소스 그룹 하나로 좁히고, 6가지 불변식으로 검증"하는 방식으로
-대체했다. 이 대체가 원본과 완전히 동등하지는 않다. 그 한계는 아래 2절과 4절에
-명시한다.
+설계 근거는 `.omc/plans/bootstrap-credential-design.md`(v6, ralplan 5라운드 확정 +
+2026-09-04 추가 기록)다. CI 신원(App Registration)은 **구독 전체 스코프의 `Owner`
+등가 커스텀 역할**을 갖는다. AWS 원본의 실행 Role(`AdministratorAccess`)과 권한
+스코프 축에서 완전히 대칭이다(2026-09-04 결정, 이전 설계는 RG 스코프로 좁히고 6종
+불변식으로 검증했으나 이 축은 폐기됐다). 방어선은 권한 크기가 아니라 이 신원에
+도달할 수 있는 경로(FIC subject)를 정확히 이 repo 하나로 좁히는 것뿐이다(Azure
+Entra ID에는 AWS `AssumeRole` 같은 2단 체인이 없어, FIC의 `subject` 완전 일치
+검사가 그 역할을 대신한다). 폐기 경위·근거 전문은
+`.omc/plans/bootstrap-credential-design.md`의 2026-09-04 추가 기록 참고.
 
 ## 1. 실행
 
@@ -80,33 +84,44 @@ placeholder를 썼었다.
 | 내구성 | blob 버전 관리 + blob soft delete(30일) + **컨테이너 소프트 삭제**(30일, blob soft delete와 별개 기능이라 반드시 함께 켠다) |
 | 컨테이너 | `tfstate` 1개. **동일 이름으로 재사용 금지**(소프트 삭제된 컨테이너와 같은 이름으로 새로 만들면 그 소프트 삭제분은 영구 복구 불가) |
 
-### 커스텀 RBAC 역할 2종
+### CI 신원 권한 (2026-09-04부터 워크로드 역할=구독 전체 Owner 등가)
 
-원본의 "입구 Role → 실행 Role" 2단 체인 대신, CI 신원(App Registration) 하나에 아래
-역할 2종만 부여한다. **built-in `Contributor`를 그대로 쓰지 않는다.**
+CI 신원(App Registration) 하나에 **커스텀 역할 2종**을 부여한다. built-in `Owner`를
+그대로 쓰지 않는 이유는 "워크로드 RG 자체를 실수로 삭제하는" 흔한 사고를 값싸게
+막기 위해서다(아래 참고). 워크로드 역할은 그 외엔 `Owner`와 동일하다.
 
 | 역할 | 스코프 | 정의 방식 |
 |------|--------|-----------|
-| 워크로드 CI 역할 | 워크로드 RG | `Actions:["*"]`, `NotActions` = **매 실행 런타임 조회**한 built-in Contributor의 notActions + `resourceGroups/delete` 추가 |
-| state 데이터 역할 | state 컨테이너 | Storage Blob Data Contributor에서 `containers/delete`만 제외한 **고정 델타**(실측 확정값, 하드코딩 유지) |
+| 워크로드 CI 역할 | **구독 전체** | `Actions:["*"]`, `NotActions:["Microsoft.Resources/subscriptions/resourceGroups/delete"]`(고정값 1개) |
+| state 데이터 역할 | state 컨테이너 | Storage Blob Data Contributor에서 `containers/delete`만 제외한 고정 델타 |
 
-⚠️ **워크로드 역할의 `notActions`를 문서·코드에 하드코딩하지 않는다.** 이전 설계
-반복에서 이 목록을 두 번 연속 손으로 옮겨 적다 틀렸다(built-in 정의와 불일치, 결과적으로
-Contributor보다 넓은 권한이 됨). `bootstrap.sh`/`verify.sh`가 `az role definition list
---name Contributor`로 그 시점의 실제 값을 조회해 쓴다. Azure가 Contributor 정의를
-바꿔도 다음 실행이 자동으로 따라간다.
+⚠️ **2026-08-27~2026-09-03까지는 워크로드 역할이 RG 스코프 + `NotActions`를
+built-in Contributor에서 런타임 조회한 값이었다.** 2026-09-04에 이 설계를 전면
+재검토해 워크로드 역할의 **스코프**를 RG → 구독 전체로 넓혔다. AWS 원본
+(`eks-reference-infra`)을 실측한 결과 실행 Role이 이미 `AdministratorAccess`를
+쓰고 있었고, 방어선은 "권한 크기를 좁힌다"가 아니라 "이 신원에 도달할 수 있는
+경로를 하나로 좁힌다"(입구 Role 신뢰 정책, Azure에서는 FIC subject)였다는 것을
+확인했다. Azure도 이미 그 "도달 경로 하나" 방어선을 FIC subject 완전 일치 검사로
+동등하게 갖고 있어, 워크로드 역할을 RG로 좁히던 건 AWS 원본에 없는 과잉설계였다고
+판단했다. 전체 근거·마이그레이션 경위는
+`.omc/plans/bootstrap-credential-design.md`의 2026-09-04 추가 기록을 참고.
 
-⚠️ **컨테이너 스코프 역할 할당 자체의 가능 여부는 미실측이다.** state 데이터
-역할의 권한 델타(Actions 3개, DataActions 5개) 값 자체는 실측 확정값이지만,
-`DataActions`를 가진 커스텀 역할을 Storage 컨테이너(하위 리소스) 스코프에
-실제로 **할당**할 수 있는지는 Azure 공식 문서에서 명시적으로 확인하지 못했다.
-불가능하다고 밝혀지면 이 역할의 스코프를 Storage Account 전체로 넓혀야 하며,
-그 경우 hub/dev 컨테이너 분리에 의존하던 격리 수단도 재검토 대상이 된다.
-실행 승인 전에 이 가능 여부를 먼저 실측할 것을 권한다.
+⛔ **state 데이터 역할은 이 재검토와 무관하게 그대로 유지한다.** 같은 날 "워크로드
+역할이 이제 state RG·컨테이너까지 전부 포괄하니 무의미하다"고 판단해 한 번
+제거했다가 **틀린 판단임을 실측으로 바로 확인해 재도입했다.** Azure RBAC는
+control-plane(`Actions`)과 storage blob data-plane(`DataActions`)이 완전히 분리된
+축이다. `az role definition list --name Owner`로 직접 확인한 결과 `Owner`도
+`dataActions: []`다. 이 backend는 `use_azuread_auth = true`를 쓰므로, 워크로드
+역할이 아무리 넓어도 state 데이터 역할 없이는 `tofu init`/`plan`/`apply`가 tfstate
+blob 접근 자체에서 실패한다(모든 live root가 이 backend를 공유하므로 영향 범위가
+전체다). 교훈: control-plane 권한이 넓다고 data-plane 접근이 자동으로 딸려온다고
+가정하지 않는다. Azure RBAC에서는 항상 별개다.
 
-⚠️ `NotActions`는 deny 규칙이 아니다. 이 두 역할의 안전성은 전적으로 아래 "권한
-불변식"이 항상 참이라는 것에 의존한다. 그 불변식이 깨지면 두 역할의 모든 제외가
-동시에 무의미해진다.
+⚠️ `NotActions`는 deny 규칙이 아니다. 워크로드 역할의 `resourceGroups/delete`
+제외는 이제 **보안 경계가 아니라 사고 방지 안전망**이다. 이 역할은 Owner와 거의
+동등하므로 RG 안의 다른 모든 리소스는 어차피 지울 수 있다. 이 역할의 실제
+안전성은 전적으로 아래 「GitHub OIDC」절의 FIC subject 완전 일치·정적 자격증명
+0건·그룹 멤버십 0건 검사가 항상 참이라는 것에 의존한다.
 
 ### 리소스 잠금
 
@@ -116,15 +131,25 @@ Contributor보다 넓은 권한이 됨). `bootstrap.sh`/`verify.sh`가 `az role 
 | 워크로드 RG 자기 삭제 방지 | 잠금 아님 | 위 커스텀 역할의 `NotActions`에 `resourceGroups/delete`를 넣어 역할 정의로 해결한다 |
 
 ⚠️ **잠금은 tfstate 데이터를 보호하지 않는다.** `CannotDelete`는 control-plane(리소스
-그룹·계정 자체의 삭제)만 막고 blob 데이터(data-plane)는 보호하지 않는다. tfstate를
-실제로 보호하는 것은 state 데이터 역할이 `containers/delete`(컨테이너 자체 삭제,
-control-plane)와 `blobs/permanentDelete/action`(원래 이 역할에 없음)을 갖지 않는다는
-사실과, 위 내구성 설정(soft delete + versioning)이다.
+그룹·계정 자체의 삭제)만 막고 blob 데이터(data-plane)는 보호하지 않는다. tfstate의
+실제 보호는 위 내구성 설정(soft delete 30일 + versioning) 한 층으로 수렴한다.
+**2026-09-04 이전에는 여기에 "state 데이터 역할이 `containers/delete`를 갖지 않는다"는
+두 번째 층이 있었는데, 그 역할은 그대로 유지되지만(위 「CI 신원 권한」절, data-plane
+접근 자체가 여전히 필요해 재도입) 이 두 번째 층의 방어 효과는 사라졌다.** `containers/
+delete`는 control-plane 액션이라, 워크로드 역할이 구독 전체 Owner 등가로 넓어지면서
+이미 그 액션(`Actions:["*"]`)을 갖는다. state 데이터 역할이 그 액션을 계속 빼고
+있어도 워크로드 역할을 통해 컨테이너 자체를 지울 수 있다. "즉시
+영구 삭제는 안 된다(30일 내 복구 가능), CI가 아예 못 지운다는 보장은 없다"로
+방어 수준이 낮아졌음을 인지한다(`.omc/plans/bootstrap-credential-design.md`
+2026-09-04 추가 기록 Consequence 12 참고).
 
 ⚠️ state RG에 잠금이 걸려 있으면 **사람 관리자도 예외 없이** 그 RG 안의 role
 assignment를 다시 만들 수 없다(`CannotDelete`가 RBAC 할당 삭제까지 막는다). 정당한
 변경이 필요하면: (1) 사람이 잠금 해제 → (2) `bootstrap.sh` 재실행으로 수렴 → (3) 잠금
-재적용. 자동화하지 않는다. 진짜 사고와 정상 변경을 자동으로 구분할 수 없다.
+재적용. 자동화하지 않는다. 진짜 사고와 정상 변경을 자동으로 구분할 수 없다. **CI
+신원도 이제 이 잠금을 스스로 풀 수 있다**(Owner 등가라 `Microsoft.Authorization/
+locks/delete`를 갖는다). 이 잠금은 이제 CI 신원 압축 시나리오의 방어선이 아니라
+사람의 실수(`tofu destroy`가 이 RG를 잘못 겨냥하는 등) 방지용 안전망이다.
 
 ### GitHub OIDC (Federated Identity Credential)
 
@@ -197,11 +222,18 @@ assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일�
 ### AKS 클러스터용 identity·권한 (hub 대상만, 확정 2026-09-03)
 
 `live/hub/aks`가 소비하는 `aks-cluster` 모듈은 identity도 role assignment도 스스로
-만들지 않고 **입력으로만 받는다**. 그리고 CI 신원에는
-`Microsoft.Authorization/roleAssignments/write`를 주지 않는다(위 「커스텀 RBAC 역할
-2종」절의 원칙). 두 제약이 겹쳐 이 산출물들은 구조적으로 부트스트랩 계층에서만 만들 수
-있다. 설계 근거 전문은 `.omc/plans/live-hub-aks.md`의 「identity·role assignment
-(bootstrap 확장)」절 참고.
+만들지 않고 **입력으로만 받는다**(이 경계는 모듈 자체의 설계 원칙이라
+`iac-module-library`의 `docs/decisions.md` ADR 소관이고, 이번 CI 권한 모델 변경과
+무관하게 그대로 유지된다). 이 산출물을 아래처럼 여전히 bootstrap 계층에서 만드는
+것은 **더 이상 구조적 제약이 아니라 선택이다.** CI 신원이 2026-09-04부터 구독
+전체 Owner 등가 역할을 가지므로, 이제 `live/hub/aks`의 Terraform 자체가
+`azurerm_user_assigned_identity`·`azurerm_role_assignment`를 직접 만들 수도 있다
+(`skip_service_principal_aad_check = true`로 방금 만든 identity의 AAD 복제 지연도
+흡수 가능). 아직 이 root를 건드리지 않은 이유는 이미 동작 중인 산출물을 마이그레이션
+할 실익이 낮아 후순위로 미뤘기 때문이다(`.omc/plans/bootstrap-credential-design.md`
+2026-09-04 추가 기록, 마이그레이션 체크리스트 8번). 신규 root(`live/hub/workbench`
+등)는 처음부터 Terraform으로 만든다. 원래 설계 근거 전문은 `.omc/plans/
+live-hub-aks.md`의 「identity·role assignment (bootstrap 확장)」절 참고.
 
 | 항목 | 값 |
 |------|-----|
@@ -212,9 +244,12 @@ assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일�
 | 할당 대상 | 위 identity의 principal |
 | 리소스 프로바이더 | `Microsoft.ContainerService`가 `Registered` |
 
-⚠️ **identity를 워크로드 RG에 두는 것은 선택이 아니라 제약이다.** CI 커스텀 역할의
-스코프가 그 RG 하나뿐이라, identity가 그 밖에 있으면 `live/hub/aks` apply가
-`Microsoft.ManagedIdentity/userAssignedIdentities/assign/action` 권한 부족으로 실패한다.
+⚠️ identity를 워크로드 RG에 두는 이유는 **2026-09-04 이전에는 제약**(CI 커스텀
+역할의 스코프가 그 RG 하나뿐이라 identity가 밖에 있으면 `live/hub/aks` apply가
+`Microsoft.ManagedIdentity/userAssignedIdentities/assign/action` 권한 부족으로
+실패)이었으나, 지금은 CI가 구독 전체 권한을 가지므로 **관례로만 남는다**(다른
+RG에 둬도 동작은 한다. 다만 워크로드 리소스와 같은 RG에 두는 편이 여전히
+자연스럽다).
 
 ⚠️ **role assignment 단계만 조건부다.** 스코프가 서브넷 리소스 하나라, 그 서브넷을
 만드는 `live/hub/networking` apply보다 `bootstrap.sh`가 먼저 실행되는 상황이 성립한다
@@ -234,12 +269,14 @@ assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일�
 있는데 서브넷 권한이 없으면 `live/hub/aks` apply는 성공으로 끝나고 노드만 조용히 join에
 실패한다. 그 죽은 경로를 잡는 것이 이 검사의 목적이다.
 
-⚠️ **`Microsoft.ContainerService` 등록을 사람이 미리 처리하는 이유**: CI 신원은 구독
-스코프 `*/register/action`을 갖지 않는다(워크로드 커스텀 역할의 스코프가 RG 하나뿐이다).
-미등록 상태로 apply가 시작되면 CI가 스스로 복구할 수 없는 실패로 막힌다. 등록은
-비동기라 `bootstrap.sh`는 `--wait`로 완료까지 기다린다(그래야 재실행이 변경 0건으로
-수렴한다). 2026-09-03 hub 구독 실측 기준 이미 `Registered`라, 이 단계는 사실상 멱등
-안전망이다.
+⚠️ **`Microsoft.ContainerService` 등록을 여기서 계속 처리하는 이유**: 2026-09-04
+이전에는 CI 신원이 구독 스코프 `*/register/action`을 갖지 않아(워크로드 커스텀
+역할의 스코프가 RG 하나뿐이었다) 이 등록을 CI가 스스로 할 수 없는 구조적 제약이
+있었다. 지금은 CI가 구독 전체 Owner 등가라 이 등록도 CI Terraform이 직접 할 수
+있지만, 이 단계는 그대로 bootstrap에 남겨 뒀다(사람이 부트스트랩 시점에 한 번
+처리하면 되는 저빈도 작업이라 옮길 실익이 낮다). 등록은 비동기라 `bootstrap.sh`는
+`--wait`로 완료까지 기다린다(그래야 재실행이 변경 0건으로 수렴한다). 2026-09-03
+hub 구독 실측 기준 이미 `Registered`라, 이 단계는 사실상 멱등 안전망이다.
 
 ## 3. 검증
 

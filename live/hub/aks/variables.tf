@@ -68,26 +68,10 @@ variable "ci_run" {
   nullable    = false
 }
 
-variable "aks_identity_id" {
-  description = <<-EOT
-    AKS 컨트롤 플레인이 쓸 user-assigned managed identity의 리소스 ID(전체 경로).
-
-    ⛔ 이 root 도 aks-cluster 모듈도 이 identity 를 만들지 않는다. 만들려면 CI 신원이
-       Microsoft.Authorization/roleAssignments/write 를 가져야 하는데, 그 권한은 CI 신원이
-       자기 자신에게 상위 역할을 부여할 수 있게 만든다(CLAUDE.md 2절의 금지 항목).
-       bootstrap 계층이 identity 생성과 aks-node 서브넷 스코프 Network Contributor 부여를
-       모두 처리하고, 그 결과 ID 를 여기로 넘긴다.
-
-    ⚠️ 순서 의존: ① bootstrap 이 identity 생성 → ② aks-node 서브넷에 Network Contributor
-       부여 → ③ 이 root apply. ②를 건너뛰면 ③은 성공하고 노드만 조용히 실패한다 — role
-       assignment 가 이 root 밖에 있어 plan 에서 잡히지 않는 죽은 경로다
-       (bootstrap/verify.sh 가 이 존재 여부를 검사한다).
-
-    ⛔ 기본값을 두지 않는다 — 구독 ID 를 포함한 리소스 경로라 git 에 두지 않는다.
-       주입 경로는 둘 다 git 밖이다:
-       CI   : GitHub repo 변수 AZURE_HUB_AKS_IDENTITY_ID → TF_VAR_aks_identity_id
-       로컬 : export TF_VAR_aks_identity_id=...
-  EOT
-  type        = string
-  nullable    = false
-}
+# aks_identity_id 변수는 2026-09-04부로 제거했다. CI 신원(App Registration)이 이제
+# 구독 전체 Owner 등가 역할을 가지므로(.omc/plans/bootstrap-credential-design.md
+# 2026-09-04 추가 기록), "CI가 roleAssignments/write를 가지면 자기 자신에게 상위
+# 역할을 부여할 수 있다"는 옛 금지 항목이 사라졌다 — 이 root가 자기 identity를
+# azurerm_user_assigned_identity로 직접 만든다(main.tf 참고). bootstrap 계층에서
+# 만들어 TF_VAR로 주입하던 간접 경로·GitHub repo 변수 AZURE_HUB_AKS_IDENTITY_ID는
+# 더 이상 쓰지 않는다.
