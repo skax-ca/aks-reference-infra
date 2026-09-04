@@ -5,7 +5,7 @@
   "techStack": "Azure CLI(az) bash 스크립트(bootstrap/) + OpenTofu(live/*, 1.12.5) + GitHub Actions OIDC(azurerm 5.x). bootstrap/은 순수 bash(config.sh/bootstrap.sh/verify.sh)로 App Registration·커스텀 RBAC 역할 3종(workload=구독 전체 Owner 등가, 2026-09-04부터/state-data=blob data-plane 별도 축/spoke-peer)·Storage Account·리소스 그룹·잠금을 az CLI로 직접 다룬다. AKS identity·role assignment는 2026-09-04부로 bootstrap이 아니라 live/hub/aks가 Terraform으로 직접 만든다. live/hub/networking·live/hub/vwan·live/dev/networking은 iac-module-library의 modules/azure/vnet을 소비하고, live/hub/aks는 modules/azure/aks-cluster(v0.5.0)를 소비하는 raw OpenTofu 루트 — 전부 hub·dev 구독에 실제 배포 완료.",
   "build": "로컬 apply는 require_oidc 가드로 차단(var.ci_run=true인 CI 전용). GitHub Actions(.github/workflows/deploy-*.yml)가 push 시 자동 tofu plan, workflow_dispatch로 apply. bootstrap/verify.sh가 부트스트랩 계층의 drift 감지(읽기 전용, tofu plan 없는 IaC 밖 계층 대응) 담당.",
   "conventions": "eks-reference-infra(AWS 원본)의 구조·문서 체계를 1:1 참조하되 Azure 대응물로 치환. 문서 규칙(em-dash 금지, 이모지 7종만, 문서 간 절 번호 인용 금지, 400줄 제한)은 iac-module-library의 docs/conventions.md가 SSOT. 네이밍 약어는 iac-module-library의 docs/naming/abbreviations/azure.md가 SSOT(rg/st/entapp/vwan/vhub 등재 완료).",
-  "structure": "bootstrap/(자격증명 계층, hub·dev 양쪽 실제 Azure 검증 완료 — CI 신원은 2026-09-04부터 구독 전체 Owner 등가, AKS identity는 여기서 더 이상 안 만듦) + live/hub/networking·live/hub/vwan·live/dev/networking·live/hub/aks(전부 배포 완료, hub↔dev vWAN 연결 + hub AKS 클러스터 가동, identity·role assignment는 자체 Terraform 관리로 전환, live/hub/networking에 AGFC용 alb 위임 서브넷·live/hub/aks에 ALB controller IAM 추가 배포 완료 2026-09-04) + live/dev/aks(Phase 2 계속, hub 패턴을 그대로 승계해 착수 예정) + live/hub/workbench(다른 세션에서 aks-workbench-v0.1.0 소비 진행 중, 2026-09-04). 별도 저장소 skax-ca/aks-platform-gitops(계층2 GitOps, 로컬 ~/born2k/ai/aks-platform-gitops)도 2026-09-04 신설 — 이 저장소의 세션에서 함께 관리, self-managed ArgoCD 매니페스트 11개(bootstrap/·projects/·clusters/hub/·addons/) 작성·push 완료(커밋 acc9608), 실행(seed)은 workbench 대기로 보류.",
+  "structure": "bootstrap/(자격증명 계층, hub·dev 양쪽 실제 Azure 검증 완료 — CI 신원은 2026-09-04부터 구독 전체 Owner 등가, AKS identity는 여기서 더 이상 안 만듦) + live/hub/networking·live/hub/vwan·live/dev/networking·live/hub/aks(전부 배포 완료, hub↔dev vWAN 연결 + hub AKS 클러스터 가동, identity·role assignment는 자체 Terraform 관리로 전환, live/hub/networking에 AGFC용 alb 위임 서브넷·live/hub/aks에 ALB controller IAM 추가 배포 완료 2026-09-04) + live/dev/aks(Phase 2 계속, hub 패턴을 그대로 승계해 착수 예정) + live/hub/workbench(2026-09-04 완전 배포·검증 완료 — aks-workbench-v0.3.0, PR #7~#10, SSH+sudo 없는 kubectl 정상 동작). 별도 저장소 skax-ca/aks-platform-gitops(계층2 GitOps, 로컬 ~/born2k/ai/aks-platform-gitops)도 2026-09-04 신설 — 이 저장소의 세션에서 함께 관리, self-managed ArgoCD 매니페스트 11개(bootstrap/·projects/·clusters/hub/·addons/) 작성·push 완료(커밋 acc9608), workbench 완료로 seed 실행 착수 가능해짐.",
   "customNotes": [
     {
       "timestamp": 1787807683942,
@@ -144,6 +144,36 @@
       "source": "manual",
       "category": "notes",
       "content": "2026-09-04(11차 세션) - egress canary 검증 완료(`az aks command invoke`로 private hub 클러스터에 임시 파드 실행, `curl https://mcr.microsoft.com/v2/` → http_code=200/0.1s, NAT Gateway 경유 확인). Follow-up 1(ArgoCD 자기관리) 착수: aks-platform-gitops repo에 self-managed ArgoCD 매니페스트 11개 신규 작성·push(커밋 acc9608) - AWS 원본 eks-platform-gitops의 argocd-app/values/root-app/seed.sh(module-library 커밋 0d342a0 vendoring)를 1:1 대조 포팅 + projects/platform.yaml·clusters/hub 등록·addons/baseline/alb-controller ApplicationSet 2종·로컬 helm 차트(ApplicationLoadBalancer CR) 신규. 사용자 결정 2건: GitHub App은 기존 skax-ca-gitops-reader(eks-platform-gitops용) 재사용, seed 실행은 workbench 완료 후로 보류(매니페스트 준비까지만). 실측으로 계획 2곳 정정: (1) albSubnetId를 cluster Secret 라벨에 넣으려던 설계가 실제 서브넷 리소스 ID(191자+'/' 포함)로 K8s 라벨 값 제약(63자·문자 제한)을 위반함을 확인, clusters/hub/*/values.yaml + matrix generator(cluster+git files)로 전환 - 단 이 generator는 이름 기준 join이 아닌 Cartesian product라 클러스터 2개 이상 시 재검증 필수. (2) AWS 원본의 workload-class taint tolerations는 이 hub 노드풀에 taint가 없음을 az aks show로 실측 확인 후 이식하지 않음. 세션 중 aks-reference-infra 공유 체크아웃이 옆 세션(fix/live-hub-workbench-subnet-nsg, 4분 전 커밋으로 활성 판단)의 브랜치로 전환돼 있음을 발견 - 그 브랜치를 건드리지 않고 git worktree로 별도 경로에서 이 notepad 갱신만 main에 커밋. 다음 세션: (1) live/hub/workbench 완료 대기 (2) GitHub App 설치 범위에 aks-platform-gitops repo 추가 (3) workbench 준비 후 argocd-seed.sh --dry-run → --to 4 → argocd app diff argocd --core로 diff 실측 확인 후 automated 블록 최종 확정."
+    },
+    {
+      "timestamp": 1788510000000,
+      "source": "manual",
+      "category": "notes",
+      "content": "2026-09-04(12차 세션, 11차 gitops 세션과 동시 진행) - live/hub/workbench 완전 배포·검증 완료. PR #7(초기 배포, aks-workbench-v0.1.0) 이후 실제 SSH·kubectl 검증 중 버그 3건을 실측 발견·수정: PR #8(aks-reference-infra, 서브넷 레벨 NSG 누락으로 SSH 자체가 타임아웃), iac-module-library PR #44(azure-cli 설치가 dpkg lock 경합으로 실패 → aks-workbench-v0.2.0, PR #9로 소비), iac-module-library PR #45(kubeconfig가 root 전용이라 sudo 필요 → aks-workbench-v0.3.0, PR #10으로 소비). 최종 실측: `ssh -i ~/.ssh/workbench_ed25519 azureuser@<ip>`로 sudo 없이 `kubectl get nodes`(hub 노드 2대 Ready) 확인. SSH private key는 로컬(~/.ssh/)에만 존재, .pub만 repo에 커밋(.gitignore에 workbench_ed25519 명시 제외 추가). 다음 세션: aks-platform-gitops의 argocd-seed.sh 실행(workbench 완료로 그 세션의 대기 조건 해소됨)."
+    },
+    {
+      "timestamp": 1788510000001,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-09-04(12차 세션) - Azure NSG는 서브넷 레벨과 NIC 레벨 두 겹으로 존재할 수 있고, 인터넷發 인바운드는 두 레벨 모두 명시 허용해야 통과한다는 걸 실측으로 처음 확인. `vnet` 모듈이 `nsg_enabled=true`로 서브넷마다 만드는 NSG는 규칙 0개인 빈 껍데기라(모듈 설계: \"룰은 이 모듈이 만들지 않는다, 소비자가 얹는다\") 플랫폼 기본 DenyAllInBound(65500)가 인터넷 트래픽을 막는다 — NIC 레벨 NSG(aks-workbench 모듈이 만드는 AllowSsh)가 아무리 맞아도 서브넷 레벨에서 먼저 끊긴다. `live/hub/workbench/main.tf`가 `data.azurerm_network_security_group`으로 그 서브넷 NSG를 조회해 별도 `azurerm_network_security_rule`을 얹어 해결(우선순위 100-199를 이 root가 예약, `live/hub/networking/main.tf` 주석에도 양방향 기록). 앞으로 이 vm 서브넷에 다른 관리 VM을 놓을 때도 같은 패턴(서브넷 레벨 NSG에 규칙 얹기) 재확인 필요."
+    },
+    {
+      "timestamp": 1788510000002,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-09-04(12차 세션) - Ubuntu 24.04 cloud-init 스크립트에서 apt-get이 dpkg lock 경합(unattended-upgrades 등 부팅 초기 백그라운드 프로세스)으로 실패하는 게 실제로 재현됨(aks-workbench 모듈 custom_data, iac-module-library PR #44). apt-get 자체의 `-o DPkg::Lock::Timeout=<초>` 옵션(APT 1.9.11+)이 별도 재시도 루프·fuser 의존 없이 락 해제를 기다려주는 가장 단순한 해법 — 최초 180초로 잡았다가 code-review 지적으로 600초로 상향(unattended-upgrades가 실측상 수 분까지 쥘 수 있음). 스크립트에 `set -e`가 없으면 이런 부분 실패가 조용히 넘어가 뒤 단계(kubeconfig 부트스트랩)까지 stale 상태로 연쇄되니, `cloud-init status --wait` exit 0만으로 성공 판정하지 말고 실제 boot log 내용(`E: `, `command not found` 등 실패 문자열)까지 확인해야 한다."
+    },
+    {
+      "timestamp": 1788510000003,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-09-04(12차 세션) - 재사용 모듈 fix를 짤 때 \"AWS 자매 모듈이 이미 이 문제를 겪고 정립해 둔 패턴이니 그대로 옮기면 된다\"는 판단이 두 번 연속 code-review에 잡힌 사례(iac-module-library PR #45, aks-workbench의 kubeconfig 배포 로직). AWS workbench 모듈의 `/etc/skel` 기반 전 사용자 자동 배포 패턴을 그대로 Azure에 이식했다가, AWS의 SSM 접근은 IAM 정책 하나로만 통제돼(OS 레벨 로그인 역할 2단계 구분이 없음) 그 패턴이 안전한 반면 Azure는 이 모듈 자신의 README가 `Virtual Machine Administrator Login`(sudo)·`User Login`(비-sudo) 2단계를 명시해 뒀다는 걸 놓쳐, User Login만 받은 사람도 자동으로 AKS 접근권을 물려받는 보안 회귀를 두 라운드 연속으로 냈다(1차: world-readable 전역 파일, 2차: skel 자동배포 — 둘 다 겉모습만 다르지 같은 근본 문제). 교훈: \"검증된 유사 패턴을 옮긴다\"고 할 때, 그 패턴이 안전한 이유(threat model)가 대상 플랫폼에도 똑같이 성립하는지 먼저 확인해야 한다 — 표면적 유사성(둘 다 \"관리 지점 VM\")만 보고 옮기면 안 된다."
+    },
+    {
+      "timestamp": 1788510000004,
+      "source": "manual",
+      "category": "notes",
+      "content": "2026-09-04(12차 세션) - `code-review` 스킬이 병렬 finder 에이전트(angleA~E) 방식으로 도는 도중 완전히 멈추는 사고를 실측(3번째 리뷰 라운드, 5개 에이전트+오케스트레이터 전부 5분 이상 로그 파일 mtime 변화 없음 — `.claude/projects/<repo>/<session>/subagents/agent-*.jsonl` 파일 크기·시각으로 확인 가능). `TaskStop`으로 named teammate(`angleN@session-<id>`)를 개별 중단시켜 정리한 뒤, diff가 작고(한 파일, 수십 줄) 이미 이전 라운드에서 심층 검증된 변경이면 직접 라인 단위로 재검토해 대체하는 것으로 충분했다 — 매번 무거운 병렬 리뷰를 처음부터 재시도할 필요는 없다. 리뷰가 정상 진행 중인지 판단할 땐 `ListAgents`의 상태 문구(\"roster\")만으로는 부족하고, 실제 로그 파일 mtime을 몇 분 간격으로 대조해야 정지 여부를 확실히 알 수 있다."
     }
   ],
   "directoryMap": {
@@ -265,6 +295,12 @@
       "type": "file"
     },
     {
+      "path": "live/hub/workbench/main.tf",
+      "accessCount": 2,
+      "lastAccessed": 1788508708115,
+      "type": "file"
+    },
+    {
       "path": "live/dev/networking/outputs.tf",
       "accessCount": 1,
       "lastAccessed": 1788394474576,
@@ -322,6 +358,12 @@
       "path": "live/hub/aks/backend.hcl.example",
       "accessCount": 1,
       "lastAccessed": 1788414380309,
+      "type": "file"
+    },
+    {
+      "path": "live/hub/workbench/override.tf",
+      "accessCount": 1,
+      "lastAccessed": 1788508728240,
       "type": "file"
     }
   ],

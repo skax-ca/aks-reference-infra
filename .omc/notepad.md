@@ -4,10 +4,53 @@
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
 
-2026-09-04(11차) - egress canary 완료(command invoke, mcr.microsoft.com 200/0.1s). aks-platform-gitops에 self-managed ArgoCD 매니페스트 11개 작성·push(argocd-app/values/root-app/seed.sh·platform.yaml·cluster-secret+values.yaml·alb-controller AppSet 2종·로컬 helm 차트), seed 실행은 workbench 대기로 보류. 실측: albSubnetId 라벨 K8s 제약 위반→values.yaml+matrix generator 전환. GitHub App은 기존 skax-ca-gitops-reader 재사용. ⚠️옆 세션이 workbench 브랜치로 공유 체크아웃 전환(활성)-worktree로 우회 기록. 다음: workbench 대기, App 설치범위 추가, seed 실행.
+2026-09-04(12차) - live/hub/workbench 완전 배포·검증 완료(aks-workbench-v0.3.0, PR#7-10, sudo 없이 SSH+kubectl 정상). 도중 실버그 3건: 서브넷NSG 누락(PR#8)·az CLI dpkg lock(모듈PR#44)·kubeconfig 위치+보안회귀2건(모듈PR#45, code-review 3라운드로 발견). 11차(동시진행) gitops 세션의 workbench 대기 조건 해소 - argocd-seed.sh 실행 가능. 다음: seed 실행, GitHub App 설치범위 추가, workbench↔gitops 연동 확인.
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->
+### 2026-09-04(12차 세션, 11차 gitops 세션과 동시 진행) - live/hub/workbench 완전 배포·검증 완료
+
+PR #7로 초기 배포(aks-workbench-v0.1.0) 후 실제 SSH·kubectl 접속을 검증하며 버그
+3건을 순차 발견·수정했다.
+
+**버그 1 — 서브넷 레벨 NSG 누락(PR #8)**: `aks-workbench` 모듈의 NIC 레벨 NSG(AllowSsh)만
+확인했는데, `live/hub/networking`이 `vm` 서브넷에 이미 만들어 둔 서브넷 레벨 NSG는
+`vnet` 모듈 설계상("룰은 이 모듈이 만들지 않는다") 커스텀 규칙이 0개였다 — 인터넷發
+인바운드가 플랫폼 기본 DenyAllInBound(65500)에 먼저 막혀 SSH가 전부 타임아웃.
+`data.azurerm_network_security_group`으로 그 서브넷 NSG를 조회해 별도 규칙을 얹어
+해결(우선순위 100-199 예약).
+
+**버그 2 — az CLI 설치 실패(iac-module-library PR #44, aks-workbench-v0.2.0)**: cloud-init
+로그 실측 결과 `apt-get install azure-cli`가 dpkg lock 경합으로 실패(부팅 초반
+unattended-upgrades 등과 충돌), 뒤이은 `az login`·`az aks get-credentials`까지 연쇄
+실패(스크립트에 `set -e` 없어 조용히 넘어감). apt-get의 `-o DPkg::Lock::Timeout=600`
+옵션으로 해결(최초 180초는 code-review로 부족함이 드러나 상향).
+
+**버그 3 — kubeconfig 위치(iac-module-library PR #45, aks-workbench-v0.3.0)**: `az aks
+get-credentials`가 root(cloud-init)로 실행돼 kubeconfig가 `/root/.kube/config`에만
+생기고 로그인 계정(`admin_username`)엔 없어 `sudo` 없이 kubectl 불가. 이 수정 과정에서
+code-review 3라운드가 실제 보안 회귀 2건을 잡아냈다 — (1) 1차 시도(world-readable 전역
+파일 + `/etc/profile.d`)는 `Virtual Machine User Login`(비-sudo)만 받은 사람도 AKS
+접근권을 얻게 함 (2) 2차 시도(AWS workbench 모듈의 `/etc/skel` 패턴 이식)도 같은 문제
+재발 — AWS는 SSM 접근이 IAM 하나로만 통제돼 skel이 안전하지만 Azure는 이 모듈 자신이
+Administrator/User Login 2단계를 문서화해 뒀다는 걸 놓쳤다. 최종적으로 자동 배포
+대상을 `admin_username` 하나로 좁히고(Entra SSH 계정엔 아무것도 자동으로 안 줌),
+`admin_username` 셸 injection 방지 validation도 추가. `kubelogin` 바이너리가 애초에
+설치 안 되던 기존 버그도 같이 수정(`kubelogin_version` 변수 신설).
+
+**PR/태그 전체**: aks-reference-infra #7·#8·#9·#10, iac-module-library #44(→
+`aks-workbench-v0.2.0`)·#45(→ `aks-workbench-v0.3.0`). 전부 `/code-review` 통과 후
+머지(PR #45는 3라운드, 3차는 병렬 리뷰 에이전트가 5분+ 정지해 `TaskStop`으로 중단 후
+직접 라인 단위 재검토로 대체).
+
+**최종 검증**: `ssh -i ~/.ssh/workbench_ed25519 azureuser@52.141.7.48`로 접속,
+`kubectl get nodes`(sudo 없이) → hub AKS 노드 2대 Ready, `az`(2.88.0)·`helm`(v4.2.4)·
+`argocd`(v3.5.2) 전부 정상. private key는 `~/.ssh/`에만 존재, `.pub`만 repo 커밋
+(`.gitignore`에 `workbench_ed25519` 명시 제외).
+
+**다음 세션**: aks-platform-gitops의 `argocd-seed.sh` 실행(workbench 완료로 그 세션이
+대기하던 조건 해소) — `--dry-run` → `--to` → `argocd app diff` 순으로 확인.
+
 ### 2026-09-04(11차 세션) - egress canary 검증 + aks-platform-gitops self-managed ArgoCD 매니페스트 작성
 
 **egress canary(계획서 5절 검증 5번)**: `az aks command invoke`로 private hub 클러스터에
