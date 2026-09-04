@@ -4,10 +4,68 @@
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
 
-2026-09-04(12차) - live/hub/workbench 완전 배포·검증 완료(aks-workbench-v0.3.0, PR#7-10, sudo 없이 SSH+kubectl 정상). 도중 실버그 3건: 서브넷NSG 누락(PR#8)·az CLI dpkg lock(모듈PR#44)·kubeconfig 위치+보안회귀2건(모듈PR#45, code-review 3라운드로 발견). 11차(동시진행) gitops 세션의 workbench 대기 조건 해소 - argocd-seed.sh 실행 가능. 다음: seed 실행, GitHub App 설치범위 추가, workbench↔gitops 연동 확인.
+2026-09-04(13차) - aks-platform-gitops argocd-seed.sh 완전 실행, ArgoCD 자기관리 Synced(rev=10d3ae7). GitHub App 설치범위 확장(웹UI) + platform AppProject의 CRD whitelist 버그 발견·수정(커밋10d3ae7). 웹콘솔 터널 구성(localhost:8080), 초기비번 교체+Secret삭제 미완(사용자 대기). 다음: 초기비번 교체 확인 후 Secret 삭제, alb-controller/loadbalancer sync 실패(namespace 순서 문제) 조사.
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->
+### 2026-09-04(13차 세션) - aks-platform-gitops argocd-seed.sh 완전 실행, GitOps 계층 실제 가동
+
+12차 세션이 남긴 workbench 완료 조건 해소 후, 남은 GitOps seed 절차를 순서대로 실행했다.
+
+**세션 도중 삽입된 별개 요청 처리**: 진행 중간 사용자가 iac-module-library PR #45(3차
+code-review stall 의심) 상태 확인을 요청 - notepad에 이미 "완료"로 기록된 것과 겹쳐
+`ListAgents`·`gh pr view`로 실측 재확인한 결과 peer 세션(`iac-module-library-89`)이
+이미 전부 처리한 뒤였다(PR #45 머지, v0.3.0 태그, aks-reference-infra PR #9·#10 머지,
+sudo 없는 kubectl 재검증까지). 노트패드가 "완료"라고 적어놨어도 실행 전 `gh` API로
+직접 재확인한 게 중복 작업(재머지·재태그)을 막았다.
+
+**1. GitHub App 설치 범위 확장**: `gh` CLI 토큰(OAuth App 토큰, `gho_` 접두사)으로
+`PUT /user/installations/{id}/repositories/{id}` API를 시도했으나 org admin 권한이
+있어도 403("permission to modify this app")으로 거부됨 - GitHub 공식 문서가 요구하는
+"classic PAT"가 아니라서로 추정. 결국 사용자가 웹 UI(`github.com/organizations/skax-ca/
+settings/installations`)에서 직접 추가. 이후 workbench에서의 App 인증 clone 성공으로
+간접 검증됨.
+
+**2. private key 취급 원칙 재확인**: AWS 자매 프로젝트(`iac-module-library`
+notepad-manual.md의 D-WORKBENCH-REPO 기록)가 확립한 "private key는 클러스터에 닿는
+위치에서 대화형으로만, 원격 명령 파라미터에 평문 노출 금지" 원칙을 그대로 적용 - key를
+`scp`로 workbench에 전달 → JWT 서명(openssl, RS256)으로 설치 토큰 발급 → 그 토큰으로
+clone → remote URL에서 토큰 제거 → key `shred -u`로 파기, 이 흐름을 반복 사용(clone
+1회, seed 2단계 1회).
+
+**3. seed 5단계 순서 설계를 그대로 따름**: `argocd-app.yaml` 자체 주석이 요구한 대로
+automated 없는 임시본을 먼저 apply → `argocd app diff --core`로 diff 확인 →
+CRD 3종만 수천 줄짜리 "전체 추가"로 보였으나 `helm template`로 직접 raw 구조 비교한
+결과 실질 내용은 동일함을 확인(--core 모드의 cluster-scoped 리소스 live-state 조회
+한계로 추정, 실제 drift 아님) → 나머지 37개 리소스는 tracking-id 한 줄 차이뿐임을
+확인 → root-app apply(5단계, 자기 흡수) 진행.
+
+**4. 실행 중 발견한 실제 버그**: `platform` AppProject의 `clusterResourceWhitelist`에
+`CustomResourceDefinition`이 없어 ArgoCD 자기관리 sync가 `InvalidSpecError`로 무한
+재시도됐다(사전 diff 검증에선 안 드러난 종류 - AppProject 권한은 diff가 아니라 실제
+sync 시점에만 걸린다). `aks-platform-gitops` 커밋 `10d3ae7`로 수정・push, root-app
+강제 sync로 즉시 반영 확인 후 `argocd` 앱도 Synced Healthy로 수렴(revision은 multi-source
+앱이라 `.status.sync.revision`이 아니라 `.status.sync.revisions`(배열)에 있었음 - 실측
+전엔 빈 값이라 "아직 sync 안 됨"으로 오판할 뻔함).
+
+**5. 부수 실측 2건**: (1) 비대화형 SSH 원격 명령에서 `disown`은 job control 부재로
+실패한다(exit 255, 무출력) - 서브셸 백그라운드(`(cmd &)`)로 대체해 해결. (2) argocd
+CLI `--core` 모드는 kubectl 컨텍스트의 기본 namespace가 비어있으면 `argocd-cm`을
+엉뚱한 namespace에서 찾아 `configmap not found`로 실패 - `kubectl config set-context
+--current --namespace=argocd`로 해결.
+
+**6. 웹 콘솔 접속 구성**: private 클러스터라 2단 SSH 터널(workbench 안 `kubectl
+port-forward` + 로컬 Mac→workbench SSH `-L`)로 `https://localhost:8080` 접속 가능하게
+구성, 초기 admin 비밀번호 확인함. **완료 조건 미이행**: 사용자가 로그인·비밀번호 교체
+확인 전이라 `argocd-initial-admin-secret` 삭제는 아직 안 함 - 다음 세션(또는 이 세션
+후속)에서 확인 후 처리할 것.
+
+**미해결로 남긴 별개 이슈**: `alb-controller`·`alb-loadbalancer`(AGFC addon) 두
+Application이 `namespaces "azure-alb-system" not found`로 5회 이상 재시도 실패 중 -
+automated(prune+selfHeal)는 켜져 있으나 namespace 생성 순서 문제로 추정(차트의 리소스
+순서 또는 sync-wave 미설정), 오늘 argocd-seed 작업과는 별개 범위라 조사만 하고
+넘어감. 다음 세션 후보.
+
 ### 2026-09-04(12차 세션, 11차 gitops 세션과 동시 진행) - live/hub/workbench 완전 배포·검증 완료
 
 PR #7로 초기 배포(aks-workbench-v0.1.0) 후 실제 SSH·kubectl 접속을 검증하며 버그
