@@ -219,64 +219,49 @@ assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일�
 (`BOOTSTRAP_TARGET=spoke`일 때만). 설계 근거 전문은
 `.omc/plans/live-hub-vwan-dev-networking.md` 4-1, 2026-09-03 추가 기록 참고.
 
-### AKS 클러스터용 identity·권한 (hub 대상만, 확정 2026-09-03)
+### AKS 클러스터용 identity·권한 (2026-09-04부로 bootstrap에서 Terraform으로 이관)
 
-`live/hub/aks`가 소비하는 `aks-cluster` 모듈은 identity도 role assignment도 스스로
-만들지 않고 **입력으로만 받는다**(이 경계는 모듈 자체의 설계 원칙이라
-`iac-module-library`의 `docs/decisions.md` ADR 소관이고, 이번 CI 권한 모델 변경과
-무관하게 그대로 유지된다). 이 산출물을 아래처럼 여전히 bootstrap 계층에서 만드는
-것은 **더 이상 구조적 제약이 아니라 선택이다.** CI 신원이 2026-09-04부터 구독
-전체 Owner 등가 역할을 가지므로, 이제 `live/hub/aks`의 Terraform 자체가
-`azurerm_user_assigned_identity`·`azurerm_role_assignment`를 직접 만들 수도 있다
-(`skip_service_principal_aad_check = true`로 방금 만든 identity의 AAD 복제 지연도
-흡수 가능). 아직 이 root를 건드리지 않은 이유는 이미 동작 중인 산출물을 마이그레이션
-할 실익이 낮아 후순위로 미뤘기 때문이다(`.omc/plans/bootstrap-credential-design.md`
-2026-09-04 추가 기록, 마이그레이션 체크리스트 8번). 신규 root(`live/hub/workbench`
-등)는 처음부터 Terraform으로 만든다. 원래 설계 근거 전문은 `.omc/plans/
-live-hub-aks.md`의 「identity·role assignment (bootstrap 확장)」절 참고.
+`aks-cluster` 모듈은 identity도 role assignment도 스스로 만들지 않고 **입력으로만
+받는다**(모듈 경계 원칙, `iac-module-library`의 `docs/decisions.md` ADR 소관, 그대로
+유지). **소비자가 그걸 어디서 만드는지는 2026-09-04에 bootstrap → `live/hub/aks`
+Terraform으로 이관했다.** CI 신원이 구독 전체 Owner 등가가 되면서 "CI에
+`roleAssignments/write`를 주지 않는다"던 옛 방어선이 사라져, 이 identity·role
+assignment를 bootstrap(IaC 밖)에 둘 구조적 이유가 없어졌기 때문이다
+(`.omc/plans/bootstrap-credential-design.md` 2026-09-04 추가 기록).
 
-| 항목 | 값 |
-|------|-----|
-| user-assigned identity | `id-<workload>-hub-krc-aks-01` |
-| identity의 거처 | **워크로드 RG**(`rg-<workload>-hub-krc-workload-01`) |
-| role assignment | built-in `Network Contributor` |
-| role assignment 스코프 | `aks-node` 서브넷 리소스 하나(`snet-<workload>-hub-krc-aks-node`) |
-| 할당 대상 | 위 identity의 principal |
-| 리소스 프로바이더 | `Microsoft.ContainerService`가 `Registered` |
+이관 방식은 **live 재배포**다. 기존 클러스터를 destroy(GitHub Actions
+`workflow_dispatch`, `action=destroy`) → bootstrap이 만들었던 구식 identity·role
+assignment를 사람이 정리(`az identity delete`·`az role assignment delete`) →
+`live/hub/aks`가 `azurerm_user_assigned_identity`·`azurerm_role_assignment`를
+직접 만들도록 Terraform 수정 → 재배포. (대안이었던 `import` 블록으로 기존 리소스를
+그대로 편입하는 방식은, MS 공식 문서가 "identity 전환 시 컨트롤 플레인이 새
+identity로 넘어가는 데 수 시간 걸릴 수 있다"고 경고해 이번엔 채택하지 않았다. 이미
+GitOps 워크로드가 없는 데모 클러스터라 destroy 비용이 낮았다.)
 
-⚠️ identity를 워크로드 RG에 두는 이유는 **2026-09-04 이전에는 제약**(CI 커스텀
-역할의 스코프가 그 RG 하나뿐이라 identity가 밖에 있으면 `live/hub/aks` apply가
-`Microsoft.ManagedIdentity/userAssignedIdentities/assign/action` 권한 부족으로
-실패)이었으나, 지금은 CI가 구독 전체 권한을 가지므로 **관례로만 남는다**(다른
-RG에 둬도 동작은 한다. 다만 워크로드 리소스와 같은 RG에 두는 편이 여전히
-자연스럽다).
+| 항목 | 값 | 관리 주체 |
+|------|-----|-----------|
+| user-assigned identity | `id-<workload>-hub-krc-aks-01` | `live/hub/aks`(Terraform, `azurerm_user_assigned_identity.aks`) |
+| identity의 거처 | 워크로드 RG(`rg-<workload>-hub-krc-workload-01`) | 〃 |
+| role assignment | built-in `Network Contributor` | `live/hub/aks`(Terraform, `azurerm_role_assignment.aks_node_subnet`) |
+| role assignment 스코프 | `aks-node` 서브넷 리소스 하나 | 〃 |
+| 리소스 프로바이더 | `Microsoft.ContainerService`가 `Registered` | **여전히 bootstrap**(아래 참고) |
 
-⚠️ **role assignment 단계만 조건부다.** 스코프가 서브넷 리소스 하나라, 그 서브넷을
-만드는 `live/hub/networking` apply보다 `bootstrap.sh`가 먼저 실행되는 상황이 성립한다
-(위 「크로스 구독 연결」절의 `peer/action`이 RG 스코프로 완화됐던 것과 같은 닭과 달걀
-문제). 그래서 서브넷이 없으면 **이 단계만** 경고 후 건너뛰고 나머지는 정상 진행하며,
-서브넷이 생긴 뒤 재실행하면 수렴한다. `peer/action`처럼 스코프를 RG로 완화하지 않은
-이유는 위험도 차이다(액션 1개 대 대상 1개). hub는 `aks-node` 서브넷이 이미 배포돼 있어
-실제로는 이 분기를 타지 않지만, 다음 스포크를 위해 지금 만들어 둔다.
+⚠️ 스코프가 노드 RG 전체가 아니라 서브넷 하나로 좁은 건 실수가 아니다. MS 공식
+문서(`concepts-network-cni-overview`)가 BYO-VNet 시나리오(이 root처럼 VNet을
+`live/hub/networking`이 별도 소유하는 경우)의 최소 권고로 명시하는 값이다. "노드
+리소스 그룹 전체 Contributor"는 AKS가 네트워킹까지 자동 관리하는 기본 시나리오의
+기본값이라 여기엔 해당하지 않는다.
 
-⚠️ **`verify.sh`의 이 절 검사는 위 권한 불변식과 범주가 다르다.** 불변식들은 CI 신원의
-권한이 0건 또는 허용 목록과 완전히 일치하는지 보는 음성 검사인데, 여기 검사는 CI 신원이
-아닌 다른 principal에 대한 **양성 존재 확인**이다. 서브넷 부재로 판정할 수 없을 때는
-`warn`으로 보고하고 drift로 세지 않는다(`exit 0` 유지). 조회 자체가 실패하는 경우는
-여전히 `exit 2`다.
+⚠️ `skip_service_principal_aad_check = true`를 쓴다. 방금 만든 identity에 role을
+붙이는 것이라 AAD 복제 지연으로 `PrincipalNotFound`가 날 수 있는데, bootstrap.sh가
+예전에 bash 재시도(`retry_on_replication_delay`)로 흡수하던 문제를 이제 provider가
+대신 흡수한다.
 
-⛔ **identity 존재 확인만으로는 부족해 role assignment 존재까지 검사한다.** identity는
-있는데 서브넷 권한이 없으면 `live/hub/aks` apply는 성공으로 끝나고 노드만 조용히 join에
-실패한다. 그 죽은 경로를 잡는 것이 이 검사의 목적이다.
-
-⚠️ **`Microsoft.ContainerService` 등록을 여기서 계속 처리하는 이유**: 2026-09-04
-이전에는 CI 신원이 구독 스코프 `*/register/action`을 갖지 않아(워크로드 커스텀
-역할의 스코프가 RG 하나뿐이었다) 이 등록을 CI가 스스로 할 수 없는 구조적 제약이
-있었다. 지금은 CI가 구독 전체 Owner 등가라 이 등록도 CI Terraform이 직접 할 수
-있지만, 이 단계는 그대로 bootstrap에 남겨 뒀다(사람이 부트스트랩 시점에 한 번
-처리하면 되는 저빈도 작업이라 옮길 실익이 낮다). 등록은 비동기라 `bootstrap.sh`는
-`--wait`로 완료까지 기다린다(그래야 재실행이 변경 0건으로 수렴한다). 2026-09-03
-hub 구독 실측 기준 이미 `Registered`라, 이 단계는 사실상 멱등 안전망이다.
+⚠️ **`Microsoft.ContainerService` 등록만 bootstrap에 남아있다.** CI가 이제 구독
+스코프 `*/register/action`도 가지므로 이것도 Terraform으로 옮길 수 있지만, 사람이
+부트스트랩 시점에 한 번 처리하면 되는 저빈도 작업이라 옮길 실익이 낮다고 판단해
+남겨 뒀다(별개 판단, identity·role assignment 이관과 묶지 않았다). 등록은 비동기라
+`bootstrap.sh`는 `--wait`로 완료까지 기다린다.
 
 ## 3. 검증
 
@@ -370,8 +355,11 @@ import {
 | `AZURE_CLIENT_ID` (App Registration의 appId) | GitHub repo 변수 |
 | `AZURE_TENANT_ID` | GitHub repo 변수 |
 | `AZURE_SUBSCRIPTION_ID` | GitHub repo 변수 |
-| `AZURE_HUB_AKS_IDENTITY_ID` (AKS 클러스터용 identity의 리소스 ID) | GitHub repo 변수. **hub 대상 실행에서만 출력된다.** `live/hub/aks` 워크플로가 `TF_VAR_aks_identity_id`로 주입한다 |
 | state Storage Account명·컨테이너명 | 로컬 `backend.hcl`(각 `live/<env>/` 디렉토리, gitignore됨). `tofu init -backend-config=backend.hcl` |
+
+⚠️ `AZURE_HUB_AKS_IDENTITY_ID`는 2026-09-04부로 더 이상 출력하지 않는다. AKS
+컨트롤 플레인 identity를 이제 `live/hub/aks`가 Terraform으로 직접 만든다(위 「AKS
+클러스터용 identity·권한」절). 기존 GitHub repo 변수는 미사용 상태로 정리한다.
 
 새 spoke 인스턴스(`dev`가 아닌 환경)를 추가하면 워크플로 배선(repo 변수 이름,
 `live/<env>/` 루트)이 아직 없다. 그 배선은 이 부트스트랩과 별개로 설계해야 한다.

@@ -15,7 +15,8 @@
 #     이전엔 RG 스코프였다 / state 데이터 커스텀 역할 — 컨테이너 스코프, control-
 #     plane과 분리된 blob data-plane 축이라 워크로드 역할이 아무리 넓어도 대체
 #     못 한다, config.sh 참고)
-#   ⑥ AKS 클러스터용 identity + 노드 서브넷 권한 + RP 등록(hub 대상만)
+#   ⑥ RP 등록(hub 대상만 — AKS identity·role assignment는 2026-09-04부로
+#     live/hub/aks가 Terraform으로 직접 만든다)
 #   ⑦ state RG 잠금 — 반드시 마지막
 #
 # ⛔ 워크로드 리소스 그룹에는 잠금을 걸지 않는다. Azure 리소스 잠금은 상속되므로
@@ -274,60 +275,11 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
   ensure_role_assignment "$SPOKE_PEER_ROLE_NAME" "$RG_SCOPE" "spoke-peer" "$HUB_SP_ID"
 fi
 
-# ── 6-2. AKS 클러스터용 identity·권한·RP 등록 (hub 대상만, 계획
-#    .omc/plans/live-hub-aks.md 「identity·role assignment (bootstrap 확장)」절) ─
-# aks-cluster 모듈은 identity도 role assignment도 만들지 않고 입력으로만 받는다.
-# 그리고 CI 신원에는 roleAssignments/write를 주지 않는다는 제약(CLAUDE.md 2절)이
-# 있어, 이 둘은 구조적으로 CI 밖(여기)에서만 만들 수 있다.
-ensure_aks_identity() {
-  local existing
-  existing="$(az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" \
-    --query id -o tsv 2>/dev/null)" || existing=""
-  if [[ -z "$existing" || "$existing" == "None" ]]; then
-    az_ identity create --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" \
-      --location "$REGION" \
-      --tags "Workload=$TAG_WORKLOAD" "Environment=$TAG_ENVIRONMENT" "ManagedBy=$TAG_MANAGED_BY" \
-      >/dev/null
-    changed "[aks] user-assigned identity 생성: $AKS_IDENTITY_NAME"
-  else
-    ok "[aks] user-assigned identity 존재: $AKS_IDENTITY_NAME"
-  fi
-  # ⚠️ create의 --query 출력을 그대로 받지 않고 다시 show로 조회한다. az의 create
-  # 계열은 경고를 stderr로 섞어 내보내는 경우가 있어, 값을 얻는 경로를 조회 하나로
-  # 통일하는 편이 안전하다(기존 ensure_app_registration의 create→list 패턴과 동일).
-  #
-  # ⚠️ `az identity show`가 반환하는 리소스 ID는 `/resourcegroups/`(소문자)다. ARM
-  # 자체는 대소문자를 구분하지 않지만, azurerm provider(v5, 타입 SDK)는 세그먼트
-  # 리터럴을 정확히 `/resourceGroups/`로 요구해 그대로 넘기면 "the segment at
-  # position 2 didn't match"로 plan이 실패한다(2026-09-03 live/hub/aks 첫 apply
-  # 실측). sed로 그 세그먼트만 정규화한다.
-  AKS_IDENTITY_ID="$(az_or_die "AKS identity 리소스 ID" -- \
-    az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" --query id -o tsv \
-    | sed 's#/resourcegroups/#/resourceGroups/#')"
-  AKS_IDENTITY_PRINCIPAL_ID="$(az_or_die "AKS identity principalId" -- \
-    az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" --query principalId -o tsv)"
-}
-
-# ⚠️ **조건부·수렴형**이다. 이 스크립트는 새 스포크에서도 다시 실행되는데, 그
-# 시점의 최초 실행은 언제나 live/<env>/networking apply보다 먼저 온다(peer/action이
-# RG 스코프로 완화됐던 것과 같은 닭과 달걀 문제, bootstrap/README.md 「크로스 구독
-# 연결」절). 그래서 대상 서브넷이 없으면 **이 단계만** 건너뛰고 나머지는 정상
-# 진행한다. 서브넷이 생긴 뒤 재실행하면 수렴한다. peer/action과 달리 스코프를
-# 완화하지 않고 이 방식을 택한 이유는 위험도 차이다(액션 1개 대 대상 1개).
-ensure_aks_node_subnet_role() {
-  local subnet_id
-  subnet_id="$(aks_node_subnet_id)"
-  if [[ -z "$subnet_id" ]]; then
-    warn "[aks] 노드 서브넷이 아직 없어 role assignment를 건너뛴다: $AKS_NODE_SUBNET_NAME"
-    warn "[aks] live/$ENV_TOKEN/networking apply 후 이 스크립트를 다시 실행하면 수렴한다"
-    return 0
-  fi
-  ensure_role_assignment "$AKS_NODE_ROLE_NAME" "$subnet_id" "aks" "$AKS_IDENTITY_PRINCIPAL_ID"
-}
-
-# CI 신원은 구독 스코프 */register/action을 갖지 않는다(워크로드 커스텀 역할의
-# 스코프가 RG 하나뿐이다). 미등록 상태로 apply가 시작되면 CI가 스스로 복구할 수
-# 없는 실패로 막히므로 사람이 여기서 사전에 처리한다.
+# ── 6-2. RP 등록 (hub 대상만) ────────────────────────────────────────────────
+# ⚠️ AKS 클러스터용 identity·role assignment는 2026-09-04부로 여기서 만들지
+# 않는다(config.sh 참고 — `live/hub/aks`가 이제 자기 identity를 Terraform으로 직접
+# 만든다). RP 등록만 그대로 남긴다 — CI가 이제 구독 전체 Owner라 `*/register/action`도
+# 갖지만, 저빈도 1회성 작업이라 옮길 실익이 낮다는 별개 판단(README 참고).
 #
 # ⚠️ --wait를 붙인다. 등록은 비동기라 --wait 없이는 다음 실행이 아직 "Registering"을
 # 보고 다시 register를 호출해 "재실행하면 변경 0건"이라는 이 스크립트의 수용 기준이
@@ -345,8 +297,6 @@ ensure_container_service_provider() {
 }
 
 if [[ "$BOOTSTRAP_TARGET" == "hub" ]]; then
-  ensure_aks_identity
-  ensure_aks_node_subnet_role
   ensure_container_service_provider
 fi
 
@@ -383,11 +333,6 @@ cat <<OUT
   GitHub repo 변수  AZURE_TENANT_ID       = $EXPECTED_TENANT
   GitHub repo 변수  AZURE_SUBSCRIPTION_ID = $EXPECTED_SUBSCRIPTION
 OUT
-
-# hub 대상에서만 나온다 — live/hub/aks가 TF_VAR로 주입받는 값이다.
-if [[ "$BOOTSTRAP_TARGET" == "hub" ]]; then
-  printf '  GitHub repo 변수  AZURE_HUB_AKS_IDENTITY_ID = %s\n' "$AKS_IDENTITY_ID"
-fi
 
 cat <<OUT
 

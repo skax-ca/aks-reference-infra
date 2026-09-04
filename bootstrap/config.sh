@@ -133,51 +133,14 @@ readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
 # 연결할 권한(peer/action 단일 액션)을 주는 역할이다(계획 4-1 Option A).
 readonly SPOKE_PEER_ROLE_NAME="aks-ref-bootstrap-spoke-peer-${ENV_TOKEN}"
 
-# ── AKS 클러스터용 identity·권한 (.omc/plans/live-hub-aks.md 「identity·role
-#    assignment (bootstrap 확장)」절) ──────────────────────────────────────────
-# aks-cluster 모듈은 identity도 role assignment도 스스로 만들지 않고 입력으로만
-# 받는다. 그래서 이 두 가지의 소유자는 bootstrap 계층(IaC 밖, 사람이 실행)이다.
-#
-# ⚠️ identity를 **워크로드 RG**에 두는 이유: CI 커스텀 역할의 스코프가 그 RG 하나뿐
-#    이라, identity가 그 밖에 있으면 live/hub/aks apply가 Microsoft.ManagedIdentity/
-#    userAssignedIdentities/assign/action 권한 부족으로 실패한다.
-readonly AKS_IDENTITY_NAME="id-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-aks-01"
-
-# VNet·노드 서브넷 이름은 live/<env>/networking 루트가 소비하는 vnet 모듈이
-# "vnet-<workload>-<env>-<region_code>-<purpose>" · "snet-...-<그룹명>"으로 조합한
-# 값이다(purpose="main", 그룹명="aks-node"). 이 스크립트는 그 서브넷을 만들지 않고
-# role assignment 스코프로 참조만 한다.
-readonly AKS_VNET_NAME="vnet-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-main"
-readonly AKS_NODE_SUBNET_NAME="snet-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-aks-node"
-
-# ⚠️ 이것만 **built-in 역할**이다(커스텀 역할이 아니다). 그래서
-#    role_definition_matches()로 정의 완전 일치를 검사하지 않는다 — 정의를 Azure가
-#    소유하므로 이 저장소가 기대값을 가질 근거 자체가 없다. 검사 대상은 "이 역할을
-#    가리키는 role assignment가 서브넷 스코프에 존재하는가" 하나다. 서브넷 스코프로
-#    좁힌 근거는 Microsoft 공식 문서(concepts-network-cni-overview)의 최소 권고
-#    ("at least Network Contributor permissions on the subnet")다.
-readonly AKS_NODE_ROLE_NAME="Network Contributor"
-
-# 노드 서브넷의 리소스 ID를 찾는다. 없으면 **빈 문자열**을 stdout에 낸다(호출자가
-# 판단한다: bootstrap.sh는 role assignment 단계를 건너뛰고, verify.sh는 na로 보고).
-# 두 스크립트가 **같은 함수**를 써야 한다 — 기준이 갈리면 "bootstrap은 만들었다는데
-# verify는 미판정"처럼 서로 다른 결론이 나온다(role_definition_matches와 같은 이유).
-#
-# ⚠️ VNet 존재 확인과 서브넷 조회를 2단계로 나눈 것이 핵심이다. VNet 부재는 정당한
-#    "아직 안 만들어짐"이지만, VNet이 있는데 조회가 실패하는 것은 권한 문제 등이라
-#    fail-closed(exit 2)여야 한다. 한 번의 `subnet show`로 합치면 그 둘이 구분되지
-#    않아 조회 실패가 "부재"로 둔갑하고, verify.sh 쪽에서는 그것이 na(exit 0)라는
-#    유일한 통과 경로로 새어 나간다.
-aks_node_subnet_id() {
-  az_ network vnet show --resource-group "$RG_NAME" --name "$AKS_VNET_NAME" &>/dev/null \
-    || { echo ""; return; }
-  local id
-  id="$(az_or_die "노드 서브넷 조회($AKS_NODE_SUBNET_NAME)" -- \
-    az_ network vnet subnet list --resource-group "$RG_NAME" --vnet-name "$AKS_VNET_NAME" \
-      --query "[?name=='${AKS_NODE_SUBNET_NAME}'].id | [0]" -o tsv)"
-  [[ "$id" == "None" ]] && id=""
-  echo "$id"
-}
+# ⚠️ AKS 클러스터용 identity·role assignment는 2026-09-04부로 이 스크립트가 더
+# 이상 만들지 않는다(config.sh AKS_IDENTITY_NAME 등 관련 상수·`aks_node_subnet_id()`
+# 전부 제거). CI 신원이 이제 구독 전체 Owner 등가라 그 제약(모듈이 identity/role
+# assignment를 안 만든다는 aks-cluster 경계 원칙 + CI가 roleAssignments/write를
+# 못 갖는다는 옛 제약)의 두 번째 축이 사라졌다 — `live/hub/aks`가 자기 identity를
+# Terraform으로 직접 만든다(`.omc/plans/bootstrap-credential-design.md` 2026-09-04
+# 추가 기록 참고). `Microsoft.ContainerService` RP 등록은 그대로 남긴다(아래) —
+# 저빈도 1회성 작업이라 옮길 실익이 낮다는 별개 판단.
 
 # ── FIC subject (계획 6-0-d 확정: 배포 브랜치 정책만, 필수 리뷰어 없음) ─────
 #

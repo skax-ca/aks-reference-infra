@@ -380,48 +380,12 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
   fi
 fi
 
-# ── AKS 클러스터용 identity·권한·RP 등록 (hub 대상만, 계획
-#    .omc/plans/live-hub-aks.md 「identity·role assignment (bootstrap 확장)」절) ─
-#
-# ⚠️ 위 6종 불변식과 **범주가 다르다**. 불변식들은 CI 신원(App Registration)의 권한이
-#    0건 또는 허용 목록과 완전히 일치하는지 보는 **음성 검사**다. 여기 세 검사는 CI
-#    신원이 아닌 다른 principal(AKS 클러스터용 UAMI)에 대한 **양성 존재 확인**이다.
-#
-# role assignment 존재까지 확인하는 이유: identity만 확인하면 "identity는 있는데
-# 서브넷 권한이 없는" 상태를 놓친다. 그 상태에서 live/hub/aks apply는 성공으로
-# 끝나고 노드만 조용히 join에 실패한다 — verify.sh가 잡아야 하는 바로 그 죽은
-# 경로다.
+# ── RP 등록 (hub 대상만) ─────────────────────────────────────────────────────
+# ⚠️ AKS 클러스터용 identity·role assignment 검사는 2026-09-04부로 여기서
+# 제거했다 — 그 산출물이 이제 `live/hub/aks`의 Terraform state 안에 있어(`tofu
+# plan`이 자기 검증 역할을 대신한다), CI 신원(App Registration) 권한을 보는 이
+# 스크립트의 검사 대상이 아니게 됐다. RP 등록만 그대로 남긴다(bootstrap.sh 참고).
 if [[ "$BOOTSTRAP_TARGET" == "hub" ]]; then
-  check_aks_identity() {
-    local principal_id
-    principal_id="$(az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" \
-      --query principalId -o tsv 2>/dev/null)" || principal_id=""
-    [[ -n "$principal_id" && "$principal_id" != "None" ]] && echo ok || echo absent
-  }
-  report "[aks] user-assigned identity 존재 ($AKS_IDENTITY_NAME)" "$(check_aks_identity)"
-
-  # ⚠️ 필터를 roleDefinitionId로 거는 것도, 스코프 동등 비교를 하지 않는 것도
-  # bootstrap.sh의 ensure_role_assignment와 **의도적으로 동일**하다. 두 스크립트가
-  # 서로 다른 기준을 쓰면 "bootstrap은 ok인데 verify는 실패"가 생겨 verify.sh가
-  # 완화책이 아니라 소음이 된다(이 파일 앞부분의 커스텀 역할 검사와 같은 이유).
-  check_aks_node_subnet_role() {
-    local principal_id subnet_id role_id count
-    principal_id="$(az_ identity show --name "$AKS_IDENTITY_NAME" --resource-group "$RG_NAME" \
-      --query principalId -o tsv 2>/dev/null)" || principal_id=""
-    [[ -n "$principal_id" && "$principal_id" != "None" ]] || { echo absent; return; }
-    subnet_id="$(aks_node_subnet_id)"
-    [[ -n "$subnet_id" ]] || { echo na; return; }
-    role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$AKS_NODE_ROLE_NAME")")"
-    [[ -n "$role_id" ]] || { echo absent; return; }
-    count="$(az_or_die "role assignment($AKS_NODE_ROLE_NAME @ $subnet_id)" -- \
-      az_ role assignment list --assignee "$principal_id" --scope "$subnet_id" \
-        --query "length([?roleDefinitionId=='$role_id'])" -o tsv)"
-    require_int "$count" "[aks] 노드 서브넷 role assignment 개수"
-    [[ "$count" -gt 0 ]] && echo ok || echo absent
-  }
-  report "[aks] 노드 서브넷 role assignment ($AKS_NODE_ROLE_NAME @ $AKS_NODE_SUBNET_NAME)" \
-    "$(check_aks_node_subnet_role)"
-
   check_container_service_provider() {
     local state
     state="$(az_or_die "Microsoft.ContainerService 등록 상태" -- \
