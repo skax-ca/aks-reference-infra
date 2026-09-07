@@ -151,7 +151,12 @@ module "aks_workbench" {
   #
   # custom_data는 ForceNew라 이 버전 변경 자체가 VM 재생성을 유발한다 — 의도된 것
   # (9절 사고 기록 참고).
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.3.0&depth=1"
+  #
+  # v0.4.0으로 올린 이유: 2026-09-07 실측 — AWS 원본 modules/aws/workbench/
+  # user-data.sh.tftpl과 대조한 결과, kubectl·helm·argocd·krew를 설치는 했지만
+  # /etc/profile.d 로그인 프로파일 블록 자체가 없어 k alias·kubectl completion·
+  # KREW_ROOT PATH가 전혀 안 잡혀 있었다. v0.4.0이 그 블록을 신설했다.
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.4.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다.
   # {demo, hub, krc} → vm-demo-hub-krc-workbench-01
@@ -209,6 +214,14 @@ module "aks_workbench" {
   kubectl_version = "v1.37.0"
   helm_version    = "v4.2.4"
   argocd_version  = "v3.5.2"
+
+  # 2026-09-07 실측(gh api repos/.../releases) 추가 — 이전까지 이 root가 아예 안 넘겨서
+  # krew·aks-node-viewer가 설치조차 안 되고 있었다(모듈은 v0.3.0부터 이미 지원, 소비자
+  # 누락). krew_plugins는 모듈 기본값(ctx·ns·neat·rbac-tool·view-secret·whoami)을 그대로 쓴다.
+  krew_version = "v0.5.0"
+  # ⚠️ Azure/aks-node-viewer는 2024-11-10 이후 갱신 없는 alpha 단계(모듈 변수 설명 경고).
+  # 설치 실패는 부팅을 막지 않는다(모듈 자체가 || true로 감쌈).
+  aks_node_viewer_version = "v0.0.2-alpha"
 
   tags = local.tags
 }
