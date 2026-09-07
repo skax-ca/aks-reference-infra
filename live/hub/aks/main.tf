@@ -229,16 +229,31 @@ module "aks_cluster" {
 # together" 절 — azurerm이 관리하는 AKS 클러스터에 azapi_update_resource로
 # networkProfile 같은 미노출 필드를 얹는 예시가 그 문서의 정식 예제다).
 #
-# ⚠️ **아래 3개 필드 조합은 ARM 템플릿 레퍼런스(learn.microsoft.com/en-us/azure/
-# templates/microsoft.containerservice/managedclusters)의 스키마 트리로 구조는
-# 확정했지만, 정확히 이 조합(App Routing 오퍼레이터 + Gateway API + Istio 모드,
-# NGINX 없이)을 실제로 적용해 검증한 단일 공식 예제는 찾지 못했다** — AKS 공식
-# 블로그(blog.aks.azure.com/2026/06/10/app-routing-gateway-api-ga)가 CLI 플래그
-# 3개(`--enable-app-routing`·`--enable-gateway-api`·`--enable-app-routing-istio`)가
-# 함께 필요하다고만 서술했을 뿐, ARM body 전체를 보여주지 않는다. 이 root의 아키텍처
-# 대응물이 CI plan/apply로 실제 스키마 오류를 처음 확정한 전례(module.aks_cluster
-# v0.4.0→v0.5.0, 위 주석 참고)와 같은 자리다 — 첫 CI plan/apply 결과로 필드명·구조를
-# 최종 확정하고, 필요하면 이 리소스를 정정한다.
+# ✅ 2026-09-07 실제 CI apply로 검증 완료(run 34106148693) — 아래 3개 필드 조합이
+# ARM API에 그대로 받아들여졌다("Apply complete! Resources: 1 added"). 처음엔 ARM
+# 템플릿 레퍼런스(learn.microsoft.com/en-us/azure/templates/microsoft.containerservice/
+# managedclusters)의 스키마 트리로 구조만 추정하고 실제 검증된 단일 예제는 못 찾은
+# 채로 적용했다(module.aks_cluster v0.4.0→v0.5.0 때와 같은 자리 — 첫 CI plan/apply가
+# 최종 판정자). 실제 apply 중 한 번은 실패했는데, 필드 구조가 아니라
+# 클러스터에 이미 있던 다른 Gateway API CRD(구 AGFC alb-controller 차트가 설치해 둔
+# bundle v1.5.1)와 Managed Gateway API가 요구하는 bundle(v1.4.1)이 충돌해서였다 —
+# `kubectl delete crd`로 그 잔존 CRD를 지우고 재시도해 해결했다(K8s 클러스터 쪽
+# 정리라 이 코드에는 흔적이 없다).
+#
+# 🔴 **apply 직후 읽기 전용 재-plan이 수렴하지 않았다** — `module.aks_cluster`(azurerm
+# 관리)가 이제 실제 Azure에 있는 `ingressProfile.webAppRouting`을 읽어 "내 HCL엔 이
+# 블록이 없다"며 지우려는 diff(`web_app_routing { ... } -> null`)를 낸다. 아래
+# `iac-module-library`의 `aks-cluster` 모듈은 `web_app_routing`을 인자로 노출하지
+# 않고(module main.tf에 해당 블록 없음), 이 root는 모듈 내부 리소스에 `lifecycle
+# { ignore_changes }`를 붙일 방법이 없다(Terraform 제약 — lifecycle은 리소스가
+# 선언된 자리에서만 유효). `azapi_update_resource`는 자기 body를 매 plan마다
+# 재확인하지 않는 설계라("공식 문서: 속성 자체의 상태를 추적하지 않는다"), **이
+# 상태로 이 root에 어떤 변경이든 다음 apply가 실행되면 그 diff가 함께 적용돼 App
+# Routing이 조용히 꺼질 수 있다.** 근본 해결은 모듈에 `web_app_routing` passthrough를
+# 추가하는 것(iac-module-library 쪽 작업, 이번 범위 밖) — 그 전까지는 **이 root에
+# 다음 apply를 돌리기 전에 반드시 plan에 `module.aks_cluster`의 `web_app_routing`
+# 제거 diff가 있는지 확인하고, 있으면 이 리소스의 body를 다시 apply해 되살린다**
+# (`tofu apply -target=azapi_update_resource.aks_app_routing_gateway_api`).
 resource "azapi_update_resource" "aks_app_routing_gateway_api" {
   type        = "Microsoft.ContainerService/managedClusters@2026-04-02-preview"
   resource_id = module.aks_cluster.cluster_id
