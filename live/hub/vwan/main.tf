@@ -10,15 +10,14 @@
 # ⛔ 모듈을 쓰지 않는다. AWS 원본의 live/hub/tgw도 raw aws_ec2_transit_gateway
 # 리소스였다(모듈화 안 함). iac-module-library의 Azure 모듈은 vnet·aks-cluster
 # 뿐이고, 이 repo는 모듈 자체를 만들지 않는다(CLAUDE.md 서두). 소비자가 vWAN 허브
-# 하나뿐이라 모듈화의 값(재사용)도 없다. 설계 전문은
-# docs/decisions/live-hub-vwan-dev-networking.md 참고.
+# 하나뿐이라 모듈화의 값(재사용)도 없다.
 
 locals {
   # ⚠️ vHub 주소 공간은 생성 후 변경 불가하다(learn.microsoft.com/en-us/azure/
   # virtual-wan/hub-settings). 최소는 /24, 권장은 /23이지만 vWAN 안에 Azure Firewall을
   # 두는 경우(Secured Virtual Hub) 최소 /22가 요구된다 — Firewall 배포 여부가 아직
-  # 확정되지 않았으므로(docs/decisions/live-hub-vwan-dev-networking.md의 Open Questions 참고)
-  # 나중에 선택지를 남기는 값으로 지금 잡는다. 사설 대역에서 /22와 /23의 비용 차이는 0이다.
+  # 미결이므로 나중에 선택지를 남기는 값으로 지금 잡는다. 사설 대역에서 /22와 /23의
+  # 비용 차이는 0이다.
   vhub_address_prefix = "10.62.0.0/22"
 
   # azurerm 은 provider 레벨 default_tags 인자가 없어 여기서 명시 배선한다
@@ -84,17 +83,17 @@ resource "azurerm_virtual_hub" "this" {
 #
 # routing 블록을 커스터마이즈하지 않는다 — Default 라우팅 테이블에 정상
 # associate + propagate하는 vWAN 기본값을 그대로 쓴다. Overlay CNI 채택으로 Pod IP가
-# VNet/vWAN 라우팅에 아예 노출되지 않아(docs/decisions/live-hub-vwan-dev-networking.md
-# 참고), "Propagate to none" + 정적 라우트 같은 특수 배선이 필요 없다.
+# VNet/vWAN 라우팅에 아예 노출되지 않아, "Propagate to none" + 정적 라우트 같은
+# 특수 배선이 필요 없다.
 resource "azurerm_virtual_hub_connection" "hub" {
   name                      = "${azurerm_virtual_hub.this.name}-hub"
   virtual_hub_id            = azurerm_virtual_hub.this.id
   remote_virtual_network_id = data.azurerm_virtual_network.hub.id
 }
 
-# 스포크 연결 — dev VNet ID는 data source로 조회하지 않고 CI 변수로 주입한다
-# (docs/decisions/live-hub-vwan-dev-networking.md 참고). 조회하려면 dev 구독에
-# virtualNetworks/read가 추가로 필요한데, 그 한 액션을 아끼는 편이 낫다 — 존재하지
+# 스포크 연결 — dev VNet ID는 data source로 조회하지 않고 CI 변수로 주입한다.
+# 조회하려면 dev 구독에 virtualNetworks/read가 추가로 필요한데, 그 한 액션을
+# 아끼는 편이 낫다 — 존재하지
 # 않는 VNet ID를 넘기면 peer/action 호출 자체가 실패해 큰 소리로 드러난다.
 resource "azurerm_virtual_hub_connection" "spoke" {
   for_each = var.spoke_connections

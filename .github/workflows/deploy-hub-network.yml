@@ -52,8 +52,7 @@ env:
   # 프롬프트 자체를 차단해 "값이 없다"를 명시적 에러로 즉시 드러낸다.
   TF_INPUT: "false"
   # ⚠️ 이 repo는 Azure 신원을 2개(hub·dev) 다루므로 AZURE_CLIENT_ID·
-  # AZURE_SUBSCRIPTION_ID 대신 AZURE_HUB_*를 쓴다(docs/decisions/
-  # live-hub-vwan-dev-networking.md 참고). AZURE_TENANT_ID는 두 구독이 같은
+  # AZURE_SUBSCRIPTION_ID 대신 AZURE_HUB_*를 쓴다. AZURE_TENANT_ID는 두 구독이 같은
   # 테넌트(7d49e97a-...)라 공유한다.
   ARM_CLIENT_ID: ${{ vars.AZURE_HUB_CLIENT_ID }}
   ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
