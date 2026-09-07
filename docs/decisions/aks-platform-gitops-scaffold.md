@@ -7,7 +7,7 @@ canary 실측(helm template + 공식 API 스펙 문서)으로 v2의 미해결 �
 provider 등록 리소스 적용 가능성, `albSubnetId` 라벨 문자 제약)은 5절 검증
 단계가 실행 시점에 흡수한다.
 **대상 저장소**: `skax-ca/aks-platform-gitops`(로컬 `~/born2k/ai/aks-platform-gitops`).
-**입력**: `.omc/plans/aks-platform-gitops-addon-selection.md`(GitOps 엔진·Ingress addon
+**입력**: `docs/decisions/aks-platform-gitops-addon-selection.md`(GitOps 엔진·Ingress addon
 6라운드 리서치), 1차 Architect/Critic 검토(Critic REJECT), 사용자 결정 3건(AGFC 유지,
 Managed 배포 전략, 자격증명 모델 신규 전환 확정).
 **작성**: 2026-09-04
@@ -63,7 +63,7 @@ Managed 배포 전략, 자격증명 모델 신규 전환 확정).
 
 새 방어선(FIC `subject` 완전 일치, 와일드카드·정적 자격증명 추가 금지)은 이
 계획이 만드는 리소스와 무관한 축이라 이 계획에서 추가로 지킬 것은 없다 - 단
-`bootstrap/README.md`·`.omc/plans/bootstrap-credential-design.md`(2026-09-04
+`bootstrap/README.md`·`docs/decisions/bootstrap-credential-design.md`(2026-09-04
 추가 기록)를 실제 재부트스트랩 시점에 확인한다(이 계획의 범위 밖).
 
 ## 1. 산출물별 설계

@@ -1,13 +1,13 @@
 # live/hub/aks — AKS 클러스터 배포 루트 (허브, Phase 2 첫 배포 루트)
 #
 # iac-module-library 의 modules/azure/aks-cluster 를 실제로 처음 소비하는 root다.
-# 설계 전문(ADR·완료 판정·리스크)은 .omc/plans/live-hub-aks.md 참조.
+# 설계 전문(ADR·완료 판정·리스크)은 docs/decisions/live-hub-aks.md 참조.
 #
 # ⚠️ 2026-09-04부터 이 root가 자기 identity·role assignment를 직접 만든다(아래
 #    azurerm_user_assigned_identity·azurerm_role_assignment). 이전에는 bootstrap
 #    계층이 만들고 결과 ID만 var.aks_identity_id로 받았는데, "CI 신원에
 #    roleAssignments/write를 주지 않는다"던 방어선이 이제 없다(CI가 구독 전체 Owner
-#    등가 — .omc/plans/bootstrap-credential-design.md 2026-09-04 추가 기록) —
+#    등가 — docs/decisions/bootstrap-credential-design.md 2026-09-04 추가 기록) —
 #    그 구조적 제약이 사라져 identity 생성도 Terraform으로 옮겼다. aks-cluster
 #    모듈 자체가 identity를 안 만드는 경계 원칙(iac-module-library ADR)은 그대로다 —
 #    이 root가 소비자로서 만들어 입력으로 넘기는 것뿐이다.
@@ -22,7 +22,7 @@ locals {
   # (10.60.0.0/16)·dev VNet(10.61.0.0/16)·vHub(10.62.0.0/22) 어느 것과도 겹치지 않고,
   # 애초에 겹쳐도 무해하다. Overlay 는 Pod 트래픽을 VNet/vWAN 에 노출하지 않고(클러스터
   # 밖으로 나갈 때 노드 IP 로 SNAT) 각 클러스터의 오버레이가 서로 독립이기 때문이다.
-  # 그래서 미래의 live/dev/aks 도 이 값을 그대로 승계한다(.omc/plans/live-hub-aks.md 3-3).
+  # 그래서 미래의 live/dev/aks 도 이 값을 그대로 승계한다(docs/decisions/live-hub-aks.md 3-3).
   #
   # 값 자체는 임의 추정이 아니라 aks-cluster 모듈 examples/basic 과 az aks create 의
   # 관용 기본값을 그대로 채택한 것이다.
@@ -155,13 +155,13 @@ module "aks_cluster" {
   #
   # ⚠️ ForceNew 아님 - azurerm provider 소스(kubernetes_cluster_resource.go) 확인
   # 결과 CustomizeDiff의 ForceNew 목록에 이 필드가 없고, HasChanges 시 in-place
-  # update 경로(ManagedClusters.CreateOrUpdate)가 있다(.omc/plans/
+  # update 경로(ManagedClusters.CreateOrUpdate)가 있다(docs/decisions/
   # aks-platform-gitops-scaffold.md 참고). 클러스터 재생성 승인 불필요.
   workload_identity_enabled = true
 
   # 모듈 기본값과 같지만 명시한다(위 cni_mode 와 같은 이유 — 이 값도 ForceNew 다).
   # GitOps(pull) 전제라 공개 엔드포인트가 필요 없다. private 클러스터라도 검증은
-  # `az aks command invoke`(ARM 경유)로 workbench 없이 가능하다(.omc/plans/live-hub-aks.md 3-6).
+  # `az aks command invoke`(ARM 경유)로 workbench 없이 가능하다(docs/decisions/live-hub-aks.md 3-6).
   private_cluster_enabled = true
 
   # ── 노드 프로비저닝 ──────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ module "aks_cluster" {
   # 실수 삭제의 실제 방어선은 이 인자가 아니라 다른 층이다: state 백엔드 RBAC
   # (allowSharedKeyAccess=false + Blob 데이터 역할이 CI SP 전용이라 사람의 로컬 destroy 는
   # state 접근 단계에서 막힌다) + CI destroy 의 confirm 문자열 정확 일치.
-  # ForceNew 축이 확정된 뒤 true 로 전환한다(.omc/plans/live-hub-aks.md Follow-up 3).
+  # ForceNew 축이 확정된 뒤 true 로 전환한다(docs/decisions/live-hub-aks.md Follow-up 3).
   deletion_protection = false
 
   tags = local.tags

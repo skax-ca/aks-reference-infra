@@ -73,7 +73,7 @@ variable "spoke_connections" {
     vHub에 연결할 스포크 VNet — 스포크 이름 → VNet 리소스 ID(전체 경로) 맵.
 
     기본값 `{}` — 스포크 연결 없이 vWAN·vHub·hub 연결만 먼저 세우는 1차 apply를
-    지원한다(.omc/plans/live-hub-vwan-dev-networking.md 4-3 착수 순서). dev VNet이
+    지원한다(docs/decisions/live-hub-vwan-dev-networking.md 4-3 착수 순서). dev VNet이
     생기고 크로스 구독 role assignment(4-1)가 걸린 뒤 2차 apply에서
     `{ dev = "<dev VNet 리소스 ID>" }`를 CI 변수로 주입한다.
 

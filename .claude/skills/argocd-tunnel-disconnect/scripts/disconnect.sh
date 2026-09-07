@@ -10,7 +10,7 @@ SSH_USER="azureuser"
 SSH_KEY="${HOME}/.ssh/workbench_ed25519"
 
 # connect.sh가 쓴 상태 폴더를 그대로 읽는다(짝 스킬 argocd-tunnel-connect 밑의 .state/,
-# .omc/를 안 쓰는 이유는 connect.sh 쪽 주석 참고).
+# 이 위치를 쓰는 이유는 connect.sh 쪽 주석 참고).
 STATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/argocd-tunnel-connect/.state"
 PID_FILE="$STATE_DIR/local-watchdog.pid"
 IP_FILE="$STATE_DIR/public-ip.txt"

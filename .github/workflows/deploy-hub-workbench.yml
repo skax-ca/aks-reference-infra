@@ -2,14 +2,14 @@
 #
 # deploy-hub-aks.yml과 같은 구조(plan은 push에서 자동, apply는 workflow_dispatch로만)
 # — 같은 hub 구독, 같은 CI 신원(environment: hub)을 쓰는 별도 state root다. 설계 전문은
-# .omc/plans/live-hub-workbench.md 참고.
+# docs/decisions/live-hub-workbench.md 참고.
 #
 # ⛔ plan job에 `environment:`를 추가하지 않는다(deploy-hub-aks.yml과 동일 근거 —
 #    FIC subject의 ref:refs/heads/main / environment:hub 대응을 어긋나게 하지 않는다).
 # ⛔ apply를 `tofu apply`(재-plan)로 바꾸지 않는다.
 #
 # ⚠️ 이 root는 apply 전에 사람이 끝내야 하는 사전조건 2가지가 있다
-#    (.omc/plans/live-hub-workbench.md 4-7절):
+#    (docs/decisions/live-hub-workbench.md 4-7절):
 #    1. GitHub repo 변수 AZURE_HUB_WORKBENCH_SSH_CIDRS·AZURE_HUB_WORKBENCH_ADMIN_OBJECT_ID
 #    2. live/hub/workbench/workbench_ed25519.pub 커밋(SSH 공개키 — private key는 git 밖)
 

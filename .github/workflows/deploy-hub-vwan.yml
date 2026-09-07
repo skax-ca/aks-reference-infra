@@ -32,7 +32,7 @@ on:
           스포크 연결 주입(2차 apply 전용, JSON map). 예:
           {"dev":".../virtualNetworks/vnet-demo-dev-krc-main"}.
           비워두면(기본값) 스포크 연결 없이 vWAN·vHub·hub 연결만 유지한다
-          (.omc/plans/live-hub-vwan-dev-networking.md 4-3, 5단계).
+          (docs/decisions/live-hub-vwan-dev-networking.md 4-3, 5단계).
         type: string
         default: "{}"
 
