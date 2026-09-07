@@ -156,7 +156,12 @@ module "aks_workbench" {
   # user-data.sh.tftpl과 대조한 결과, kubectl·helm·argocd·krew를 설치는 했지만
   # /etc/profile.d 로그인 프로파일 블록 자체가 없어 k alias·kubectl completion·
   # KREW_ROOT PATH가 전혀 안 잡혀 있었다. v0.4.0이 그 블록을 신설했다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.4.0&depth=1"
+  #
+  # v0.5.0으로 올린 이유: v0.4.0을 이 root에 처음 실제 적용하면서(krew_version을
+  # 이 root가 그날 처음 넘김) krew install이 "unknown flag: --krew-root"로 실패하는
+  # 것을 실측 발견 — krew는 그 플래그를 지원하지 않는다(공식 문서 확인, KREW_ROOT
+  # 환경변수만으로 충분). v0.5.0이 그 플래그를 제거했다.
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.5.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다.
   # {demo, hub, krc} → vm-demo-hub-krc-workbench-01
