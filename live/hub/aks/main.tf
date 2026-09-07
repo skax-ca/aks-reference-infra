@@ -183,15 +183,15 @@ module "aks_cluster" {
 
   # ── 노드 프로비저닝 ──────────────────────────────────────────────────────────
   #
-  # Overlay + NAP 조합 자체는 공식 문서상 지원되지만, NodePool·AKSNodeClass CRD 를 만들
-  # GitOps 계층(aks-platform-gitops)이 아직 없다 — 지금 켜면 아무 정책도 없이 mode="Auto"
-  # 만 도는, 검증할 대상 자체가 없는 죽은 설정이 된다. aks-platform-gitops 착수 시점에
-  # 다시 연다(.omc/plans/live-hub-aks.md 3-2, Follow-up 2).
-  #
-  # 유보 비용은 거의 없다: `az aks update --node-provisioning-mode Auto` 로 기존 클러스터에
-  # in-place 활성화된다. 전제조건은 "모든 노드 풀의 오토스케일링이 꺼져 있을 것" 하나인데,
-  # 아래 system_node_pool 의 auto_scaling_enabled = false 가 그것을 그대로 만족시킨다.
-  enable_karpenter = false
+  # 2026-09-07: Follow-up 2 완료 — aks-platform-gitops에 NodePool/AKSNodeClass CR을 다루는
+  # catalog addon(addons/catalog/karpenter.yaml)을 신설해 "정책 없이 mode=Auto만 도는 죽은
+  # 설정" 문제가 해소됐다(cluster Secret의 addon-karpenter: enabled 라벨로 옵트인, 같은 커밋에
+  # 함께 반영). azurerm 공식 문서(kubernetes_cluster.html.markdown) 확인 결과
+  # node_provisioning_profile.mode는 ForceNew 표시가 없어 in-place 전환이며, cni_mode=overlay
+  # (ForceNew라 이미 확정된 값)는 karpenter-provider-azure가 지원하지 않는 pod_subnet이 아니라
+  # 이 모듈의 validation을 통과한다. system_node_pool의 auto_scaling_enabled = false도 이미
+  # 충족돼 있다.
+  enable_karpenter = true
 
   # 시스템 노드 풀. vm_size·node_count 는 모듈 examples/basic·README Usage 예시값이다.
   #
