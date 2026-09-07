@@ -5,9 +5,8 @@
 #    둘이 어긋나면 README를 고친다 — 사람이 읽는 쪽이 SSOT다(원본 eks-reference-infra와
 #    동일 원칙).
 #
-# 설계 근거: docs/decisions/bootstrap-credential-design.md (v6, ralplan 5라운드 확정 +
-# 2026-09-04 추가 기록 — CI 신원 권한 모델을 RG 스코프 커스텀 역할에서 구독 전체
-# Owner로 전환, AWS 원본 AdministratorAccess와 스코프 축 대칭)
+# 설계 근거: docs/decisions/bootstrap-credential-design.md
+# (CI 신원은 구독 전체 Owner 등가 — AWS 원본 AdministratorAccess와 스코프 축 대칭)
 #
 # ⚠️ 2026-09-04 이전에는 워크로드 커스텀 역할의 notActions를 built-in Contributor
 #    에서 매 실행 런타임 조회했다(v4/v5가 이 값을 문서에 옮겨 적다 두 번 연속
@@ -93,7 +92,7 @@ readonly SUBSCRIPTION_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}"
 
 # hub App Registration 이름 — 대상과 무관하게(hub·spoke 어느 쪽에서 소싱하든) 항상
 # "hub" 토큰으로 고정 계산한다. bootstrap.sh의 크로스 구독 스포크 연결 절이 dev 구독
-# 컨텍스트에서 hub SP를 조회할 때 쓴다(docs/decisions/live-hub-vwan-dev-networking.md 4-1).
+# 컨텍스트에서 hub SP를 조회할 때 쓴다(docs/decisions/live-hub-vwan-dev-networking.md 참고).
 readonly HUB_APP_NAME="entapp-${WORKLOAD}-hub-${REGION_CODE}-gha-01"
 
 # Storage Account 이름: 3~24자, 소문자+숫자만, 하이픈 불가(Azure 물리 제약) — 등재된
@@ -130,7 +129,8 @@ readonly WORKLOAD_ROLE_NAME="aks-ref-bootstrap-workload-ci-${ENV_TOKEN}"
 # 날 재도입).
 readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
 # 스포크(dev)에서만 의미가 있다 — hub CI 신원에게 이 스포크 VNet을 vWAN 허브에
-# 연결할 권한(peer/action 단일 액션)을 주는 역할이다(계획 4-1 Option A).
+# 연결할 권한(peer/action 단일 액션)을 주는 역할이다(docs/decisions/
+# live-hub-vwan-dev-networking.md 참고).
 readonly SPOKE_PEER_ROLE_NAME="aks-ref-bootstrap-spoke-peer-${ENV_TOKEN}"
 
 # ⚠️ AKS 클러스터용 identity·role assignment는 2026-09-04부로 이 스크립트가 더
@@ -138,8 +138,8 @@ readonly SPOKE_PEER_ROLE_NAME="aks-ref-bootstrap-spoke-peer-${ENV_TOKEN}"
 # 전부 제거). CI 신원이 이제 구독 전체 Owner 등가라 그 제약(모듈이 identity/role
 # assignment를 안 만든다는 aks-cluster 경계 원칙 + CI가 roleAssignments/write를
 # 못 갖는다는 옛 제약)의 두 번째 축이 사라졌다 — `live/hub/aks`가 자기 identity를
-# Terraform으로 직접 만든다(`docs/decisions/bootstrap-credential-design.md` 2026-09-04
-# 추가 기록 참고). `Microsoft.ContainerService` RP 등록은 그대로 남긴다(아래) —
+# Terraform으로 직접 만든다(`docs/decisions/bootstrap-credential-design.md` 참고).
+# `Microsoft.ContainerService` RP 등록은 그대로 남긴다(아래) —
 # 저빈도 1회성 작업이라 옮길 실익이 낮다는 별개 판단.
 
 # ── FIC subject (계획 6-0-d 확정: 배포 브랜치 정책만, 필수 리뷰어 없음) ─────
@@ -294,8 +294,8 @@ retry_on_conflict() {
   done
 }
 
-# ── 워크로드 커스텀 역할: 구독 전체 Owner 등가, RG 자기 삭제만 제외 (2026-09-04
-#    결정, docs/decisions/bootstrap-credential-design.md 추가 기록) ─────────────────
+# ── 워크로드 커스텀 역할: 구독 전체 Owner 등가, RG 자기 삭제만 제외
+#    (docs/decisions/bootstrap-credential-design.md 참고) ─────────────────────────
 # Owner는 built-in 정의 자체가 NotActions: []다 — Contributor처럼 런타임 조회할
 # 대상이 없다(그 조회 로직이 v4·v5에서 두 번 틀렸던 근본 원인이었는데, Owner
 # 기반으로 바꾸면서 그 실수 클래스 자체가 사라졌다). "RG 자체 삭제 방지"만
@@ -368,7 +368,8 @@ state_data_role_definition_json() {  # state_data_role_definition_json <assignab
     }'
 }
 
-# ── 스포크 연결 역할: peer/action 단일 액션 (계획 4-1 Option A) ────────────
+# ── 스포크 연결 역할: peer/action 단일 액션 (docs/decisions/
+#    live-hub-vwan-dev-networking.md 참고) ──────────────────────────────────
 # hub CI 신원이 이 역할을 dev 워크로드 RG 스코프로 받아 live/hub/vwan의
 # azurerm_virtual_hub_connection.spoke를 성립시킨다. assignable scope와 실제 할당
 # 스코프가 **둘 다 스포크 워크로드 RG**다(bootstrap.sh의 크로스 구독 스포크 연결
@@ -384,7 +385,7 @@ spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignab
       Name: $name,
       # RoleName 중복 이유는 workload_role_definition_json 주석 참고(az CLI update 경로 버그).
       RoleName: $name,
-      Description: "Single-action grant for the hub CI identity to peer this spoke VNet into the hub Virtual WAN hub (aks-reference-infra live/hub/vwan spoke connection, plan 4-1 Option A).",
+      Description: "Single-action grant for the hub CI identity to peer this spoke VNet into the hub Virtual WAN hub (aks-reference-infra live/hub/vwan spoke connection, see docs/decisions/live-hub-vwan-dev-networking.md).",
       Actions: ["Microsoft.Network/virtualNetworks/peer/action"],
       NotActions: [],
       DataActions: [],

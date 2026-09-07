@@ -1,6 +1,6 @@
 # live/hub/networking 스캐폴딩 계획
 
-status: approved
+status: 배포 완료(hub 구독에 실제 적용, CI plan/apply 검증 통과)
 작성일: 2026-08-27
 
 ## 요구사항 요약

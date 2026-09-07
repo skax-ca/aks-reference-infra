@@ -7,7 +7,7 @@
 #    azurerm_user_assigned_identity·azurerm_role_assignment). 이전에는 bootstrap
 #    계층이 만들고 결과 ID만 var.aks_identity_id로 받았는데, "CI 신원에
 #    roleAssignments/write를 주지 않는다"던 방어선이 이제 없다(CI가 구독 전체 Owner
-#    등가 — docs/decisions/bootstrap-credential-design.md 2026-09-04 추가 기록) —
+#    등가 — docs/decisions/bootstrap-credential-design.md 참고) —
 #    그 구조적 제약이 사라져 identity 생성도 Terraform으로 옮겼다. aks-cluster
 #    모듈 자체가 identity를 안 만드는 경계 원칙(iac-module-library ADR)은 그대로다 —
 #    이 root가 소비자로서 만들어 입력으로 넘기는 것뿐이다.

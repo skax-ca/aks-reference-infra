@@ -6,15 +6,14 @@ state Storage Account, App Registration, 커스텀 RBAC 역할 2종, 리소스 �
 클러스터용 user-assigned identity를 Azure CLI 스크립트로 만든다. `tofu`가 이것들을 만들려면 이미 state 저장소가 있어야 하는 닭과 달걀
 문제가 있어서, 이 한 겹만 IaC 밖에 둔다(원본 `eks-reference-infra`와 동일한 이유).
 
-설계 근거는 `docs/decisions/bootstrap-credential-design.md`(v6, ralplan 5라운드 확정 +
-2026-09-04 추가 기록)다. CI 신원(App Registration)은 **구독 전체 스코프의 `Owner`
-등가 커스텀 역할**을 갖는다. AWS 원본의 실행 Role(`AdministratorAccess`)과 권한
-스코프 축에서 완전히 대칭이다(2026-09-04 결정, 이전 설계는 RG 스코프로 좁히고 6종
-불변식으로 검증했으나 이 축은 폐기됐다). 방어선은 권한 크기가 아니라 이 신원에
-도달할 수 있는 경로(FIC subject)를 정확히 이 repo 하나로 좁히는 것뿐이다(Azure
-Entra ID에는 AWS `AssumeRole` 같은 2단 체인이 없어, FIC의 `subject` 완전 일치
-검사가 그 역할을 대신한다). 폐기 경위·근거 전문은
-`docs/decisions/bootstrap-credential-design.md`의 2026-09-04 추가 기록 참고.
+설계 근거는 `docs/decisions/bootstrap-credential-design.md`다. CI 신원(App Registration)은
+**구독 전체 스코프의 `Owner` 등가 커스텀 역할**을 갖는다. AWS 원본의 실행 Role
+(`AdministratorAccess`)과 권한 스코프 축에서 완전히 대칭이다(이전 설계는 RG
+스코프로 좁히고 6종 불변식으로 검증했으나 이 축은 폐기됐다). 방어선은 권한 크기가
+아니라 이 신원에 도달할 수 있는 경로(FIC subject)를 정확히 이 repo 하나로 좁히는
+것뿐이다(Azure Entra ID에는 AWS `AssumeRole` 같은 2단 체인이 없어, FIC의 `subject`
+완전 일치 검사가 그 역할을 대신한다). 폐기 경위·근거 전문은
+`docs/decisions/bootstrap-credential-design.md` 참고.
 
 ## 1. 실행
 
@@ -104,7 +103,7 @@ built-in Contributor에서 런타임 조회한 값이었다.** 2026-09-04에 이
 확인했다. Azure도 이미 그 "도달 경로 하나" 방어선을 FIC subject 완전 일치 검사로
 동등하게 갖고 있어, 워크로드 역할을 RG로 좁히던 건 AWS 원본에 없는 과잉설계였다고
 판단했다. 전체 근거·마이그레이션 경위는
-`docs/decisions/bootstrap-credential-design.md`의 2026-09-04 추가 기록을 참고.
+`docs/decisions/bootstrap-credential-design.md`를 참고.
 
 ⛔ **state 데이터 역할은 이 재검토와 무관하게 그대로 유지한다.** 같은 날 "워크로드
 역할이 이제 state RG·컨테이너까지 전부 포괄하니 무의미하다"고 판단해 한 번
@@ -140,8 +139,7 @@ delete`는 control-plane 액션이라, 워크로드 역할이 구독 전체 Owne
 이미 그 액션(`Actions:["*"]`)을 갖는다. state 데이터 역할이 그 액션을 계속 빼고
 있어도 워크로드 역할을 통해 컨테이너 자체를 지울 수 있다. "즉시
 영구 삭제는 안 된다(30일 내 복구 가능), CI가 아예 못 지운다는 보장은 없다"로
-방어 수준이 낮아졌음을 인지한다(`docs/decisions/bootstrap-credential-design.md`
-2026-09-04 추가 기록 Consequence 12 참고).
+방어 수준이 낮아졌음을 인지한다(`docs/decisions/bootstrap-credential-design.md` 참고).
 
 ⚠️ state RG에 잠금이 걸려 있으면 **사람 관리자도 예외 없이** 그 RG 안의 role
 assignment를 다시 만들 수 없다(`CannotDelete`가 RBAC 할당 삭제까지 막는다). 정당한
@@ -196,10 +194,10 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 ⚠️ **스코프는 특정 VNet 리소스가 아니라 워크로드 RG 전체다.** `bootstrap.sh`는 항상
 `live/*/networking`의 VNet apply보다 먼저 실행되므로, 그 시점엔 VNet이 아직 없어 리소스
 단위로 좁힐 수 없다(닭과 달걀 문제). VNet 리소스 단위로 좁히는 대안도 검토했으나
-(`docs/decisions/live-hub-vwan-dev-networking.md` 4-1 최초안), 그러면 스포크마다 별도
+(`docs/decisions/live-hub-vwan-dev-networking.md` 참고), 그러면 스포크마다 별도
 스크립트를 한 번 더 실행해야 해 `bootstrap.sh` 1회로 끝나지 않는다. `peer/action`은
 단일 액션이라 위험도가 낮으므로, RG 스코프로 완화하고 `bootstrap.sh`에 통합하는 쪽을
-택했다(2026-09-03, 사용자 결정). 대가는 hub SP가 이 RG에 나중에 생길 다른 리소스에도
+택했다. 대가는 hub SP가 이 RG에 나중에 생길 다른 리소스에도
 `peer/action`을 갖는다는 것이다.
 
 ⚠️ **`Contributor` 안내는 이 시나리오의 근거가 아니다.** 검색에서 자주 나오는 "원격 VNet
@@ -217,17 +215,17 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 ⛔ `verify.sh`는 스포크 워크로드 RG 스코프에서 "이 대상 자신의 SP를 제외한" role
 assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일치하는지 검사한다
 (`BOOTSTRAP_TARGET=spoke`일 때만). 설계 근거 전문은
-`docs/decisions/live-hub-vwan-dev-networking.md` 4-1, 2026-09-03 추가 기록 참고.
+`docs/decisions/live-hub-vwan-dev-networking.md` 참고.
 
-### AKS 클러스터용 identity·권한 (2026-09-04부로 bootstrap에서 Terraform으로 이관)
+### AKS 클러스터용 identity·권한 (bootstrap이 아니라 Terraform이 만든다)
 
 `aks-cluster` 모듈은 identity도 role assignment도 스스로 만들지 않고 **입력으로만
 받는다**(모듈 경계 원칙, `iac-module-library`의 `docs/decisions.md` ADR 소관, 그대로
-유지). **소비자가 그걸 어디서 만드는지는 2026-09-04에 bootstrap → `live/hub/aks`
-Terraform으로 이관했다.** CI 신원이 구독 전체 Owner 등가가 되면서 "CI에
-`roleAssignments/write`를 주지 않는다"던 옛 방어선이 사라져, 이 identity·role
-assignment를 bootstrap(IaC 밖)에 둘 구조적 이유가 없어졌기 때문이다
-(`docs/decisions/bootstrap-credential-design.md` 2026-09-04 추가 기록).
+유지). **소비자인 이 repo는 그 identity·role assignment를 `live/hub/aks`의
+Terraform으로 만든다** — bootstrap(IaC 밖)이 아니다. CI 신원이 구독 전체 Owner
+등가가 되면서 "CI에 `roleAssignments/write`를 주지 않는다"던 옛 방어선이 사라져,
+bootstrap에 둘 구조적 이유가 없어졌기 때문이다
+(`docs/decisions/bootstrap-credential-design.md` 참고).
 
 이관 방식은 **live 재배포**다. 기존 클러스터를 destroy(GitHub Actions
 `workflow_dispatch`, `action=destroy`) → bootstrap이 만들었던 구식 identity·role
@@ -306,7 +304,7 @@ az storage account blob-service-properties update \
 2건 → 변경 2건 → drift 없음 → 변경 0건이 재현됐다. 이 과정에서 버그 3건(역할 정의
 생성 직후·역할 정의 재조회·role assignment 조회의 ARM 캐시/조인 지연 미대응)을
 발견해 고쳤고, 불변식 (b)(관리 그룹 스코프)를 제거했다 — 상세 경위는
-`docs/decisions/bootstrap-credential-design.md`의 2026-08-27 추가 기록 참고. dev(spoke)
+`docs/decisions/bootstrap-credential-design.md` 참고. dev(spoke)
 인스턴스는 별도 구독이 필요해 이번에는 검증하지 않았다.
 
 ### 검증 실행 권한의 한계

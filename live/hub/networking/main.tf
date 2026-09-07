@@ -34,9 +34,9 @@ locals {
   #      여기서도 뜨지 않는 건 이전과 동일하지만 이유가 바뀌었다(Pod Subnet 미사용
   #      때문이 아니라 Overlay라 VNet 서브넷 자체를 안 쓰기 때문).
   #
-  #      설계 이력 전문은 docs/decisions/live-hub-vwan-dev-networking.md의 2026-09-03
-  #      추가 기록(13절) 참고 — 이 정정으로 무효화된 vWAN 라우팅 전제들을 그 절이
-  #      기록한다.
+  #      설계 근거 전문은 docs/decisions/live-hub-vwan-dev-networking.md 참고 —
+  #      Overlay CNI 채택으로 Pod CIDR을 VNet/vWAN 라우팅에서 완전히 분리한 경위를
+  #      그 문서가 다룬다.
 
   # 그룹별 CIDR. 10.60.5.0/24~10.60.15.0/24, 10.60.32.0/19 이후는 미할당으로 남겨둔다
   # (향후 AzureFirewallSubnet 등 필요 시 재조사 없이 바로 쓴다). Pod 대역은 이 VNet에
