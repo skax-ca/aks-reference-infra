@@ -134,7 +134,10 @@ module "aks_cluster" {
   # perpetual diff 가 있었다(이 root 의 첫 실배포에서 독립된 plan 3회 연속 실측 —
   # apply해도 수렴하지 않음, 파괴적이지는 않으나 재-plan 수렴 완료 판정을 통과할 수
   # 없는 상태였다). v0.5.0 이 두 리소스 모두 명시로 고정해 정정했다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.5.0&depth=1"
+  #
+  # v0.6.0 으로 올린 이유: enable_keda 변수 신설(workload_autoscaler_profile.keda_enabled) —
+  # AKS의 KEDA managed add-on을 쓰기 위해 필요(아래 enable_keda 변수 설명 참조).
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.6.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다(모듈 repo 규약).
   # {demo, hub, krc} → aks-demo-hub-krc-main-01
@@ -192,6 +195,12 @@ module "aks_cluster" {
   # 이 모듈의 validation을 통과한다. system_node_pool의 auto_scaling_enabled = false도 이미
   # 충족돼 있다.
   enable_karpenter = true
+
+  # KEDA managed add-on(aks-cluster v0.6.0에서 신설). Karpenter/NAP과 달리 GitOps 소관 CR이
+  # 없다 — ScaledObject/ScaledJob은 애플리케이션 팀이 직접 워크로드에 선언하는 리소스라
+  # 플랫폼 GitOps가 미리 갖출 것이 없다(enable_keda 변수 설명 참조). workload_identity_enabled
+  # 는 이미 true라 공식 문서가 요구하는 순서(Workload Identity 먼저) 조건을 만족한다.
+  enable_keda = true
 
   # 시스템 노드 풀. vm_size·node_count 는 모듈 examples/basic·README Usage 예시값이다.
   #
