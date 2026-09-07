@@ -67,38 +67,12 @@ data "azurerm_subnet" "aks_node" {
   resource_group_name  = local.resource_group_name
 }
 
-# AGFC(Application Gateway for Containers) 위임 서브넷. live/hub/networking이
-# 이미 만들어 뒀다(별도 state root, 2026-09-04 추가) - 같은 Name 기반 data 조회
-# 패턴(⛔ terraform_remote_state 안 씀, 위 aks_node와 동일 근거).
-data "azurerm_subnet" "alb" {
-  name                 = "snet-${var.workload}-${var.env}-${var.region_code}-alb"
-  virtual_network_name = "vnet-${var.workload}-${var.env}-${var.region_code}-main"
-  resource_group_name  = local.resource_group_name
-}
-
 # AKS 컨트롤 플레인이 쓰는 user-assigned managed identity. aks-cluster 모듈은 이걸
 # 만들지 않고 입력으로만 받는다(모듈 경계 원칙, iac-module-library ADR) — 소비자인
 # 이 root가 만들어 넘긴다. 이름은 이전 bootstrap 산출물과 동일하게 유지한다
 # (naming 컨벤션 일관성, 실제로는 별개 리소스로 재생성됨 — 2026-09-04 destroy·재배포).
 resource "azurerm_user_assigned_identity" "aks" {
   name                = "id-${var.workload}-${var.env}-${var.region_code}-aks-01"
-  resource_group_name = local.resource_group_name
-  location            = var.location
-  tags                = local.tags
-}
-
-# AGFC(Application Gateway for Containers) ALB Controller가 쓰는 workload
-# identity. GitOps(aks-platform-gitops)가 helm으로 컨트롤러를 self-managed로
-# 설치하는 전제조건 - 컨트롤러 자체는 이 root가 만들지 않는다(ALBC 선례와
-# 동형: Terraform=IAM만, 컨트롤러=Helm). 설계 근거:
-# .omc/plans/aks-platform-gitops-scaffold.md.
-#
-# 위 aks identity와 같은 패턴(CI가 구독 Owner라 role assignment까지 Terraform이
-# 직접 만든다 - 아래 참고)이지만 용도가 다르다: 이건 컨트롤 플레인이 아니라
-# in-cluster addon의 workload identity다(federated credential로 K8s
-# ServiceAccount와 묶인다, 아래 azurerm_federated_identity_credential 참고).
-resource "azurerm_user_assigned_identity" "alb_controller" {
-  name                = "id-${var.workload}-${var.env}-${var.region_code}-alb-controller-01"
   resource_group_name = local.resource_group_name
   location            = var.location
   tags                = local.tags
@@ -168,10 +142,10 @@ module "aks_cluster" {
   pod_cidr       = local.pod_cidr
   node_subnet_id = data.azurerm_subnet.aks_node.id
 
-  # AGFC 워크로드 identity(위 azurerm_federated_identity_credential.alb_controller)가
-  # 실제로 동작하려면 클러스터의 workload identity 웹훅이 켜져 있어야 한다. 모듈은
-  # oidc_issuer_enabled를 이 값과 무관하게 항상 켜지만(모듈 main.tf 확인,
-  # workload_identity_enabled 변수 설명 참고), 웹훅 자체는 이 값이 true여야 뜬다.
+  # KEDA managed add-on(아래 enable_keda)이 공식 문서가 요구하는 순서(Workload
+  # Identity 먼저)를 만족하려면 클러스터의 workload identity 웹훅이 켜져 있어야
+  # 한다. 모듈은 oidc_issuer_enabled를 이 값과 무관하게 항상 켜지만(모듈 main.tf
+  # 확인, workload_identity_enabled 변수 설명 참고), 웹훅 자체는 이 값이 true여야 뜬다.
   #
   # ⚠️ ForceNew 아님 - azurerm provider 소스(kubernetes_cluster_resource.go) 확인
   # 결과 CustomizeDiff의 ForceNew 목록에 이 필드가 없고, HasChanges 시 in-place
@@ -235,56 +209,71 @@ module "aks_cluster" {
   tags = local.tags
 }
 
-# ── AGFC(Application Gateway for Containers) 워크로드 identity 배선 ──────────
+# ── AKS App Routing(Gateway API/Istio 기반) 활성화 ────────────────────────────
 #
-# federated credential은 클러스터의 oidc_issuer_url을 참조하므로 module.aks_cluster
-# 뒤에 온다(암묵적 의존 - Terraform 그래프가 순서를 자동으로 잡는다, aks_node_subnet
-# 처럼 명시 depends_on이 필요 없다: 이건 role assignment가 아니라 값 참조라서).
+# 2026-09-07: AGFC(Application Gateway for Containers)를 대체. AGFC는 frontend가
+# 공인 FQDN만 지원해(private/internal 옵션 없음, Microsoft 공식 문서로 확정:
+# learn.microsoft.com/en-us/azure/application-gateway/for-containers/
+# application-gateway-for-containers-components — "Private IP addresses aren't
+# currently supported") 이 저장소의 "hub는 전부 private" 원칙과 부딪혔다. App
+# Routing은 AKS가 컨트롤러·CRD·GatewayClass를 전부 관리하는 GA 경로다(내부 LB는
+# 표준 Service annotation 하나로 끝난다 — 자세한 경위는
+# aks-platform-gitops의 addons/baseline/gateway.yaml 헤더 참조).
 #
-# subject는 aks-platform-gitops의 alb-controller helm 배포 namespace/ServiceAccount와
-# 반드시 정확히 일치해야 한다(azure-alb-system/alb-controller-sa -
-# .omc/plans/aks-platform-gitops-scaffold.md 1-3). 어긋나면 토큰 교환이 조용히
-# 실패한다 - 이 문자열이 유일한 연결 지점이다.
-resource "azurerm_federated_identity_credential" "alb_controller" {
-  name                      = "alb-controller"
-  user_assigned_identity_id = azurerm_user_assigned_identity.alb_controller.id
-  audience                  = ["api://AzureADTokenExchange"]
-  issuer                    = module.aks_cluster.oidc_issuer_url
-  subject                   = "system:serviceaccount:azure-alb-system:alb-controller-sa"
-}
-
-# 공식 quickstart 문서(learn.microsoft.com/en-us/azure/application-gateway/
-# for-containers/quickstart-create-application-gateway-for-containers-managed-by-
-# alb-controller)의 `az role assignment create` 명령 2개를 그대로 옮긴다. Reader는
-# 이 문서 어디에도 없어 넣지 않는다(1차 조사에서 다른 배포 전략 문서가 섞였던 착오,
-# .omc/plans/aks-platform-gitops-scaffold.md 참고).
+# 🔴 azurerm 프로바이더는 아직 이 기능(`az aks update --enable-gateway-api
+# --enable-app-routing-istio`에 대응하는 ingressProfile 필드)을 노출하지 않는다
+# (hashicorp/terraform-provider-azurerm#22392, 확인 시점 2026-09-07) — azapi로
+# 이 클러스터(azurerm 관리)의 ARM 리소스 위에 그 속성만 얹는다. 이 패턴은 Microsoft
+# 공식 가이드가 직접 권장하는 조합이다(learn.microsoft.com/en-us/azure/developer/
+# terraform/provider-selection-azurerm-vs-azapi의 "When to use both providers
+# together" 절 — azurerm이 관리하는 AKS 클러스터에 azapi_update_resource로
+# networkProfile 같은 미노출 필드를 얹는 예시가 그 문서의 정식 예제다).
 #
-# 스코프는 MC(node) RG - Configuration Manager 역할이 AGFC ARM 리소스를 그 RG에
-# 프로비저닝할 권한이다("Managed" 배포 전략의 핵심, Terraform은 ALB 리소스 자체를
-# 만들지 않는다).
-resource "azurerm_role_assignment" "alb_controller_config_manager" {
-  scope                            = "/subscriptions/${var.subscription_id}/resourceGroups/${module.aks_cluster.node_resource_group}"
-  role_definition_id               = "/subscriptions/${var.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/fbc52c3f-28ad-4303-a892-8a056630b8f1"
-  principal_id                     = azurerm_user_assigned_identity.alb_controller.principal_id
-  skip_service_principal_aad_check = true
-}
+# ⚠️ **아래 3개 필드 조합은 ARM 템플릿 레퍼런스(learn.microsoft.com/en-us/azure/
+# templates/microsoft.containerservice/managedclusters)의 스키마 트리로 구조는
+# 확정했지만, 정확히 이 조합(App Routing 오퍼레이터 + Gateway API + Istio 모드,
+# NGINX 없이)을 실제로 적용해 검증한 단일 공식 예제는 찾지 못했다** — AKS 공식
+# 블로그(blog.aks.azure.com/2026/06/10/app-routing-gateway-api-ga)가 CLI 플래그
+# 3개(`--enable-app-routing`·`--enable-gateway-api`·`--enable-app-routing-istio`)가
+# 함께 필요하다고만 서술했을 뿐, ARM body 전체를 보여주지 않는다. 이 root의 아키텍처
+# 대응물이 CI plan/apply로 실제 스키마 오류를 처음 확정한 전례(module.aks_cluster
+# v0.4.0→v0.5.0, 위 주석 참고)와 같은 자리다 — 첫 CI plan/apply 결과로 필드명·구조를
+# 최종 확정하고, 필요하면 이 리소스를 정정한다.
+resource "azapi_update_resource" "aks_app_routing_gateway_api" {
+  type        = "Microsoft.ContainerService/managedClusters@2026-04-02-preview"
+  resource_id = module.aks_cluster.cluster_id
 
-# Network Contributor - alb 서브넷에 조인(join)할 권한. 위와 같은 공식 문서 명령.
-resource "azurerm_role_assignment" "alb_controller_network_contributor" {
-  scope                            = data.azurerm_subnet.alb.id
-  role_definition_name             = "Network Contributor"
-  principal_id                     = azurerm_user_assigned_identity.alb_controller.principal_id
-  skip_service_principal_aad_check = true
-}
-
-# AGFC가 요구하는 리소스 프로바이더. 이전 모델(RG 스코프 커스텀 역할)에서는
-# 구독 스코프 쓰기라 CI가 절대 할 수 없었던 작업 - 자격증명 모델 전환(CLAUDE.md
-# 2절, 2026-09-04) 이후 처음 등장하는 유형이라 첫 plan/apply에서 실제 동작 여부를
-# 신중히 확인한다(.omc/plans/aks-platform-gitops-scaffold.md 2절 각주).
-resource "azurerm_resource_provider_registration" "service_networking" {
-  name = "Microsoft.ServiceNetworking"
-}
-
-resource "azurerm_resource_provider_registration" "network_function" {
-  name = "Microsoft.NetworkFunction"
+  body = {
+    properties = {
+      ingressProfile = {
+        # Managed Gateway API installation — `az aks update --enable-gateway-api`에
+        # 대응(learn.microsoft.com/en-us/azure/aks/managed-gateway-api). CRD만
+        # 설치하고 관리한다 — 실제 구현체(Istio)는 아래 webAppRouting이 켠다.
+        gatewayAPI = {
+          installation = "Standard"
+        }
+        webAppRouting = {
+          # App Routing 오퍼레이터(DNS/TLS 통합) 자체를 켠다 — `--enable-app-routing`에
+          # 대응. gatewayAPIImplementations는 이 블록 하위 필드라 이게 꺼져 있으면
+          # 무의미하다.
+          enabled = true
+          nginx = {
+            # 기본값(레거시 NGINX 기반 Ingress 컨트롤러 자동 생성)을 명시적으로 끈다 —
+            # 이 저장소는 Gateway API 경로만 쓴다(ingress-nginx 업스트림 은퇴 공지,
+            # aks-platform-gitops의 addons/baseline/gateway.yaml 헤더 참고). 이 필드를
+            # 빠뜨리면 원치 않는 NGINX IngressClass·컨트롤러가 함께 뜬다.
+            defaultIngressControllerType = "None"
+          }
+          gatewayAPIImplementations = {
+            appRoutingIstio = {
+              # `--enable-app-routing-istio`에 대응. GatewayClass 이름은 AKS가
+              # `approuting-istio`로 고정 생성한다(learn.microsoft.com/en-us/azure/
+              # aks/app-routing-gateway-api).
+              mode = "Enabled"
+            }
+          }
+        }
+      }
+    }
+  }
 }

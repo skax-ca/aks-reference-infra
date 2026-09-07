@@ -42,13 +42,9 @@ locals {
   # (향후 AzureFirewallSubnet 등 필요 시 재조사 없이 바로 쓴다). Pod 대역은 이 VNet에
   # 없다 — Overlay CNI라 Pod IP는 aks-cluster 모듈의 pod_cidr(VNet 밖)에서 받는다.
   #
-  # alb: Application Gateway for Containers(AGFC) 전용 위임 서브넷. 예비 대역
-  # 10.60.4.0/24~10.60.15.0/24의 첫 칸을 쓴다(aks-platform-gitops
-  # addon-selection.md·aks-platform-gitops-scaffold.md 참고). 공식 문서 요구사항:
-  # "at least 250 available IP addresses (/24 or larger)"
-  # (learn.microsoft.com/en-us/azure/application-gateway/for-containers/
-  #  quickstart-create-application-gateway-for-containers-managed-by-alb-controller) —
-  # /24는 254개 usable이라 정확히 하한을 만족한다.
+  # alb: 원래 Application Gateway for Containers(AGFC) 전용 위임 서브넷이었으나
+  # 2026-09-07 AGFC→App Routing 전환으로 소비자가 없는 고아 대역이 됐다(아래
+  # subnet_groups의 "alb" 항목 주석 참고, 지금 당장 지우지는 않는다).
   subnet_cidrs = {
     pub      = "10.60.0.0/24"
     ilb      = "10.60.1.0/24"
@@ -91,17 +87,12 @@ module "vnet" {
     # 내부 LB. AWS elb-uniq 대응. 운영 라우트(hub↔spoke)를 얹을 자리라
     # route_table_enabled 를 켠다 — vWAN 연결 후 live/hub/vwan 또는 이 root 후속 변경이 채운다.
     #
-    # ⚠️ 2026-09-04 정정: 원래 "ArgoCD ingress 등"을 상정했으나, GitOps addon으로
-    #    Gateway API(AGFC)를 도입하기로 하면서 그 유스케이스는 alb 서브넷이
-    #    흡수한다(ArgoCD 자신의 UI/API도 결국 HTTPRoute로 노출하는 쪽이 일관적).
-    #    AGFC의 ALB Controller는 Ingress/Gateway/HTTPRoute/GRPCRoute만 처리하고
-    #    TCPRoute는 명시적으로 무시한다(UDPRoute도 사실상 미지원, 공식 확인:
-    #    github.com/MicrosoftDocs/azure-docs 의 alb-controller 문서) — 그래서 이
-    #    서브넷의 남은 durable한 용도는 **Gateway API로 표현 안 되는 L4/비-HTTP
-    #    내부 트래픽**(DB·MQTT 등, `service.beta.kubernetes.io/azure-load-balancer-
-    #    internal: "true"` Service)이다. 소비자는 아직 없다(aks-platform-gitops
-    #    미착수) — YAGNI 원칙상 지금 서브넷 자체를 없애지는 않는다(이미 배포됨,
-    #    파괴적 변경이라 별도 승인 필요).
+    # ⚠️ 2026-09-07 정정: App Routing(Gateway API/Istio)은 위임 서브넷을 요구하지
+    #    않는다 — 이 서브넷의 durable한 용도는 여전히 **Gateway API로 표현 안 되는
+    #    L4/비-HTTP 내부 트래픽**(DB·MQTT 등, `service.beta.kubernetes.io/
+    #    azure-load-balancer-internal: "true"` Service)이다. 소비자는 아직 없다 —
+    #    YAGNI 원칙상 지금 서브넷 자체를 없애지는 않는다(이미 배포됨, 파괴적 변경이라
+    #    별도 승인 필요).
     "ilb" = {
       address_prefixes    = [local.subnet_cidrs["ilb"]]
       nsg_enabled         = true
@@ -129,11 +120,15 @@ module "vnet" {
       nsg_enabled      = true
     }
 
-    # AGFC(Application Gateway for Containers) 전용 위임 서브넷. AWS 원본에
-    # 대응물 없음 — Azure 고유 요구사항이다(AGFC ALB Controller가 이 서브넷에
-    # Application Gateway for Containers 리소스를 연결/association한다).
-    # ⚠️ 예약 이름 서브넷이 아니다(GatewaySubnet 등과 달리 이름 자유) — 위임
-    #    (delegation)이 실제 제약이다. 이 서브넷은 노드/워크로드가 쓰지 않는다.
+    # ⚠️ 2026-09-07: AGFC(Application Gateway for Containers)를 걷어내고 App Routing
+    #    (Gateway API/Istio 기반, live/hub/aks 참고)으로 전환하며 **더는 소비자가
+    #    없는 고아 서브넷**이 됐다. App Routing은 이 저장소의 다른 어떤 addon도
+    #    위임 서브넷을 요구하지 않는다. 그래도 지금 이 서브넷 자체를 지우지는
+    #    않는다 — 위 ilb 서브넷 주석과 같은 판단(YAGNI, 이미 배포된 걸 지우는 건
+    #    별도 승인이 필요한 파괴적 변경, VNet의 `deletion_protection=true`도 이런
+    #    실수 삭제를 막으려는 의도다). 정리하려면 별도 PR로 명시적 승인을 받는다.
+    # (과거 근거였던 AGFC 위임 서브넷 설명: Application Gateway for Containers 전용,
+    #    AWS 원본에 대응물 없음, 예약 이름 서브넷이 아니라 delegation이 실제 제약.)
     "alb" = {
       address_prefixes = [local.subnet_cidrs["alb"]]
       nsg_enabled      = true

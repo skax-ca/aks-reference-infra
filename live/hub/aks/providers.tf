@@ -5,6 +5,14 @@
 #    azurerm provider는 ARM_CLIENT_ID·ARM_TENANT_ID·ARM_SUBSCRIPTION_ID·ARM_USE_OIDC 환경변수를
 #    자동으로 읽으므로 이 블록에 별도 인증 배선이 필요 없다.
 
+provider "azapi" {
+  # azurerm과 동일하게 ARM_CLIENT_ID·ARM_TENANT_ID·ARM_SUBSCRIPTION_ID·ARM_USE_OIDC
+  # 환경변수를 자동으로 읽는다(registry.terraform.io/providers/Azure/azapi 공식
+  # 문서 확인) — 별도 인증 배선이 필요 없다. subscription_id만 다른 provider와
+  # 동일하게 명시한다.
+  subscription_id = var.subscription_id
+}
+
 provider "azurerm" {
   subscription_id = var.subscription_id
 
