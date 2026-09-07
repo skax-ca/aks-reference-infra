@@ -33,10 +33,10 @@
 #    managementGroups/read`가 필요했다 — README가 명시한 실행 전제(구독
 #    Owner/UAA)보다 훨씬 넓은 권한을 검증자에게만 요구하는 불균형이라 사용자가
 #    직접 삭제를 확정했다. 이 판단의 전체 맥락은
-#    `docs/decisions/bootstrap-credential-design.md`의 2026-08-27 추가 기록을 참고.
+#    `docs/decisions/bootstrap-credential-design.md`를 참고.
 #
-# ⚠️ **2026-09-04, 불변식 (a)의 성격이 반전됐다**(`docs/decisions/
-#    bootstrap-credential-design.md` 추가 기록 참고). CI 신원이 이제 구독 전체
+# ⚠️ **불변식 (a)의 성격이 반전됐다**(`docs/decisions/
+#    bootstrap-credential-design.md` 참고). CI 신원이 이제 구독 전체
 #    Owner 등가 역할을 가지므로(AWS 원본 `AdministratorAccess`와 스코프 축
 #    대칭), "구독 스코프 role assignment 0건"이 아니라 "정확히 워크로드 역할
 #    1건, 이 구독에만"이 기대 상태다. 권한 크기로 좁히던 방어선은 폐기됐고,
@@ -136,8 +136,8 @@ else
 fi
 
 # ── 불변식 (a): 구독 스코프 role assignment 정확히 1건(워크로드 역할, 이 구독) ──
-# 2026-09-04 결정(docs/decisions/bootstrap-credential-design.md 추가 기록)으로 반전:
-# CI가 이제 구독 전체 Owner 등가 역할을 가지므로 "0건"이 아니라 "정확히 워크로드
+# (docs/decisions/bootstrap-credential-design.md 참고):
+# CI가 구독 전체 Owner 등가 역할을 가지므로 "0건"이 아니라 "정확히 워크로드
 # 역할 1건, 그 구독에만"이 기대 상태다. 다른(엉뚱한) 구독에 role assignment가
 # 있으면 여전히 drift다 — 방어선이 FIC subject 하나로 좁아진 지금, 이 검사는
 # "그 도달 경로로 실제로 얻는 권한이 의도한 구독·역할과 정확히 일치하는가"를
@@ -337,8 +337,8 @@ else
 fi
 
 # ── 불변식 (a) 예외: 스포크 워크로드 RG 스코프의 외부(hub) principal role
-#    assignment 허용 목록 완전 일치 (계획 4-1 Option A, 2026-09-03 절충 —
-#    "0건"을 "허용 목록 1건과 완전 일치"로 승격한 유일한 예외. bootstrap.sh
+#    assignment 허용 목록 완전 일치 (docs/decisions/live-hub-vwan-dev-networking.md
+#    참고 — "0건"을 "허용 목록 1건과 완전 일치"로 승격한 유일한 예외. bootstrap.sh
 #    6-1절이 만든다. 스코프는 VNet 리소스가 아니라 워크로드 RG 전체다 — dev
 #    VNet이 아직 없는 bootstrap 시점에 함께 끝내기 위한 의도적 완화, 대가는
 #    hub SP가 이 RG에 나중에 생길 다른 리소스에도 peer/action을 갖는다는 것) ──

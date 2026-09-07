@@ -17,7 +17,7 @@ locals {
   # ⚠️ vHub 주소 공간은 생성 후 변경 불가하다(learn.microsoft.com/en-us/azure/
   # virtual-wan/hub-settings). 최소는 /24, 권장은 /23이지만 vWAN 안에 Azure Firewall을
   # 두는 경우(Secured Virtual Hub) 최소 /22가 요구된다 — Firewall 배포 여부가 아직
-  # 확정되지 않았으므로(docs/decisions/live-hub-vwan-dev-networking.md 8절 Open Questions)
+  # 확정되지 않았으므로(docs/decisions/live-hub-vwan-dev-networking.md의 Open Questions 참고)
   # 나중에 선택지를 남기는 값으로 지금 잡는다. 사설 대역에서 /22와 /23의 비용 차이는 0이다.
   vhub_address_prefix = "10.62.0.0/22"
 
@@ -83,9 +83,9 @@ resource "azurerm_virtual_hub" "this" {
 # 접미사만 붙인다.
 #
 # routing 블록을 커스터마이즈하지 않는다 — Default 라우팅 테이블에 정상
-# associate + propagate하는 vWAN 기본값을 그대로 쓴다. 스포크마다 고유 Pod 대역을
-# 쓰기로 확정했으므로(docs/decisions/live-hub-vwan-dev-networking.md 4-4) "Propagate to
-# none" + 정적 라우트 같은 특수 배선이 필요 없다.
+# associate + propagate하는 vWAN 기본값을 그대로 쓴다. Overlay CNI 채택으로 Pod IP가
+# VNet/vWAN 라우팅에 아예 노출되지 않아(docs/decisions/live-hub-vwan-dev-networking.md
+# 참고), "Propagate to none" + 정적 라우트 같은 특수 배선이 필요 없다.
 resource "azurerm_virtual_hub_connection" "hub" {
   name                      = "${azurerm_virtual_hub.this.name}-hub"
   virtual_hub_id            = azurerm_virtual_hub.this.id
@@ -93,7 +93,7 @@ resource "azurerm_virtual_hub_connection" "hub" {
 }
 
 # 스포크 연결 — dev VNet ID는 data source로 조회하지 않고 CI 변수로 주입한다
-# (docs/decisions/live-hub-vwan-dev-networking.md 4-3). 조회하려면 dev 구독에
+# (docs/decisions/live-hub-vwan-dev-networking.md 참고). 조회하려면 dev 구독에
 # virtualNetworks/read가 추가로 필요한데, 그 한 액션을 아끼는 편이 낫다 — 존재하지
 # 않는 VNet ID를 넘기면 peer/action 호출 자체가 실패해 큰 소리로 드러난다.
 resource "azurerm_virtual_hub_connection" "spoke" {

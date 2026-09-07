@@ -255,9 +255,9 @@ ensure_role_assignment "$WORKLOAD_ROLE_NAME" "$SUBSCRIPTION_SCOPE" "workload" "$
 CONTAINER_SCOPE="${STATE_RG_SCOPE}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}/blobServices/default/containers/${CONTAINER_NAME}"
 ensure_role_assignment "$STATE_DATA_ROLE_NAME" "$CONTAINER_SCOPE" "state-data" "$SP_ID"
 
-# ── 6-1. 크로스 구독 스포크 연결 권한 (스포크 대상만, 계획 4-1 Option A —
-#    2026-09-03 절충: VNet 리소스 스코프 대신 워크로드 RG 스코프로 완화해 dev
-#    VNet이 아직 없는 이 시점(bootstrap.sh는 항상 networking apply보다 먼저
+# ── 6-1. 크로스 구독 스포크 연결 권한 (스포크 대상만, docs/decisions/
+#    live-hub-vwan-dev-networking.md 참고 — VNet 리소스 스코프 대신 워크로드 RG
+#    스코프로 완화해 dev VNet이 아직 없는 이 시점(bootstrap.sh는 항상 networking apply보다 먼저
 #    실행된다)에 함께 끝낸다. 대가는 hub SP가 이 RG에 나중에 생길 다른 VNet에도
 #    자동으로 peer 권한을 갖는다는 것 — peer/action은 단일 액션이라 위험도가
 #    낮고, 스포크가 늘 때마다 별도 스크립트를 한 번 더 실행하는 마찰을 없앤다.

@@ -89,7 +89,7 @@ resource "azurerm_role_assignment" "workbench_aks_cluster_user" {
 # skip_service_principal_aad_check(위)는 role assignment "생성" 시점의 AAD 존재 확인만
 # 우회한다 — 생성된 role이 실제 인가 판단(authorization)에 반영되기까지의 캐시 전파
 # 지연은 별개다(이 repo가 이미 여러 차례 실측한 클래스, docs/decisions/
-# bootstrap-credential-design.md 9차 세션 기록 — "역할 정의 AssignableScopes 변경 직후
+# bootstrap-credential-design.md 참고 — "역할 정의 AssignableScopes 변경 직후
 # role assignment 생성이 거부" 등). VM의 custom_data는 provider 스키마상 ForceNew라
 # cloud-init이 최초 부팅 시 1회만 az aks get-credentials를 실행하고 재시도가 없다
 # (aks-workbench 모듈 README「부팅 후 확인」절) — 이 유예 없이 실패하면 VM 재생성이

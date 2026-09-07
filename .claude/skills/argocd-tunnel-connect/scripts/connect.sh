@@ -116,7 +116,7 @@ fi
 
 # ── 2) 원격 watchdog 기동 — kubectl port-forward가 끊기면(예: pod 재시작) 자동 재시작 ──
 # 비대화형 SSH 원격 명령에서 disown은 job control 부재로 조용히 실패한다(exit 255,
-# 2026-09-04 13차 세션 실측) — 서브셸 백그라운드 (cmd &)로 대체해 SSH 세션 종료 후에도
+# 실측 확인) — 서브셸 백그라운드 (cmd &)로 대체해 SSH 세션 종료 후에도
 # 원격 프로세스가 살아남게 한다.
 #
 # ⚠️ pkill -f "kubectl port-forward -n argocd svc/argocd-server" 를 그대로 쓰면 안 된다

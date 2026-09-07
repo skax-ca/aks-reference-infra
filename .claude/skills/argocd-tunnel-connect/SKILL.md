@@ -6,7 +6,7 @@ description: hub ArgoCD 콘솔(https://localhost:18080, 기본값)에 접속하�
 # ArgoCD Tunnel Connect
 
 `aks-reference-infra`의 hub workbench(private AKS 클러스터의 유일한 일상 접근 지점,
-`docs/decisions/live-hub-workbench.md`·notepad 12차 세션 기록)를 거쳐 hub ArgoCD 콘솔을
+`docs/decisions/live-hub-workbench.md` 참고)를 거쳐 hub ArgoCD 콘솔을
 로컬 브라우저에서 열 수 있게 하는 2단 터널을 연다.
 
 ```
@@ -25,7 +25,7 @@ description: hub ArgoCD 콘솔(https://localhost:18080, 기본값)에 접속하�
 이 스킬 쌍은 AWS 자매 프로젝트 `eks-reference-infra`의 `argocd-tunnel-connect`/
 `-disconnect`를 1:1 대조해 포팅했다. 다만 Azure에는 AWS SSM(Session Manager)의 정확한
 대응물이 없고, 이 프로젝트는 이미 workbench 접속 모델을 **SSH가 일상 경로, Run Command가
-브레이크글래스**로 확정해 뒀다(`live/hub/workbench/main.tf` 주석, notepad 12차 세션) —
+브레이크글래스**로 확정해 뒀다(`live/hub/workbench/main.tf` 주석 참고) —
 그래서 1단(로컬↔workbench) 구간을 `aws ssm start-session` 대신 `ssh -L`로 대체했다.
 2단(workbench 안 `kubectl port-forward`)은 원본과 동일하다. 인스턴스 탐색 방식도
 다르다: AWS는 태그 와일드카드로 매번 검색하지만(재부트스트랩 시 인스턴스 ID가 바뀌므로),
@@ -73,7 +73,7 @@ AZURE_HUB_SUBSCRIPTION_ID=<hub 구독 GUID> bash .claude/skills/argocd-tunnel-co
 - **원격**: workbench에서 `kubectl port-forward`를 `while true` 루프로 감싸 실행한다.
   argocd-server 파드 재시작 등으로 연결이 끊기면 2초 후 자동 재시도한다(AWS 원본과
   동일 근거). 비대화형 SSH 원격 명령에서 `disown`은 job control 부재로 조용히
-  실패한다는 걸 이 프로젝트가 이미 실측했다(2026-09-04 13차 세션, exit 255 무출력) —
+  실패한다는 걸 이 프로젝트가 이미 실측했다(exit 255, 무출력) —
   그래서 `disown` 대신 서브셸 백그라운드(`(cmd &)`)로 띄워 SSH 세션이 끊겨도 원격
   프로세스가 살아남게 한다.
 - **로컬**: `ssh -L` 포트포워딩도 같은 방식으로 감싼다. VPN·네트워크 전환 등으로

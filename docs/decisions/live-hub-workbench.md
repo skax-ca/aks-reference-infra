@@ -1,9 +1,9 @@
-# live/hub/workbench - AKS 운영 workbench 배포 루트 설계 (plan, 2026-09-04)
+# live/hub/workbench - AKS 운영 workbench 배포 루트 설계
 
-**상태**: 구현 완료(브랜치 `feat/live-hub-workbench`), CI apply 전 - 로컬 `tofu validate` +
-읽기전용 `tofu plan`(local backend 오버라이드, 실제 hub 구독 대상)으로 12개 리소스 생성
-계획이 오류 없이 나옴을 2026-09-04 확인. PR·CI plan·apply는 아직.
-**범위**: hub 구독에 `iac-module-library`의 `aks-workbench`(`aks-workbench-v0.1.0`)를 소비하는
+**상태**: 배포 완료. hub 구독에 실제 가동 중 — SSH 로그인(sudo 없이 kubectl 사용
+가능)·k alias·krew 플러그인·helm/argocd/az CLI 전부 실측 검증 통과(`aks-workbench-v0.5.0`
+소비). 첫 실배포 이후 발견한 버그(9절)는 전부 수정·재적용 완료.
+**범위**: hub 구독에 `iac-module-library`의 `aks-workbench` 모듈을 소비하는
 새 배포 루트. `live/hub/aks`(`aks-demo-hub-krc-main-01`)의 일상 운영 지점(SSH·kubectl·helm·
 argocd·az CLI)을 만든다.
 **범위 밖**: GUI 데스크톱 workbench(Ubuntu Desktop+xfce4+Firefox + Azure Bastion Standard
@@ -36,9 +36,9 @@ CLAUDE.md의 신규 배포 루트 절차(deepinit→plan→ralplan→team→veri
   지정하지 않아 Azure 기본값(`System`)이 hub VNet 전체에 자동 링크된다(`az network
   private-dns zone list`로 재확인 가능) - `vm` 서브넷이 `aks-node`와 같은 VNet이라 모듈
   README의 "DNS 해석" 절(`README.md:125-145`) 1번 케이스에 해당, 추가 조치 불필요.
-- **CI 신원은 구독 전체 Owner 등가다**(`docs/decisions/bootstrap-credential-design.md` 2026-09-04
-  기록) → identity·role assignment는 bootstrap이 아니라 이 root가 Terraform으로 직접
-  만든다 - `live/hub/aks`가 2026-09-04에 세운 패턴(`live/hub/aks/main.tf:70-95`)을 그대로
+- **CI 신원은 구독 전체 Owner 등가다**(`docs/decisions/bootstrap-credential-design.md`
+  참고) → identity·role assignment는 bootstrap이 아니라 이 root가 Terraform으로 직접
+  만든다 - `live/hub/aks`가 세운 패턴(`live/hub/aks/main.tf:70-95`)을 그대로
   승계한다.
 - **hub 구독**: `57bb4b4a-6916-4c2d-9446-f908ba60e7d0`(`az account show` 실측, `rg-demo-hub-
   krc-workload-01` 존재로 hub임을 교차 확인 - dev 구독엔 이 RG가 없음).
