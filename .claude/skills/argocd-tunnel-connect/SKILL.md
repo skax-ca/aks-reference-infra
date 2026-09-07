@@ -1,6 +1,6 @@
 ---
 name: argocd-tunnel-connect
-description: hub ArgoCD 콘솔(https://localhost:8080)에 접속하기 위한 2단 SSH 터널을 연다 — 로컬 SSH 포트포워딩 → hub workbench(공인 IP) → kubectl port-forward → argocd-server. 사용자가 "argocd 터널 연결", "argocd 콘솔 접속", "argocd UI 보고 싶다"고 할 때 사용한다. 멱등적이다 — 이미 정상 연결돼 있으면 아무것도 하지 않는다.
+description: hub ArgoCD 콘솔(https://localhost:18080, 기본값)에 접속하기 위한 2단 SSH 터널을 연다 — 로컬 SSH 포트포워딩 → hub workbench(공인 IP) → kubectl port-forward → argocd-server. 사용자가 "argocd 터널 연결", "argocd 콘솔 접속", "argocd UI 보고 싶다"고 할 때 사용한다. 멱등적이다 — 이미 정상 연결돼 있으면 아무것도 하지 않는다.
 ---
 
 # ArgoCD Tunnel Connect
@@ -41,7 +41,8 @@ AZURE_HUB_SUBSCRIPTION_ID=<hub 구독 GUID> bash .claude/skills/argocd-tunnel-co
 
 `AZURE_HUB_SUBSCRIPTION_ID`는 필수다(기본값 없음 — `bootstrap/config.sh`의
 `EXPECTED_SUBSCRIPTION`과 같은 이유: 구독 식별 정보를 git에 두지 않고, hub/dev를
-잘못 섞어 건드리는 사고를 방지한다). `LOCAL_PORT` 생략 시 `8080`.
+잘못 섞어 건드리는 사고를 방지한다). `LOCAL_PORT` 생략 시 `18080`(`eks-reference-infra`가
+로컬에서 이미 `8080`을 점유하는 환경과 충돌하지 않도록 8080이 아닌 값을 기본값으로 둔다).
 
 출력의 마지막 줄로 결과를 판단한다:
 

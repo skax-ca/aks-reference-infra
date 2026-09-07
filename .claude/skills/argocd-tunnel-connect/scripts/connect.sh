@@ -7,7 +7,10 @@
 # eks-reference-infra의 argocd-tunnel-connect를 대조해 포팅. AWS SSM 대응물이 Azure에
 # 없어 1단(로컬↔workbench) 구간만 ssh -L로 대체했다 — SKILL.md 참고.
 #
-# 사용: AZURE_HUB_SUBSCRIPTION_ID=<GUID> scripts/connect.sh [LOCAL_PORT]  (기본 8080)
+# 사용: AZURE_HUB_SUBSCRIPTION_ID=<GUID> scripts/connect.sh [LOCAL_PORT]  (기본 18080)
+# 기본값을 8080이 아닌 18080으로 둔 이유: eks-reference-infra가 로컬에서 이미 8080을
+# 점유하는 환경이 있어(같은 머신에서 두 레퍼런스 인프라 저장소를 동시에 다루는 사용자
+# 워크플로), 서로 다른 클라우드의 터널 스킬이 기본값을 공유하지 않도록 분리했다.
 set -uo pipefail
 
 WORKLOAD="demo"
@@ -17,7 +20,7 @@ RESOURCE_GROUP="rg-${WORKLOAD}-${ENV_NAME}-${REGION_CODE}-workload-01"
 VM_NAME="vm-${WORKLOAD}-${ENV_NAME}-${REGION_CODE}-workbench-01"
 SSH_USER="azureuser"
 SSH_KEY="${HOME}/.ssh/workbench_ed25519"
-LOCAL_PORT="${1:-8080}"
+LOCAL_PORT="${1:-18080}"
 
 # 이 스킬 디렉토리(argocd-tunnel-connect) 밑에 전용 상태 폴더를 둔다 — .omc/state/는
 # OMC 자체의 세션·워크트리 생명주기에 묶여 있어(worktree 삭제 시 .omc/ 상태가 함께

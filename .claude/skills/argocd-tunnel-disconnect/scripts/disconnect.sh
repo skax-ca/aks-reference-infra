@@ -23,7 +23,7 @@ fi
 
 LOCAL_PID=$(cat "$PID_FILE")
 PUBLIC_IP=$(cat "$IP_FILE" 2>/dev/null || echo "")
-LOCAL_PORT=$(cat "$PORT_FILE" 2>/dev/null || echo "8080")
+LOCAL_PORT=$(cat "$PORT_FILE" 2>/dev/null || echo "18080")
 
 # ── 1) 로컬 watchdog(+ 그 자식 ssh -L) 종료 ──
 if kill -0 "$LOCAL_PID" 2>/dev/null; then
