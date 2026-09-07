@@ -25,7 +25,7 @@ output "oidc_issuer_url" {
 output "node_resource_group" {
   description = <<-EOT
     AKS 가 노드 리소스(VMSS·NIC 등)를 자동 생성하는 리소스 그룹 이름. 노드가 실제로
-    aks-node 서브넷에 join 했는지 확인할 때 진입점이다(docs/decisions/live-hub-aks.md 완료 판정 #6).
+    aks-node 서브넷에 join 했는지 확인할 때 진입점이다(az vmss nic list로 조회).
   EOT
   value       = module.aks_cluster.node_resource_group
 }

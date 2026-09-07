@@ -1,7 +1,6 @@
 # live/hub/networking — VNet 배포 루트 (허브)
 #
 # iac-module-library 의 modules/azure/vnet 을 실제로 처음 소비하는 root다(Phase 1 첫 배포 루트).
-# 설계 전문은 docs/decisions/live-hub-networking.md 참조.
 #
 # ⚠️ TGW 대응(Virtual WAN) 연결은 이 root 에 없다 — live/hub/vwan(별도 state)이 담당한다
 #    (CLAUDE.md 3·5절). AWS 원본처럼 vnet 과 hub-spoke 라우팅을 한 파일에 섞지 않는다.
@@ -34,9 +33,8 @@ locals {
   #      여기서도 뜨지 않는 건 이전과 동일하지만 이유가 바뀌었다(Pod Subnet 미사용
   #      때문이 아니라 Overlay라 VNet 서브넷 자체를 안 쓰기 때문).
   #
-  #      설계 근거 전문은 docs/decisions/live-hub-vwan-dev-networking.md 참고 —
-  #      Overlay CNI 채택으로 Pod CIDR을 VNet/vWAN 라우팅에서 완전히 분리한 경위를
-  #      그 문서가 다룬다.
+  #      Overlay CNI 채택으로 Pod CIDR을 VNet/vWAN 라우팅에서 완전히 분리했다 —
+  #      경위는 live/hub/vwan/main.tf의 관련 주석 참고.
 
   # 그룹별 CIDR. 10.60.5.0/24~10.60.15.0/24, 10.60.32.0/19 이후는 미할당으로 남겨둔다
   # (향후 AzureFirewallSubnet 등 필요 시 재조사 없이 바로 쓴다). Pod 대역은 이 VNet에

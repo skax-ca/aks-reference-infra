@@ -1,11 +1,10 @@
 # live/dev/networking — VNet 배포 루트 (spoke 첫 인스턴스)
 #
 # live/hub/networking을 착수 템플릿으로 복사해 dev 구독 값으로 바꾼 것이다 — 구조는
-# 동일하고 CIDR·env만 다르다. 설계 전문은 docs/decisions/live-hub-vwan-dev-networking.md
-# (4-3 착수 순서, 5절 Implementation Steps 4단계) 참조.
+# 동일하고 CIDR·env만 다르다.
 #
 # ⚠️ vWAN 연결은 이 root에 없다 — live/hub/vwan(hub 구독, 별도 state)이 담당한다.
-#    이 root는 dev VNet만 만들고 vWAN을 전혀 모른다(설계 계획 4-3, 소유권은 hub 쪽).
+#    이 root는 dev VNet만 만들고 vWAN을 전혀 모른다(소유권은 hub 쪽, live/hub/vwan/main.tf 참고).
 
 locals {
   # hub는 10.60.0.0/16, 이 VNet(dev)은 10.61.0.0/16 — 겹치지 않는다

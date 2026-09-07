@@ -6,14 +6,12 @@ state Storage Account, App Registration, 커스텀 RBAC 역할 2종, 리소스 �
 클러스터용 user-assigned identity를 Azure CLI 스크립트로 만든다. `tofu`가 이것들을 만들려면 이미 state 저장소가 있어야 하는 닭과 달걀
 문제가 있어서, 이 한 겹만 IaC 밖에 둔다(원본 `eks-reference-infra`와 동일한 이유).
 
-설계 근거는 `docs/decisions/bootstrap-credential-design.md`다. CI 신원(App Registration)은
-**구독 전체 스코프의 `Owner` 등가 커스텀 역할**을 갖는다. AWS 원본의 실행 Role
-(`AdministratorAccess`)과 권한 스코프 축에서 완전히 대칭이다(이전 설계는 RG
-스코프로 좁히고 6종 불변식으로 검증했으나 이 축은 폐기됐다). 방어선은 권한 크기가
-아니라 이 신원에 도달할 수 있는 경로(FIC subject)를 정확히 이 repo 하나로 좁히는
-것뿐이다(Azure Entra ID에는 AWS `AssumeRole` 같은 2단 체인이 없어, FIC의 `subject`
-완전 일치 검사가 그 역할을 대신한다). 폐기 경위·근거 전문은
-`docs/decisions/bootstrap-credential-design.md` 참고.
+CI 신원(App Registration)은 **구독 전체 스코프의 `Owner` 등가 커스텀 역할**을 갖는다.
+AWS 원본의 실행 Role(`AdministratorAccess`)과 권한 스코프 축에서 완전히 대칭이다.
+방어선은 권한 크기가 아니라 이 신원에 도달할 수 있는 경로(FIC subject)를 정확히 이
+repo 하나로 좁히는 것뿐이다(Azure Entra ID에는 AWS `AssumeRole` 같은 2단 체인이 없어,
+FIC의 `subject` 완전 일치 검사가 그 역할을 대신한다). 설계 근거 전문은 `config.sh`의
+관련 주석 참고.
 
 ## 1. 실행
 
@@ -70,8 +68,7 @@ hub는 구독 하나의 단일 고정 거처이고, spoke는 별도 구독에 �
 | state RG | `rg-<workload>-<env>-krc-tfstate-01` (CI 신원의 RBAC 스코프 밖) |
 
 `rg` 약어는 `iac-module-library`의 `docs/naming/abbreviations/azure.md`에 등재됐다
-(2026-08-27, 실제 Azure 검증 세션 — CAF 표에서 그대로 채택). 등재 전에는 `rg-todo-...`
-placeholder를 썼었다.
+(CAF 표에서 그대로 채택).
 
 ### state Storage Account (대상별 1개)
 
@@ -83,7 +80,7 @@ placeholder를 썼었다.
 | 내구성 | blob 버전 관리 + blob soft delete(30일) + **컨테이너 소프트 삭제**(30일, blob soft delete와 별개 기능이라 반드시 함께 켠다) |
 | 컨테이너 | `tfstate` 1개. **동일 이름으로 재사용 금지**(소프트 삭제된 컨테이너와 같은 이름으로 새로 만들면 그 소프트 삭제분은 영구 복구 불가) |
 
-### CI 신원 권한 (2026-09-04부터 워크로드 역할=구독 전체 Owner 등가)
+### CI 신원 권한 (워크로드 역할=구독 전체 Owner 등가)
 
 CI 신원(App Registration) 하나에 **커스텀 역할 2종**을 부여한다. built-in `Owner`를
 그대로 쓰지 않는 이유는 "워크로드 RG 자체를 실수로 삭제하는" 흔한 사고를 값싸게
@@ -94,27 +91,21 @@ CI 신원(App Registration) 하나에 **커스텀 역할 2종**을 부여한다.
 | 워크로드 CI 역할 | **구독 전체** | `Actions:["*"]`, `NotActions:["Microsoft.Resources/subscriptions/resourceGroups/delete"]`(고정값 1개) |
 | state 데이터 역할 | state 컨테이너 | Storage Blob Data Contributor에서 `containers/delete`만 제외한 고정 델타 |
 
-⚠️ **2026-08-27~2026-09-03까지는 워크로드 역할이 RG 스코프 + `NotActions`를
-built-in Contributor에서 런타임 조회한 값이었다.** 2026-09-04에 이 설계를 전면
-재검토해 워크로드 역할의 **스코프**를 RG → 구독 전체로 넓혔다. AWS 원본
-(`eks-reference-infra`)을 실측한 결과 실행 Role이 이미 `AdministratorAccess`를
-쓰고 있었고, 방어선은 "권한 크기를 좁힌다"가 아니라 "이 신원에 도달할 수 있는
-경로를 하나로 좁힌다"(입구 Role 신뢰 정책, Azure에서는 FIC subject)였다는 것을
-확인했다. Azure도 이미 그 "도달 경로 하나" 방어선을 FIC subject 완전 일치 검사로
-동등하게 갖고 있어, 워크로드 역할을 RG로 좁히던 건 AWS 원본에 없는 과잉설계였다고
-판단했다. 전체 근거·마이그레이션 경위는
-`docs/decisions/bootstrap-credential-design.md`를 참고.
+⚠️ **워크로드 역할의 스코프는 구독 전체다.** AWS 원본(`eks-reference-infra`)의 실행
+Role이 이미 `AdministratorAccess`를 쓰고, 방어선은 "권한 크기를 좁힌다"가 아니라
+"이 신원에 도달할 수 있는 경로를 하나로 좁힌다"(입구 Role 신뢰 정책, Azure에서는 FIC
+subject)에 있다는 것이 근거다. Azure도 이미 그 "도달 경로 하나" 방어선을 FIC subject
+완전 일치 검사로 동등하게 갖고 있어, 워크로드 역할을 RG로 좁히는 것은 AWS 원본에
+없는 과잉설계로 본다. 전체 근거는 `config.sh`의 관련 주석 참고.
 
-⛔ **state 데이터 역할은 이 재검토와 무관하게 그대로 유지한다.** 같은 날 "워크로드
-역할이 이제 state RG·컨테이너까지 전부 포괄하니 무의미하다"고 판단해 한 번
-제거했다가 **틀린 판단임을 실측으로 바로 확인해 재도입했다.** Azure RBAC는
+⛔ **state 데이터 역할은 워크로드 역할과 별개로 반드시 유지한다.** Azure RBAC는
 control-plane(`Actions`)과 storage blob data-plane(`DataActions`)이 완전히 분리된
-축이다. `az role definition list --name Owner`로 직접 확인한 결과 `Owner`도
+축이다. `az role definition list --name Owner`로 확인한 결과 `Owner`도
 `dataActions: []`다. 이 backend는 `use_azuread_auth = true`를 쓰므로, 워크로드
 역할이 아무리 넓어도 state 데이터 역할 없이는 `tofu init`/`plan`/`apply`가 tfstate
 blob 접근 자체에서 실패한다(모든 live root가 이 backend를 공유하므로 영향 범위가
-전체다). 교훈: control-plane 권한이 넓다고 data-plane 접근이 자동으로 딸려온다고
-가정하지 않는다. Azure RBAC에서는 항상 별개다.
+전체다). control-plane 권한이 넓다고 data-plane 접근이 자동으로 딸려오지는 않는다.
+Azure RBAC에서는 항상 별개다.
 
 ⚠️ `NotActions`는 deny 규칙이 아니다. 워크로드 역할의 `resourceGroups/delete`
 제외는 이제 **보안 경계가 아니라 사고 방지 안전망**이다. 이 역할은 Owner와 거의
@@ -131,15 +122,11 @@ blob 접근 자체에서 실패한다(모든 live root가 이 backend를 공유�
 
 ⚠️ **잠금은 tfstate 데이터를 보호하지 않는다.** `CannotDelete`는 control-plane(리소스
 그룹·계정 자체의 삭제)만 막고 blob 데이터(data-plane)는 보호하지 않는다. tfstate의
-실제 보호는 위 내구성 설정(soft delete 30일 + versioning) 한 층으로 수렴한다.
-**2026-09-04 이전에는 여기에 "state 데이터 역할이 `containers/delete`를 갖지 않는다"는
-두 번째 층이 있었는데, 그 역할은 그대로 유지되지만(위 「CI 신원 권한」절, data-plane
-접근 자체가 여전히 필요해 재도입) 이 두 번째 층의 방어 효과는 사라졌다.** `containers/
-delete`는 control-plane 액션이라, 워크로드 역할이 구독 전체 Owner 등가로 넓어지면서
-이미 그 액션(`Actions:["*"]`)을 갖는다. state 데이터 역할이 그 액션을 계속 빼고
-있어도 워크로드 역할을 통해 컨테이너 자체를 지울 수 있다. "즉시
-영구 삭제는 안 된다(30일 내 복구 가능), CI가 아예 못 지운다는 보장은 없다"로
-방어 수준이 낮아졌음을 인지한다(`docs/decisions/bootstrap-credential-design.md` 참고).
+실제 보호는 위 내구성 설정(soft delete 30일 + versioning) 한 층으로 수렴한다. state
+데이터 역할이 `containers/delete`를 갖지 않아도, 워크로드 역할이 구독 전체 Owner
+등가로 `Actions:["*"]`를 갖는 이상 그 역할을 통해 컨테이너 자체를 지울 수 있다.
+즉시 영구 삭제는 안 된다(30일 내 복구 가능)는 것이 방어의 전부이고, CI가 아예 못
+지운다는 보장은 없다.
 
 ⚠️ state RG에 잠금이 걸려 있으면 **사람 관리자도 예외 없이** 그 RG 안의 role
 assignment를 다시 만들 수 없다(`CannotDelete`가 RBAC 할당 삭제까지 막는다). 정당한
@@ -186,16 +173,16 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 
 | 항목 | 값 |
 |------|-----|
-| 역할 | `aks-ref-bootstrap-spoke-peer-<env>` — `peer/action` 단일 액션만 |
+| 역할 | `aks-ref-bootstrap-spoke-peer-<env>`(`peer/action` 단일 액션만) |
 | assignable scope / 할당 스코프 | 스포크 **워크로드 RG**(`rg-<workload>-<env>-krc-workload-01`) |
 | 할당 대상 | hub App Registration(`entapp-<workload>-hub-krc-gha-01`)의 SP |
-| 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때만 자동 포함(「크로스 구독 스포크 연결 권한」절) — CI가 아니라 `bootstrap.sh`를 실행하는 사람이 만든다 |
+| 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때만 자동 포함(「크로스 구독 스포크 연결 권한」절). CI가 아니라 `bootstrap.sh`를 실행하는 사람이 만든다 |
 
 ⚠️ **스코프는 특정 VNet 리소스가 아니라 워크로드 RG 전체다.** `bootstrap.sh`는 항상
 `live/*/networking`의 VNet apply보다 먼저 실행되므로, 그 시점엔 VNet이 아직 없어 리소스
-단위로 좁힐 수 없다(닭과 달걀 문제). VNet 리소스 단위로 좁히는 대안도 검토했으나
-(`docs/decisions/live-hub-vwan-dev-networking.md` 참고), 그러면 스포크마다 별도
-스크립트를 한 번 더 실행해야 해 `bootstrap.sh` 1회로 끝나지 않는다. `peer/action`은
+단위로 좁힐 수 없다(닭과 달걀 문제). VNet 리소스 단위로 좁히는 대안도 검토했으나,
+그러면 스포크마다 별도 스크립트를 한 번 더 실행해야 해 `bootstrap.sh` 1회로 끝나지
+않는다. `peer/action`은
 단일 액션이라 위험도가 낮으므로, RG 스코프로 완화하고 `bootstrap.sh`에 통합하는 쪽을
 택했다. 대가는 hub SP가 이 RG에 나중에 생길 다른 리소스에도
 `peer/action`을 갖는다는 것이다.
@@ -205,27 +192,25 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 테넌트의 크로스 **구독**이고, 위 roles-permissions 문서가 액션 단위로 정확히 답한다.
 
 ⚠️ **AWS 원본과 소유 방향이 다르다.** AWS(`eks-reference-infra`)는 AWS RAM으로 hub가 TGW를
-계정/OU 단위로 공유하면 스포크가 자기 계정의 전권으로 attachment를 직접 만든다 — hub 계정에
+계정/OU 단위로 공유하면 스포크가 자기 계정의 전권으로 attachment를 직접 만든다. hub 계정에
 새 IAM 권한이 필요 없다. Azure vWAN에는 RAM의 정확한 대응물이 없다. 반대 방향(스포크 CI가
 연결을 소유)을 택하면 스포크 CI가 hub의 공유 컨트롤 플레인 쓰기 권한
-(`hubVirtualNetworkConnections/write`)을 가져야 해 `peer/action` 하나보다 훨씬 위험하다 —
+(`hubVirtualNetworkConnections/write`)을 가져야 해 `peer/action` 하나보다 훨씬 위험하다.
 그래서 이 설계는 hub가 연결을 소유하는 방향을 유지한다. 대가로 **새 스포크를 추가할
-때마다 `bootstrap.sh`(스포크 대상)를 한 번 더 실행해야 한다** — 자동으로 상속되지 않는다.
+때마다 `bootstrap.sh`(스포크 대상)를 한 번 더 실행해야 한다.** 자동으로 상속되지 않는다.
 
 ⛔ `verify.sh`는 스포크 워크로드 RG 스코프에서 "이 대상 자신의 SP를 제외한" role
 assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일치하는지 검사한다
-(`BOOTSTRAP_TARGET=spoke`일 때만). 설계 근거 전문은
-`docs/decisions/live-hub-vwan-dev-networking.md` 참고.
+(`BOOTSTRAP_TARGET=spoke`일 때만). 설계 근거 전문은 `config.sh`의 관련 주석 참고.
 
 ### AKS 클러스터용 identity·권한 (bootstrap이 아니라 Terraform이 만든다)
 
 `aks-cluster` 모듈은 identity도 role assignment도 스스로 만들지 않고 **입력으로만
 받는다**(모듈 경계 원칙, `iac-module-library`의 `docs/decisions.md` ADR 소관, 그대로
 유지). **소비자인 이 repo는 그 identity·role assignment를 `live/hub/aks`의
-Terraform으로 만든다** — bootstrap(IaC 밖)이 아니다. CI 신원이 구독 전체 Owner
+Terraform으로 만든다.** bootstrap(IaC 밖)이 아니다. CI 신원이 구독 전체 Owner
 등가가 되면서 "CI에 `roleAssignments/write`를 주지 않는다"던 옛 방어선이 사라져,
-bootstrap에 둘 구조적 이유가 없어졌기 때문이다
-(`docs/decisions/bootstrap-credential-design.md` 참고).
+bootstrap에 둘 구조적 이유가 없어졌기 때문이다(`config.sh`의 관련 주석 참고).
 
 이관 방식은 **live 재배포**다. 기존 클러스터를 destroy(GitHub Actions
 `workflow_dispatch`, `action=destroy`) → bootstrap이 만들었던 구식 identity·role
@@ -270,9 +255,9 @@ GitOps 워크로드가 없는 데모 클러스터라 destroy 비용이 낮았다
 
 ⚠️ `verify.sh`는 App Registration이 없으면 그 지점에서 즉시 `exit 1`로 끝난다
 (RG·Storage 등 이후 항목은 App Registration 존재를 전제로 하는 조회라 App
-Registration이 없으면 검사 자체가 무의미하기 때문 — 실측 확인, 2026-08-27). "모든
-항목이 개별적으로 absent로 보고된다"는 뜻이 아니다. drift 1건 보고 + exit 1이면
-수용 기준을 충족한 것이다.
+Registration이 없으면 검사 자체가 무의미하기 때문이다). "모든 항목이 개별적으로
+absent로 보고된다"는 뜻이 아니다. drift 1건 보고 + exit 1이면 수용 기준을 충족한
+것이다.
 
 ### 3-2. 음성 테스트: verify.sh가 실제로 drift를 잡는지 증명한다
 
@@ -299,13 +284,11 @@ az storage account blob-service-properties update \
 
 이 순서대로 결과가 나오면 `verify.sh`는 소음이 아니라 실제 탐지기임이 증명된 것이다.
 
-✅ **hub 대상으로 실제 Azure에서 3-1·3-2 전 과정을 실행해 확인했다(2026-08-27, 정식
-네이밍 약어 등재 후 리소스 재생성까지 마친 최종 상태 기준).** 위 순서 그대로 DRIFT
-2건 → 변경 2건 → drift 없음 → 변경 0건이 재현됐다. 이 과정에서 버그 3건(역할 정의
-생성 직후·역할 정의 재조회·role assignment 조회의 ARM 캐시/조인 지연 미대응)을
-발견해 고쳤고, 불변식 (b)(관리 그룹 스코프)를 제거했다 — 상세 경위는
-`docs/decisions/bootstrap-credential-design.md` 참고. dev(spoke)
-인스턴스는 별도 구독이 필요해 이번에는 검증하지 않았다.
+✅ **hub 대상으로 실제 Azure에서 3-1·3-2 전 과정을 실행해 확인했다.** 위 순서 그대로
+DRIFT 2건 → 변경 2건 → drift 없음 → 변경 0건이 재현됐다. 이 과정에서 버그 3건(역할
+정의 생성 직후·역할 정의 재조회·role assignment 조회의 ARM 캐시/조인 지연 미대응)을
+발견해 고쳤고, 불변식 (b)(관리 그룹 스코프)를 제거했다. 상세 경위는 `config.sh`의
+관련 주석 참고. dev(spoke) 인스턴스는 별도 구독이 필요해 이번에는 검증하지 않았다.
 
 ### 검증 실행 권한의 한계
 

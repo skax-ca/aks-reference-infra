@@ -6,7 +6,7 @@ description: hub ArgoCD 콘솔(https://localhost:18080, 기본값)에 접속하�
 # ArgoCD Tunnel Connect
 
 `aks-reference-infra`의 hub workbench(private AKS 클러스터의 유일한 일상 접근 지점,
-`docs/decisions/live-hub-workbench.md` 참고)를 거쳐 hub ArgoCD 콘솔을
+`live/hub/workbench/main.tf` 참고)를 거쳐 hub ArgoCD 콘솔을
 로컬 브라우저에서 열 수 있게 하는 2단 터널을 연다.
 
 ```
