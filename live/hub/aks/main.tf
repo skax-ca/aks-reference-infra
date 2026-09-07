@@ -111,7 +111,13 @@ module "aks_cluster" {
   #
   # v0.6.0 으로 올린 이유: enable_keda 변수 신설(workload_autoscaler_profile.keda_enabled) —
   # AKS의 KEDA managed add-on을 쓰기 위해 필요(아래 enable_keda 변수 설명 참조).
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.6.0&depth=1"
+  #
+  # v0.7.0 으로 올린 이유: web_app_routing 변수 신설. 아래 azapi_update_resource가 얹는
+  # ingressProfile.webAppRouting.gatewayAPIImplementations는 azurerm이 모르는 필드라
+  # azurerm 자신의 plan이 그 부모 블록(web_app_routing) 전체를 "HCL에 없다"며 지우려
+  # 했다(실측: v0.6.0 첫 apply 직후 수렴 검증에서 재현). 아래 web_app_routing 인자로
+  # azurerm이 아는 하위 필드를 이 root가 직접 선언해 그 충돌을 없앤다.
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.7.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다(모듈 repo 규약).
   # {demo, hub, krc} → aks-demo-hub-krc-main-01
@@ -175,6 +181,18 @@ module "aks_cluster" {
   # 플랫폼 GitOps가 미리 갖출 것이 없다(enable_keda 변수 설명 참조). workload_identity_enabled
   # 는 이미 true라 공식 문서가 요구하는 순서(Workload Identity 먼저) 조건을 만족한다.
   enable_keda = true
+
+  # App Routing 오퍼레이터(DNS/TLS 통합)를 켠다 — azurerm이 실제로 아는 하위 필드만
+  # 여기서 선언한다(모듈 v0.7.0의 web_app_routing 변수 설명 참조). Gateway API/Istio
+  # 필드는 azurerm 스키마 밖이라 여전히 아래 azapi_update_resource가 담당한다 — 이
+  # 값 하나만으로는 App Routing이 완성되지 않는다.
+  web_app_routing = {
+    # 레거시 NGINX 기반 IngressClass 자동 생성을 명시적으로 끈다 — 이 저장소는 Gateway
+    # API 경로만 쓴다(ingress-nginx 업스트림 은퇴 공지, aks-platform-gitops의
+    # addons/baseline/gateway.yaml 헤더 참고). 생략하면 provider 기본값
+    # (AnnotationControlled)이 적용돼 원치 않는 NGINX 컨트롤러가 함께 뜬다.
+    default_nginx_controller = "None"
+  }
 
   # 시스템 노드 풀. vm_size·node_count 는 모듈 examples/basic·README Usage 예시값이다.
   #
@@ -240,24 +258,26 @@ module "aks_cluster" {
 # `kubectl delete crd`로 그 잔존 CRD를 지우고 재시도해 해결했다(K8s 클러스터 쪽
 # 정리라 이 코드에는 흔적이 없다).
 #
-# 🔴 **apply 직후 읽기 전용 재-plan이 수렴하지 않았다** — `module.aks_cluster`(azurerm
-# 관리)가 이제 실제 Azure에 있는 `ingressProfile.webAppRouting`을 읽어 "내 HCL엔 이
-# 블록이 없다"며 지우려는 diff(`web_app_routing { ... } -> null`)를 낸다. 아래
-# `iac-module-library`의 `aks-cluster` 모듈은 `web_app_routing`을 인자로 노출하지
-# 않고(module main.tf에 해당 블록 없음), 이 root는 모듈 내부 리소스에 `lifecycle
-# { ignore_changes }`를 붙일 방법이 없다(Terraform 제약 — lifecycle은 리소스가
-# 선언된 자리에서만 유효). `azapi_update_resource`는 자기 body를 매 plan마다
-# 재확인하지 않는 설계라("공식 문서: 속성 자체의 상태를 추적하지 않는다"), **이
-# 상태로 이 root에 어떤 변경이든 다음 apply가 실행되면 그 diff가 함께 적용돼 App
-# Routing이 조용히 꺼질 수 있다.** 근본 해결은 모듈에 `web_app_routing` passthrough를
-# 추가하는 것(iac-module-library 쪽 작업, 이번 범위 밖) — 그 전까지는 **이 root에
-# 다음 apply를 돌리기 전에 반드시 plan에 `module.aks_cluster`의 `web_app_routing`
-# 제거 diff가 있는지 확인하고, 있으면 이 리소스의 body를 다시 apply해 되살린다**
-# (`tofu apply -target=azapi_update_resource.aks_app_routing_gateway_api`).
+# ✅ 2026-09-07 해소: 위 첫 apply 직후 읽기 전용 재-plan이 수렴하지 않는 문제를 실측
+# 확인했다(`module.aks_cluster`(azurerm 관리)가 실제 Azure의 `ingressProfile.
+# webAppRouting`을 읽고 "내 HCL엔 이 블록이 없다"며 지우려는 diff를 냄 — azapi와
+# azurerm이 같은 JSON 서브트리를 두고 충돌). `iac-module-library`의 `aks-cluster`
+# 모듈에 `web_app_routing` passthrough를 신설(aks-cluster-v0.7.0, PR #47)해 azurerm이
+# 아는 하위 필드(enabled·nginx)를 그쪽이 직접 선언하게 했다(위 module.aks_cluster의
+# web_app_routing 인자) — 이 azapi 리소스는 이제 azurerm 스키마 밖의 필드
+# (gatewayAPI·gatewayAPIImplementations)만 담당한다. 재발 방지: 다음에 이 root에
+# apply할 때도 plan에 `module.aks_cluster`의 `web_app_routing` 관련 diff가 없는지
+# 확인하는 습관은 유지한다 — azapi가 여전히 자기 body의 drift를 스스로 감지하지
+# 않는다는 사실 자체는 안 바뀌었다(공식 문서: 속성 자체의 상태를 추적하지 않는다).
 resource "azapi_update_resource" "aks_app_routing_gateway_api" {
   type        = "Microsoft.ContainerService/managedClusters@2026-04-02-preview"
   resource_id = module.aks_cluster.cluster_id
 
+  # ⚠️ webAppRouting.enabled·nginx는 이 body에 없다 — module.aks_cluster의
+  # web_app_routing 인자(azurerm 관리)가 그 하위 필드를 담당한다(위 헤더 주석 참고).
+  # 이 리소스는 azurerm 스키마 밖의 두 필드만 PATCH한다. azapi_update_resource는
+  # ignore_missing_property=true(기본값)라 이 body에 없는 형제 필드(enabled·nginx)를
+  # 덮어쓰지 않는다 — 부분 병합이지 전체 치환이 아니다.
   body = {
     properties = {
       ingressProfile = {
@@ -268,17 +288,6 @@ resource "azapi_update_resource" "aks_app_routing_gateway_api" {
           installation = "Standard"
         }
         webAppRouting = {
-          # App Routing 오퍼레이터(DNS/TLS 통합) 자체를 켠다 — `--enable-app-routing`에
-          # 대응. gatewayAPIImplementations는 이 블록 하위 필드라 이게 꺼져 있으면
-          # 무의미하다.
-          enabled = true
-          nginx = {
-            # 기본값(레거시 NGINX 기반 Ingress 컨트롤러 자동 생성)을 명시적으로 끈다 —
-            # 이 저장소는 Gateway API 경로만 쓴다(ingress-nginx 업스트림 은퇴 공지,
-            # aks-platform-gitops의 addons/baseline/gateway.yaml 헤더 참고). 이 필드를
-            # 빠뜨리면 원치 않는 NGINX IngressClass·컨트롤러가 함께 뜬다.
-            defaultIngressControllerType = "None"
-          }
           gatewayAPIImplementations = {
             appRoutingIstio = {
               # `--enable-app-routing-istio`에 대응. GatewayClass 이름은 AKS가
