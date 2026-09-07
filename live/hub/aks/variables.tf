@@ -69,7 +69,7 @@ variable "ci_run" {
 }
 
 # aks_identity_id 변수는 2026-09-04부로 제거했다. CI 신원(App Registration)이 이제
-# 구독 전체 Owner 등가 역할을 가지므로(.omc/plans/bootstrap-credential-design.md
+# 구독 전체 Owner 등가 역할을 가지므로(docs/decisions/bootstrap-credential-design.md
 # 2026-09-04 추가 기록), "CI가 roleAssignments/write를 가지면 자기 자신에게 상위
 # 역할을 부여할 수 있다"는 옛 금지 항목이 사라졌다 — 이 root가 자기 identity를
 # azurerm_user_assigned_identity로 직접 만든다(main.tf 참고). bootstrap 계층에서

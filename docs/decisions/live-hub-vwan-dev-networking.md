@@ -361,7 +361,7 @@ None + 정적 라우트 패턴은 폐기하지 않고, "어떤 대역이 허브�
 
 ## 8. Open Questions
 
-`.omc/plans/open-questions.md`에도 함께 기록한다.
+`docs/decisions/open-questions.md`에도 함께 기록한다.
 
 - 🔴 **dev Pod CIDR을 `100.65.0.0/16`으로 바꾸는 것에 동의하는가**(4-4 Option A).
   `live/dev/networking` 착수를 막는 유일한 결정 게이트다.
@@ -566,5 +566,5 @@ Pod가 VNet 주소 공간에 전혀 속하지 않는다 — 이 문서 3절·4�
 
 **후속**: Pod 네트워킹의 새 설계 근거는 `live/hub/networking/main.tf`·
 `live/dev/networking/main.tf`의 해당 locals 주석이 실물 SSOT를 넘겨받는다(이 문서를
-더 갱신하지 않는다, CLAUDE.md 3절 원칙). `live/hub/aks` 배포 계획(`.omc/plans/
+더 갱신하지 않는다, CLAUDE.md 3절 원칙). `live/hub/aks` 배포 계획(`docs/decisions/
 live-hub-aks.md`)이 이 정정을 반영해 재작성된다.

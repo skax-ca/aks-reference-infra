@@ -33,9 +33,9 @@
 #    managementGroups/read`가 필요했다 — README가 명시한 실행 전제(구독
 #    Owner/UAA)보다 훨씬 넓은 권한을 검증자에게만 요구하는 불균형이라 사용자가
 #    직접 삭제를 확정했다. 이 판단의 전체 맥락은
-#    `.omc/plans/bootstrap-credential-design.md`의 2026-08-27 추가 기록을 참고.
+#    `docs/decisions/bootstrap-credential-design.md`의 2026-08-27 추가 기록을 참고.
 #
-# ⚠️ **2026-09-04, 불변식 (a)의 성격이 반전됐다**(`.omc/plans/
+# ⚠️ **2026-09-04, 불변식 (a)의 성격이 반전됐다**(`docs/decisions/
 #    bootstrap-credential-design.md` 추가 기록 참고). CI 신원이 이제 구독 전체
 #    Owner 등가 역할을 가지므로(AWS 원본 `AdministratorAccess`와 스코프 축
 #    대칭), "구독 스코프 role assignment 0건"이 아니라 "정확히 워크로드 역할
@@ -136,7 +136,7 @@ else
 fi
 
 # ── 불변식 (a): 구독 스코프 role assignment 정확히 1건(워크로드 역할, 이 구독) ──
-# 2026-09-04 결정(.omc/plans/bootstrap-credential-design.md 추가 기록)으로 반전:
+# 2026-09-04 결정(docs/decisions/bootstrap-credential-design.md 추가 기록)으로 반전:
 # CI가 이제 구독 전체 Owner 등가 역할을 가지므로 "0건"이 아니라 "정확히 워크로드
 # 역할 1건, 그 구독에만"이 기대 상태다. 다른(엉뚱한) 구독에 role assignment가
 # 있으면 여전히 drift다 — 방어선이 FIC subject 하나로 좁아진 지금, 이 검사는

@@ -22,7 +22,7 @@ provider "azurerm" {
   # (2026-08-27 hub 첫 CI plan 실측).
   #
   # ⚠️ 이 root가 요구하는 Microsoft.ContainerService는 bootstrap 단계에서 사람이 사전
-  #    등록한다(.omc/plans/live-hub-aks.md 3-1). 미등록 상태라면 apply가 CI 스스로
+  #    등록한다(docs/decisions/live-hub-aks.md 3-1). 미등록 상태라면 apply가 CI 스스로
   #    복구할 수 없는 실패로 막히는 것이 정상 동작이다 — "none"을 되돌려서 풀 문제가 아니다.
   resource_provider_registrations = "none"
 
@@ -42,7 +42,7 @@ provider "azurerm" {
 # plan에서 실측). 대신 CI 워크플로만 명시적으로 심어주는 var.ci_run으로 우회한다.
 #
 # ⚠️ 이 가드는 apply만 막는다. precondition은 파괴 대상 리소스에 평가되지 않아 로컬
-# destroy는 막지 못한다(2026-09-03 실측 정정, .omc/plans/live-hub-aks.md 3-4). 로컬
+# destroy는 막지 못한다(2026-09-03 실측 정정, docs/decisions/live-hub-aks.md 3-4). 로컬
 # destroy의 실제 방어선은 state 백엔드 RBAC다(allowSharedKeyAccess=false + Blob 데이터
 # 역할이 CI SP 전용).
 #

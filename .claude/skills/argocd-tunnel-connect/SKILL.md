@@ -6,7 +6,7 @@ description: hub ArgoCD 콘솔(https://localhost:18080, 기본값)에 접속하�
 # ArgoCD Tunnel Connect
 
 `aks-reference-infra`의 hub workbench(private AKS 클러스터의 유일한 일상 접근 지점,
-`.omc/plans/live-hub-workbench.md`·notepad 12차 세션 기록)를 거쳐 hub ArgoCD 콘솔을
+`docs/decisions/live-hub-workbench.md`·notepad 12차 세션 기록)를 거쳐 hub ArgoCD 콘솔을
 로컬 브라우저에서 열 수 있게 하는 2단 터널을 연다.
 
 ```
@@ -62,7 +62,7 @@ AZURE_HUB_SUBSCRIPTION_ID=<hub 구독 GUID> bash .claude/skills/argocd-tunnel-co
 ## 멱등성 판단 방식
 
 스크립트가 매번 다음을 확인한다:
-1. `.omc/state/argocd-tunnel/local-watchdog.pid`에 기록된 프로세스가 살아있는가
+1. `.claude/skills/argocd-tunnel-connect/.state/local-watchdog.pid`에 기록된 프로세스가 살아있는가
 2. `https://localhost:<PORT>/`가 실제로 HTTP 200을 주는가(터널 전 구간이 살아있어야 통과)
 
 둘 다 참이면 **재연결하지 않는다.** 하나라도 거짓이면(프로세스가 죽었거나, 로컬 SSH 세션은
@@ -87,11 +87,10 @@ AZURE_HUB_SUBSCRIPTION_ID=<hub 구독 GUID> bash .claude/skills/argocd-tunnel-co
 `local-watchdog.pid` · `public-ip.txt` · `local-port.txt` · `local-watchdog.log`.
 `argocd-tunnel-disconnect` 스킬이 이 파일들로 무엇을 정리해야 하는지 찾는다 — 직접 지우지 않는다.
 
-⚠️ AWS 원본은 `.omc/state/argocd-tunnel/`을 썼지만 이 저장소는 스킬 자체 디렉토리 밑에
-둔다 — `.omc/state/`는 OMC 세션·워크트리 생명주기에 묶여 있어(워크트리 삭제 시 함께
-지워질 수 있음) 이 스크립트가 추적해야 하는 백그라운드 프로세스 PID 파일을 두기에
-부적절하고, 이 저장소는 향후 `.omc` 참조 자체를 끊어낼 계획이라 새로 만드는 상태는
-처음부터 `.omc` 밖에 둔다.
+⚠️ AWS 원본(`eks-reference-infra`)의 대응 스킬은 AI 어시스턴트 도구의 세션 상태
+디렉토리를 썼지만, 이 저장소는 스킬 자체 디렉토리 밑에 둔다 — 그런 디렉토리는 세션·
+워크트리 생명주기에 묶여 있어(워크트리 삭제 시 함께 지워질 수 있음) 이 스크립트가
+추적해야 하는 백그라운드 프로세스 PID 파일을 두기에 부적절하다.
 
 ## 전제
 

@@ -5,7 +5,7 @@
 #    둘이 어긋나면 README를 고친다 — 사람이 읽는 쪽이 SSOT다(원본 eks-reference-infra와
 #    동일 원칙).
 #
-# 설계 근거: .omc/plans/bootstrap-credential-design.md (v6, ralplan 5라운드 확정 +
+# 설계 근거: docs/decisions/bootstrap-credential-design.md (v6, ralplan 5라운드 확정 +
 # 2026-09-04 추가 기록 — CI 신원 권한 모델을 RG 스코프 커스텀 역할에서 구독 전체
 # Owner로 전환, AWS 원본 AdministratorAccess와 스코프 축 대칭)
 #
@@ -93,7 +93,7 @@ readonly SUBSCRIPTION_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}"
 
 # hub App Registration 이름 — 대상과 무관하게(hub·spoke 어느 쪽에서 소싱하든) 항상
 # "hub" 토큰으로 고정 계산한다. bootstrap.sh의 크로스 구독 스포크 연결 절이 dev 구독
-# 컨텍스트에서 hub SP를 조회할 때 쓴다(.omc/plans/live-hub-vwan-dev-networking.md 4-1).
+# 컨텍스트에서 hub SP를 조회할 때 쓴다(docs/decisions/live-hub-vwan-dev-networking.md 4-1).
 readonly HUB_APP_NAME="entapp-${WORKLOAD}-hub-${REGION_CODE}-gha-01"
 
 # Storage Account 이름: 3~24자, 소문자+숫자만, 하이픈 불가(Azure 물리 제약) — 등재된
@@ -138,7 +138,7 @@ readonly SPOKE_PEER_ROLE_NAME="aks-ref-bootstrap-spoke-peer-${ENV_TOKEN}"
 # 전부 제거). CI 신원이 이제 구독 전체 Owner 등가라 그 제약(모듈이 identity/role
 # assignment를 안 만든다는 aks-cluster 경계 원칙 + CI가 roleAssignments/write를
 # 못 갖는다는 옛 제약)의 두 번째 축이 사라졌다 — `live/hub/aks`가 자기 identity를
-# Terraform으로 직접 만든다(`.omc/plans/bootstrap-credential-design.md` 2026-09-04
+# Terraform으로 직접 만든다(`docs/decisions/bootstrap-credential-design.md` 2026-09-04
 # 추가 기록 참고). `Microsoft.ContainerService` RP 등록은 그대로 남긴다(아래) —
 # 저빈도 1회성 작업이라 옮길 실익이 낮다는 별개 판단.
 
@@ -295,7 +295,7 @@ retry_on_conflict() {
 }
 
 # ── 워크로드 커스텀 역할: 구독 전체 Owner 등가, RG 자기 삭제만 제외 (2026-09-04
-#    결정, .omc/plans/bootstrap-credential-design.md 추가 기록) ─────────────────
+#    결정, docs/decisions/bootstrap-credential-design.md 추가 기록) ─────────────────
 # Owner는 built-in 정의 자체가 NotActions: []다 — Contributor처럼 런타임 조회할
 # 대상이 없다(그 조회 로직이 v4·v5에서 두 번 틀렸던 근본 원인이었는데, Owner
 # 기반으로 바꾸면서 그 실수 클래스 자체가 사라졌다). "RG 자체 삭제 방지"만
@@ -316,7 +316,7 @@ workload_role_definition_json() {  # workload_role_definition_json <assignable-s
       # (create/worker.create_role_definition은 role_name을 별도 인자로 받아 role_definition
       # dict의 여분 키를 무시하므로 부작용 없음).
       RoleName: $name,
-      Description: "CI identity for aks-reference-infra: subscription-wide Owner except deleting the workload resource group itself (2026-09-04 decision, AWS AdministratorAccess parity — see .omc/plans/bootstrap-credential-design.md).",
+      Description: "CI identity for aks-reference-infra: subscription-wide Owner except deleting the workload resource group itself (2026-09-04 decision, AWS AdministratorAccess parity — see docs/decisions/bootstrap-credential-design.md).",
       Actions: ["*"],
       NotActions: ["Microsoft.Resources/subscriptions/resourceGroups/delete"],
       DataActions: [],

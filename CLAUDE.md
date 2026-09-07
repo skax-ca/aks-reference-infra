@@ -16,13 +16,15 @@ hub-spoke AKS GitOps 패턴의 **레퍼런스 배포 루트**다(`eks-reference-
 
 ⚠️ **설계·컨벤션의 근거는 이 repo에 없다.** "왜 OpenTofu인가" 같은 질문은
 `iac-module-library`의 `CLAUDE.md`·`docs/decisions.md`가 갖는다. 이 repo 고유의 설계
-판단(크로스 구독 권한 스코프, Pod CIDR 배치 등)은 `.omc/plans/*.md`(ADR 형식)가 SSOT다.
-문서 문체 규칙(em-dash 금지·이모지 7종·400줄 제한)의 텍스트 SSOT도 여전히 module repo다.
+판단(크로스 구독 권한 스코프, Pod CIDR 배치 등)은 `docs/decisions/*.md`(ADR 형식)가
+SSOT다. 문서 문체 규칙(em-dash 금지·이모지 7종·400줄 제한)의 텍스트 SSOT도 여전히
+module repo다. ⏳ 이 디렉토리로 막 이관된 문서 중 3개(400줄 제한 초과)는 아직 그
+규칙을 완전히 지키지 않는다 — 내용 재정리는 별도 후속 작업.
 
 **운영 절차 SSOT는 이 repo가 될 예정이다.** 원본(`eks-reference-infra`)은
 `docs/hub-lifecycle.md`·`docs/spoke-lifecycle.md`·`docs/runbooks.md` 세 문서가 그 역할을
-한다. 이 repo는 `docs/`를 아직 포팅하지 않아(6절), 지금은 `.omc/plans/*.md`가 설계
-근거와 착수 순서를 임시로 겸한다. `docs/` 포팅 후 운영 절차 부분만 그리로 이관한다.
+한다. 이 repo는 그 세 문서를 아직 포팅하지 않았다(6절) — 설계 근거(`docs/decisions/`)는
+이미 이관을 마쳤고, 운영 절차 문서만 남았다.
 
 ## 1. 저장소 구조
 
@@ -42,7 +44,7 @@ scripts/                ⏳ 아직 없음(원본의 `validate-doc-conventions.py
 안의 다른 env). `live/hub/networking`과 `live/hub/vwan`도 서로 분리된 state다. 루트 간
 결합은 `terraform_remote_state`가 아니라 **Name·태그 기반 `data` 조회**로 하거나(같은
 구독 안), 크로스 구독인 경우 CI 변수로 리소스 ID를 명시 주입한다(`live/hub/vwan`의
-`spoke_connections`, 근거는 `.omc/plans/live-hub-vwan-dev-networking.md` 4-3).
+`spoke_connections`, 근거는 `docs/decisions/live-hub-vwan-dev-networking.md` 4-3).
 
 ## 2. 실행 모델
 
@@ -51,7 +53,7 @@ scripts/                ⏳ 아직 없음(원본의 `validate-doc-conventions.py
 | 엔진 | OpenTofu(`tofu` 1.12.5), Terraform이 아니다 |
 | backend | Azure Storage Account + Blob Container. `use_azuread_auth = true`, `allowSharedKeyAccess = false`(계정 키로 RBAC 우회 차단). 계정명은 git에 없다(GitHub 저장소 변수 `AZURE_HUB_*`/`AZURE_DEV_*` + 로컬 `backend.hcl`, 둘 다 git 밖) |
 | state key | `<env>/<component>.tfstate`(예: `hub/vwan.tfstate`, `dev/networking.tfstate`) |
-| 자격증명 | GitHub OIDC → 단일 App Registration, 구독 전체 스코프 `Owner`(2026-09-04 결정, AWS 원본의 `AdministratorAccess` 실행 Role과 스코프 축에서 완전 대칭 — ⏳ 설계 확정, 실제 재부트스트랩은 별도 세션 승인 후 진행). 방어선은 권한 크기가 아니라 FIC subject 하나로 좁힌 도달 경로뿐이다(아래 ⛔ 참고). 이전 설계(RG 스코프 커스텀 역할 + 6종 불변식)에서 왜 바뀌었는지·마이그레이션 절차는 `bootstrap/README.md`·`.omc/plans/bootstrap-credential-design.md`(2026-09-04 추가 기록) 참고 |
+| 자격증명 | GitHub OIDC → 단일 App Registration, 구독 전체 스코프 `Owner`(2026-09-04 결정, AWS 원본의 `AdministratorAccess` 실행 Role과 스코프 축에서 완전 대칭 — ⏳ 설계 확정, 실제 재부트스트랩은 별도 세션 승인 후 진행). 방어선은 권한 크기가 아니라 FIC subject 하나로 좁힌 도달 경로뿐이다(아래 ⛔ 참고). 이전 설계(RG 스코프 커스텀 역할 + 6종 불변식)에서 왜 바뀌었는지·마이그레이션 절차는 `bootstrap/README.md`·`docs/decisions/bootstrap-credential-design.md`(2026-09-04 추가 기록) 참고 |
 | plan → apply | plan은 push에서 자동 실행, `workflow_dispatch`를 누르는 것 자체가 apply 승인이다 |
 | 로컬에서 되는 것 | `init` + `validate`까지. **apply는 로컬에서 안 된다.** `require_oidc`/`var.ci_run` 가드가 `var.ci_run != true`이면 즉시 실패시킨다 |
 
@@ -66,7 +68,7 @@ plan을 처음부터 다시 돌려 승인한 것과 다른 계획을 만든다.
 방어선이다 — 권한 크기로 좁히던 이전 방어선(RG 스코프+6종 불변식)은 폐기됐다. 이
 경로가 넓어지면(subject 완화, 정적 자격증명 추가, Entra 그룹 편입 등) 설계 자체를
 재검토하는 트리거로 취급한다. 폐기 경위·근거는
-`.omc/plans/bootstrap-credential-design.md`(2026-09-04 추가 기록) 참고.
+`docs/decisions/bootstrap-credential-design.md`(2026-09-04 추가 기록) 참고.
 
 ## 3. 네이밍·태깅
 
@@ -81,7 +83,7 @@ plan을 처음부터 다시 돌려 승인한 것과 다른 계획을 만든다.
 CIDR 배치(hub/dev VNet, Pod secondary 대역)는 `Name`처럼 재조합하는 값이 아니라 각
 루트의 `main.tf` locals 주석이 실물 SSOT다. 설계 근거 전문(왜 스포크마다 Pod 대역이
 다른가, Azure CNI Pod Subnet을 택한 이유)은
-`.omc/plans/live-hub-vwan-dev-networking.md` 참고.
+`docs/decisions/live-hub-vwan-dev-networking.md` 참고.
 
 ## 4. 로컬 게이트 (⏳ 아직 이식 안 됨)
 
@@ -95,7 +97,7 @@ CIDR 배치(hub/dev VNet, Pod secondary 대역)는 `Name`처럼 재조합하는 
 | 변경 대상 | 경로 |
 |-----------|------|
 | **`.tf` · `.github/workflows/`** | **브랜치 → PR** |
-| **문서 전용(`docs/*.md`·`CLAUDE.md`·`.omc/notepad.md`)** | **`main` 직접 커밋** |
+| **문서 전용(`docs/**/*.md`·`CLAUDE.md`)** | **`main` 직접 커밋** |
 
 원본과 동일한 기준: *"CI가 머지 전에 막아야 하는가"* 하나뿐이다. 각 워크플로는
 `push: branches: [main]`에도 plan까지 돌므로 "PR이어야 CI가 돈다"는 성립하지 않는다.

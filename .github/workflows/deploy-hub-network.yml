@@ -53,7 +53,7 @@ env:
   TF_INPUT: "false"
   # ⚠️ 2026-08-28, live/hub/vwan+live/dev/networking 설계 세션: 이 repo가 Azure 신원을
   # 2개(hub·dev) 다루게 되면서 AZURE_CLIENT_ID·AZURE_SUBSCRIPTION_ID를 AZURE_HUB_*로
-  # 개명했다(.omc/plans/live-hub-vwan-dev-networking.md 4-3). AZURE_TENANT_ID는 두
+  # 개명했다(docs/decisions/live-hub-vwan-dev-networking.md 4-3). AZURE_TENANT_ID는 두
   # 구독이 같은 테넌트(7d49e97a-...)라 개명하지 않고 공유한다.
   ARM_CLIENT_ID: ${{ vars.AZURE_HUB_CLIENT_ID }}
   ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}

@@ -2,13 +2,13 @@
 #
 # deploy-hub-vwan.yml과 같은 구조(plan은 push에서 자동, apply는 workflow_dispatch로만)
 # — 같은 hub 구독, 같은 CI 신원(environment: hub)을 쓰는 별도 state root다. 설계 전문은
-# .omc/plans/live-hub-aks.md 참고.
+# docs/decisions/live-hub-aks.md 참고.
 #
 # ⛔ plan job에 `environment:`를 추가하지 않는다(deploy-hub-network.yml과 동일 근거 —
 #    FIC subject의 ref:refs/heads/main / environment:hub 대응을 어긋나게 하지 않는다).
 # ⛔ apply를 `tofu apply`(재-plan)로 바꾸지 않는다.
 #
-# ⚠️ 이 root는 apply 전에 사람이 끝내야 하는 사전조건이 하나 있다(.omc/plans/live-hub-aks.md 3-1):
+# ⚠️ 이 root는 apply 전에 사람이 끝내야 하는 사전조건이 하나 있다(docs/decisions/live-hub-aks.md 3-1):
 #    Microsoft.ContainerService 리소스 프로바이더가 등록돼 있을 것(bootstrap.sh가 처리).
 #    AKS 컨트롤 플레인 identity·role assignment는 2026-09-04부로 이 root가 Terraform으로
 #    직접 만든다(옛 사전조건이었던 AZURE_HUB_AKS_IDENTITY_ID repo 변수는 더 이상 안 쓴다).

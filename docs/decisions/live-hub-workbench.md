@@ -35,7 +35,7 @@ CLAUDE.md의 신규 배포 루트 절차(deepinit→plan→ralplan→team→veri
   지정하지 않아 Azure 기본값(`System`)이 hub VNet 전체에 자동 링크된다(`.omc/notepad.md`
   8차 세션 기록으로 실측 확인) — `vm` 서브넷이 `aks-node`와 같은 VNet이라 모듈 README의
   "DNS 해석" 절(`README.md:125-145`) 1번 케이스에 해당, 추가 조치 불필요.
-- **CI 신원은 구독 전체 Owner 등가다**(`.omc/plans/bootstrap-credential-design.md` 2026-09-04
+- **CI 신원은 구독 전체 Owner 등가다**(`docs/decisions/bootstrap-credential-design.md` 2026-09-04
   기록) → identity·role assignment는 bootstrap이 아니라 이 root가 Terraform으로 직접
   만든다 — `live/hub/aks`가 2026-09-04에 세운 패턴(`live/hub/aks/main.tf:70-95`)을 그대로
   승계한다.

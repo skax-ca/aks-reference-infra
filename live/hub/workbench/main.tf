@@ -1,7 +1,7 @@
 # live/hub/workbench — AKS 운영 workbench 배포 루트 (허브)
 #
 # iac-module-library 의 modules/azure/aks-workbench(aks-workbench-v0.3.0) 를 소비한다.
-# 설계 전문(ADR·완료 판정·리스크)은 .omc/plans/live-hub-workbench.md 참조.
+# 설계 전문(ADR·완료 판정·리스크)은 docs/decisions/live-hub-workbench.md 참조.
 #
 # ⚠️ 네트워킹은 live/hub/networking 이 소유한다. 이 root 는 이미 배포된 vm 서브넷을
 #    Name 기반 data 로 조회만 한다 — 서브넷을 새로 만들지 않는다(CLAUDE.md 1절,
@@ -9,7 +9,7 @@
 #
 # ⚠️ identity·role assignment는 이 root가 Terraform으로 직접 만든다 — live/hub/aks가
 #    2026-09-04에 세운 패턴과 동일(CI 신원이 구독 전체 Owner 등가라 구조적 제약 없음,
-#    .omc/plans/bootstrap-credential-design.md 참조). aks-workbench 모듈 자체는 identity도
+#    docs/decisions/bootstrap-credential-design.md 참조). aks-workbench 모듈 자체는 identity도
 #    role assignment도 만들지 않는 경계 원칙을 그대로 유지한다(모듈 README 「신원」절).
 
 locals {
@@ -88,7 +88,7 @@ resource "azurerm_role_assignment" "workbench_aks_cluster_user" {
 
 # skip_service_principal_aad_check(위)는 role assignment "생성" 시점의 AAD 존재 확인만
 # 우회한다 — 생성된 role이 실제 인가 판단(authorization)에 반영되기까지의 캐시 전파
-# 지연은 별개다(이 repo가 이미 여러 차례 실측한 클래스, .omc/plans/
+# 지연은 별개다(이 repo가 이미 여러 차례 실측한 클래스, docs/decisions/
 # bootstrap-credential-design.md 9차 세션 기록 — "역할 정의 AssignableScopes 변경 직후
 # role assignment 생성이 거부" 등). VM의 custom_data는 provider 스키마상 ForceNew라
 # cloud-init이 최초 부팅 시 1회만 az aks get-credentials를 실행하고 재시도가 없다

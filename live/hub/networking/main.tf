@@ -1,7 +1,7 @@
 # live/hub/networking — VNet 배포 루트 (허브)
 #
 # iac-module-library 의 modules/azure/vnet 을 실제로 처음 소비하는 root다(Phase 1 첫 배포 루트).
-# 설계 전문은 .omc/plans/live-hub-networking.md 참조.
+# 설계 전문은 docs/decisions/live-hub-networking.md 참조.
 #
 # ⚠️ TGW 대응(Virtual WAN) 연결은 이 root 에 없다 — live/hub/vwan(별도 state)이 담당한다
 #    (CLAUDE.md 3·5절). AWS 원본처럼 vnet 과 hub-spoke 라우팅을 한 파일에 섞지 않는다.
@@ -34,7 +34,7 @@ locals {
   #      여기서도 뜨지 않는 건 이전과 동일하지만 이유가 바뀌었다(Pod Subnet 미사용
   #      때문이 아니라 Overlay라 VNet 서브넷 자체를 안 쓰기 때문).
   #
-  #      설계 이력 전문은 .omc/plans/live-hub-vwan-dev-networking.md의 2026-09-03
+  #      설계 이력 전문은 docs/decisions/live-hub-vwan-dev-networking.md의 2026-09-03
   #      추가 기록(13절) 참고 — 이 정정으로 무효화된 vWAN 라우팅 전제들을 그 절이
   #      기록한다.
 
