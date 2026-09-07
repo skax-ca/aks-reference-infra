@@ -186,6 +186,18 @@
       "source": "manual",
       "category": "notes",
       "content": "2026-09-04(13차 세션) - argocd-seed.sh 전체 실행 완료(GitHub App 설치범위 확장 → workbench clone → --to 4 → automated 없는 버전으로 diff 검증(CRD 3종의 거대한 diff는 --core 모드의 표시 artifact로 확인, 실 drift 아님) → root-app 흡수(5단계) → AppProject CRD whitelist 버그 발견·수정(aks-platform-gitops 커밋 10d3ae7) → argocd 자기관리 Synced Healthy 수렴). 웹콘솔 터널(2단 SSH) 구성, 초기 admin 비밀번호 확인함. 이전 세션 미결 항목 갱신: GitOps seed 실행 → 완료. 신규 미결: (1) 사용자가 ArgoCD 웹콘솔 로그인·비밀번호 교체 확인 전 - 완료되면 `argocd-initial-admin-secret` 삭제 필요(완료 조건, 선택 아님) (2) `alb-controller`·`alb-loadbalancer`(AGFC addon) 두 Application이 `namespaces \"azure-alb-system\" not found`로 5회+ 재시도 실패 중 - namespace 생성 순서/sync-wave 문제로 추정, 미조사. 세션 도중 별개 확인 요청(iac-module-library PR #45 상태)도 처리 - notepad엔 이미 완료로 적혀 있었지만 `gh pr view`로 실측 재확인해 peer 세션이 이미 처리했음을 확인 후 중복 작업 안 함."
+    },
+    {
+      "timestamp": 1788745817342,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-09-07(14차 세션) - AWS 대비 addon parity 확보 과정에서 실측 버그 3건 발견·수정, 재사용 가능한 교훈. (1) alb-controller 차트(templates/common.yaml)의 `{{- if not (eq .Release.Namespace .Values.albController.namespace) }}` 조건 - ArgoCD destination.namespace가 Release.Namespace로 그대로 전파되는데 그 값이 albController.namespace와 같으면 차트가 Namespace를 안 만든다(helm install --create-namespace가 그 경우를 처리해준다는 전제가 깨짐). ArgoCD의 CreateNamespace=true(차트 렌더 여부 무관하게 destination.namespace를 직접 생성)로 해결 - 앞으로 '차트가 Namespace를 알아서 만든다'를 전제하지 않고 helm template로 직접 렌더해 확인한다. (2) SSH 기반 원격 명령 실행에서 `pkill -f \"패턴\"`이 그 pkill을 실행 중인 셸 자신의 커맨드라인(SSH가 명령 문자열을 그대로 argv로 넘김)까지 매칭해 자기 자신을 죽인다 - AWS SSM은 명령을 스크립트 파일로 실행해 이 문제가 구조적으로 없다. `$$`(자기 PID) 명시 제외로 해결 - SSH로 원격 프로세스를 pkill로 정리하는 모든 스크립트에 재발 가능. (3) krew 바이너리의 install 서브커맨드는 --krew-root 플래그를 지원하지 않는다(unknown flag) - 공식 문서(krew.sigs.k8s.io)도 KREW_ROOT 환경변수만 요구한다. 이 버그는 aks-workbench 모듈이 krew_version을 지원한 지 3개 마이너 버전(v0.3.0~v0.4.0) 동안 아무 소비자도 실제로 그 값을 넘긴 적이 없어 잠재해 있었다 - tofu test의 mock_provider는 스키마만 보고 실제 부팅 성공 여부는 못 본다는 이 저장소의 구조적 한계(`.claude/rules/terraform.md`)가 정확히 여기서 드러났다. 교훈: 모듈이 '지원한다'고 선언한 옵션이라도 실제 소비자가 처음 켜는 순간까지는 검증된 게 아니다."
+    },
+    {
+      "timestamp": 1788745817343,
+      "source": "manual",
+      "category": "notes",
+      "content": "2026-09-07(14차 세션) - AWS eks-reference-infra 대비 aks-reference-infra의 addon 공백을 전수 확인하고 전부 메웠다. 최종 대응표: ALBC→AGFC(GitOps 전량, 완료), Karpenter→NAP(컨트롤러는 Azure 관리형 node_provisioning_profile.mode=Auto 하나로 끝나고 NodePool/AKSNodeClass CR만 GitOps 소관 - 공식문서 'you create and manage'), cluster-autoscaler→AKS 네이티브(완전 관리형, addon 불필요), KEDA→AKS managed add-on(workload_autoscaler_profile.keda_enabled, 완전 관리형 - 처음엔 GitOps 포팅 대상으로 잘못 판단했다가 공식문서로 정정), Kyverno→GitOps 3-ApplicationSet 포팅(관리형 대응 없음, 유일하게 순수 신규 addon). 실행: aks-reference-infra PR #11(enable_karpenter)·#12(enable_keda)·#13(workbench 로그인 프로파일)·#14(krew 버그 수정) 전부 머지+apply+실측 검증. iac-module-library aks-cluster-v0.6.0(enable_keda 신설)·aks-workbench-v0.4.0·v0.5.0. aks-platform-gitops에 addons/catalog/karpenter.yaml·addons/baseline/kyverno.yaml·addons/kyverno/custom-policies 신설. hub 클러스터 ArgoCD Application 8개 전부 Synced/Healthy로 최종 확인(argocd-tunnel-connect 스킬로 직접 kubectl 접속해 검증). 신규 미결: (1) 13차부터 이월 - ArgoCD 초기 admin 비번 교체 확인 후 argocd-initial-admin-secret 삭제, 사용자 대기 중 (2) dev 클러스터에 Karpenter/NAP 적용 여부 미결정(hub만 opt-in) (3) 사용자가 이번 세션에 '.omc 참조를 향후 전부 끊어낼 계획'이라고 명시(project_omc_phaseout.md, 어시스턴트 자체 메모리) - 이 project-memory.json·notepad.md 자체도 결국 이관 대상이나 구체 시점·대체 수단 미정, 사용자 지시 전에는 기존 방식 유지."
     }
   ],
   "directoryMap": {
@@ -229,6 +241,12 @@
       "type": "file"
     },
     {
+      "path": "live/hub/aks/main.tf",
+      "accessCount": 11,
+      "lastAccessed": 1788742684868,
+      "type": "file"
+    },
+    {
       "path": "bootstrap/bootstrap.sh",
       "accessCount": 10,
       "lastAccessed": 1788415406817,
@@ -247,9 +265,9 @@
       "type": "file"
     },
     {
-      "path": "live/hub/aks/main.tf",
-      "accessCount": 5,
-      "lastAccessed": 1788418160326,
+      "path": "live/hub/workbench/main.tf",
+      "accessCount": 8,
+      "lastAccessed": 1788744333717,
       "type": "file"
     },
     {
@@ -259,9 +277,21 @@
       "type": "file"
     },
     {
+      "path": ".claude/skills/argocd-tunnel-connect/scripts/connect.sh",
+      "accessCount": 4,
+      "lastAccessed": 1788738931056,
+      "type": "file"
+    },
+    {
       "path": "live/hub/aks/variables.tf",
       "accessCount": 3,
       "lastAccessed": 1788418160538,
+      "type": "file"
+    },
+    {
+      "path": ".claude/skills/argocd-tunnel-disconnect/scripts/disconnect.sh",
+      "accessCount": 3,
+      "lastAccessed": 1788739038942,
       "type": "file"
     },
     {
@@ -307,9 +337,15 @@
       "type": "file"
     },
     {
-      "path": "live/hub/workbench/main.tf",
+      "path": ".claude/skills/argocd-tunnel-connect/SKILL.md",
       "accessCount": 2,
-      "lastAccessed": 1788508708115,
+      "lastAccessed": 1788738948071,
+      "type": "file"
+    },
+    {
+      "path": ".claude/skills/argocd-tunnel-disconnect/SKILL.md",
+      "accessCount": 2,
+      "lastAccessed": 1788738954854,
       "type": "file"
     },
     {
@@ -376,6 +412,24 @@
       "path": "live/hub/workbench/override.tf",
       "accessCount": 1,
       "lastAccessed": 1788508728240,
+      "type": "file"
+    },
+    {
+      "path": "live/hub/workbench/outputs.tf",
+      "accessCount": 1,
+      "lastAccessed": 1788738326542,
+      "type": "file"
+    },
+    {
+      "path": "live/hub/workbench/variables.tf",
+      "accessCount": 1,
+      "lastAccessed": 1788738326716,
+      "type": "file"
+    },
+    {
+      "path": "live/hub/aks/.terraform/modules/aks_cluster/modules/azure/aks-cluster/variables.tf",
+      "accessCount": 1,
+      "lastAccessed": 1788740903550,
       "type": "file"
     }
   ],

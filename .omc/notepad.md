@@ -4,10 +4,101 @@
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
 
-2026-09-04(13차) - aks-platform-gitops argocd-seed.sh 완전 실행, ArgoCD 자기관리 Synced(rev=10d3ae7). GitHub App 설치범위 확장(웹UI) + platform AppProject의 CRD whitelist 버그 발견·수정(커밋10d3ae7). 웹콘솔 터널 구성(localhost:8080), 초기비번 교체+Secret삭제 미완(사용자 대기). 다음: 초기비번 교체 확인 후 Secret 삭제, alb-controller/loadbalancer sync 실패(namespace 순서 문제) 조사.
+2026-09-07(14차) - AWS 대비 addon 공백 전부 해소: alb-controller Namespace 렌더 버그 수정(CreateNamespace=true), Karpenter→NAP 전환(컨트롤러 관리형+NodePool/AKSNodeClass GitOps), KEDA 관리형 활성화, Kyverno 3-ApplicationSet 포팅(Enforce 정책 실측 검증 완료). workbench 로그인 프로파일 신설+krew --krew-root 버그 수정(v0.5.0). argocd-tunnel-connect/-disconnect 스킬 신설(SSH self-kill 버그 발견·수정). 초기admin비번 교체+Secret삭제는 여전히 미완(13차부터 이월). 다음: 새 작업은 사용자 지시 대기.
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->
+### 2026-09-07(14차 세션) - AWS 대비 addon 공백 전부 해소(ALBC 버그 수정·Karpenter/KEDA/Kyverno)
+
+13차가 남긴 두 미결(초기 admin 비번 확인·alb-controller/loadbalancer sync 실패)을
+들고 시작했으나, 실제로는 훨씬 넓은 범위로 확장됐다 — "AWS 대비 빠진 addon이
+뭔지 확인해달라"는 요청이 Karpenter→NAP·KEDA·Kyverno 세 addon의 실제 구현으로
+이어졌다. 초기 admin 비번 확인은 여전히 미완(사용자 대기)이다.
+
+**1. argocd-tunnel-connect/-disconnect 스킬 신설**: eks-reference-infra의 동명
+스킬을 대조 포팅 — SSM 대신 SSH 기반(이 프로젝트의 "SSH가 일상 경로" 결정,
+12차 세션). 실측으로 SSH 특유의 버그 발견: `pkill -f "kubectl port-forward..."`가
+그 pkill을 실행 중인 셸 자신의 커맨드라인도 매칭해 자기 자신을 죽이는 self-kill
+버그(AWS SSM은 명령을 스크립트 파일로 실행해 이 문제가 없음) — `$$` 제외로 해결.
+상태 파일 위치는 사용자 지적으로 `.omc/state/`(OMC 워크트리 생명주기에 묶임) 대신
+`.claude/skills/argocd-tunnel-connect/.state/`로 결정 — **사용자가 이 세션에서
+"`.omc`는 향후 모든 참조를 끊어낼 계획"이라고 명시**(어시스턴트 자체 메모리에도
+project_omc_phaseout.md로 기록됨, 새 상태/도구는 `.omc/` 밖에 둘 것).
+
+**2. alb-controller sync 실패 근본 원인 규명·수정**: `.status.resources`에
+Namespace가 결측된 걸 발견 → 차트 소스(`templates/common.yaml`)의
+`{{- if not (eq .Release.Namespace .Values.albController.namespace) }}` 조건이
+원인 — ArgoCD가 destination.namespace를 Release.Namespace로 그대로 넘기는데 그
+값이 albController.namespace와 같아 조건이 거짓이 됨. Microsoft 공식 Helm
+퀵스타트도 이 둘을 다르게 두는 게 전제였음을 확인. ArgoCD 공식 문서의
+`CreateNamespace=true`(차트 렌더 여부 무관하게 destination.namespace를 직접
+생성)로 해결. `aks-platform-gitops` 커밋 3615692. platform.yaml의 잘못된
+whitelist 주석("차트가 Namespace를 직접 렌더한다")도 정정.
+
+**3. Karpenter→NAP + KEDA — addon parity 리서치가 뒤집은 것**: 처음에 "KEDA도
+GitOps 포팅 대상"이라고 답했다가 정정 — 공식 문서(aks/keda-about) 확인 결과
+KEDA도 cluster-autoscaler처럼 **완전 관리형 add-on**(`workload_autoscaler_profile.
+keda_enabled`)이었다. Karpenter는 절반만 관리형 — NAP 컨트롤러는 Azure가
+관리하지만(`node_provisioning_profile.mode=Auto`) NodePool/AKSNodeClass CR은
+공식 문서가 명시("you create and manage")한 대로 여전히 사람 몫. 최종 정리:
+ALBC(GitOps 전량)·Karpenter(컨트롤러 관리형+CR GitOps)·cluster-autoscaler·
+KEDA(둘 다 완전 관리형)·Kyverno(GitOps 전량, 관리형 대응 없음).
+
+**실행(hub 클러스터, 전부 실측 검증 완료)**:
+- `enable_karpenter=true`(PR #11) — `node_provisioning_profile.mode`는 azurerm
+  공식 문서 확인 결과 ForceNew 아님(in-place). `defaultNodePools`가 이미
+  `"None"`으로 하드코딩돼 있어(모듈이 애초에 그렇게 설계) Azure 자체 default
+  NodePool과의 충돌 우려가 기우였음.
+- `aks-platform-gitops`에 `addons/catalog/karpenter.yaml`(NodePool
+  `general-purpose`+AKSNodeClass, cilium startupTaint 포함 — hub가
+  network_data_plane=cilium이라 업스트림 공식 예제의 cilium 전용 설정이 그대로
+  필요) — opt-in(`addon-karpenter: enabled` 라벨, AWS의 baseline과 다름 — dev는
+  아직 NAP 안 켜서).
+- `enable_keda=true` — `iac-module-library`에 `enable_keda` 변수 자체가
+  없어서(facade가 그 인자를 안 넘기던 상태) 모듈에 신설 후 v0.6.0 태그, 이후
+  live/hub/aks에 적용(PR #12). `az aks show`로 `workloadAutoScalerProfile.keda.
+  enabled=true` 확인.
+
+**4. workbench 부트스트랩 비교(사용자 요청) → 버그 2건 발견·수정**:
+eks-reference-infra의 user-data.sh.tftpl과 대조해 aks-workbench의
+cloud-init.sh.tftpl에 `/etc/profile.d` 로그인 프로파일 블록 자체가 없어 k
+alias·kubectl completion·KREW_ROOT PATH가 전혀 안 잡혀 있던 걸 발견 →
+모듈에 그 블록 신설(v0.4.0) → live/hub/workbench 적용(PR #13, VM 재생성) →
+실측 중 krew install이 "unknown flag: --krew-root"로 실패하는 **별개의
+잠재 버그**(v0.3.0부터 있었으나 이 root가 krew_version을 처음 넘긴 오늘에야
+발현) 발견 → 공식 krew 설치 문서 확인 후 플래그 제거(v0.5.0) → live/hub/workbench
+재적용(PR #14, VM 재재생성) → SSH 재접속해 k alias·krew 플러그인 6종·nv alias
+전부 정상 동작 실측 확인. VM 재생성마다 known_hosts 갱신 필요(`ssh-keygen -R`)를
+반복 실측.
+
+**5. Kyverno 포팅**: AWS의 3-ApplicationSet 구조(컨트롤러·PSS 정책·커스텀 정책)를
+그대로 포팅하되 3가지를 다르게 감 — (1) 차트 3.8.2로 고정(최신 3.9.0의
+kyverno-policies가 policies.kyverno.io/v1beta1 ValidatingPolicy 신규 포맷으로
+렌더함을 helm template 실측으로 발견, AWS와 같은 ClusterPolicy 포맷 유지가 이
+시점엔 안전) (2) workload-class taint tolerations 오버라이드 없음(hub 시스템
+노드풀에 taint 없음을 `az aks show`로 실측) (3) 커스텀 정책
+(`require-nodepool-resources`)은 순수 Pod spec 검증이라 그대로 포팅. egress
+canary(kyverno.github.io·reg.kyverno.io·ghcr.io 전부 도달 확인), alb-controller
+컨테이너 전체가 이미 resources 선언돼 있어 Enforce와 충돌 없음도 사전 확인.
+배포 후 실제로 resources 없는 파드 생성 시도 → 차단 확인, 있는 파드 → 통과 확인
+(첫 테스트는 kubectl 컨텍스트가 argocd 네임스페이스로 고정돼 있어 정책 제외 대상에
+잘못 생성한 오탐이었음 — 재시도로 정정).
+
+**최종 상태**: hub 클러스터의 ArgoCD Application 8개 전부 Synced/Healthy
+(argocd·root-app·alb-controller·alb-loadbalancer·karpenter-nodepool·kyverno·
+kyverno-policies·kyverno-custom-policies).
+
+**PR/태그**: aks-reference-infra #11·#12·#13·#14(전부 머지). iac-module-library
+`aks-cluster-v0.6.0`(enable_keda 신설)·`aks-workbench-v0.4.0`(로그인 프로파일)·
+`aks-workbench-v0.5.0`(krew 버그 수정). aks-platform-gitops 커밋 3615692(alb
+Namespace fix)·8794abd(karpenter-nodepool)·cff4540(kyverno).
+
+**다음 세션**: (1) 13차부터 이월된 미결 — ArgoCD 초기 admin 비번 교체 확인 후
+`argocd-initial-admin-secret` 삭제 (2) dev 클러스터에도 Karpenter/NAP 적용할지
+결정 필요(현재 hub만 옵트인) (3) `.omc` 참조를 프로젝트 전체에서 끊어내는 마이그
+레이션(사용자가 이번 세션에 방향만 선언, 구체 계획은 아직 없음) — 언제 착수할지는
+사용자 결정 대기.
+
 ### 2026-09-04(13차 세션) - aks-platform-gitops argocd-seed.sh 완전 실행, GitOps 계층 실제 가동
 
 12차 세션이 남긴 workbench 완료 조건 해소 후, 남은 GitOps seed 절차를 순서대로 실행했다.

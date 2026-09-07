@@ -68,3 +68,8 @@ __pycache__/
 !/.omc/project-memory.json
 # 프로젝트 스코프 스킬(OMC 규약상 커밋 대상)
 !/.omc/skills/
+
+# 스킬 자체 런타임 상태(PID·로그 등, 커밋 제외). .omc/state/는 OMC 세션·워크트리
+# 생명주기에 묶여 부적절해 쓰지 않는다 — argocd-tunnel-connect 등 스킬이 자기 디렉토리
+# 밑에 .state/를 둔다.
+.claude/skills/*/.state/
