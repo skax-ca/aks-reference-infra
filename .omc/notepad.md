@@ -3,8 +3,7 @@
 
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
-
-2026-09-07(14차) - AWS 대비 addon 공백 전부 해소: alb-controller Namespace 렌더 버그 수정(CreateNamespace=true), Karpenter→NAP 전환(컨트롤러 관리형+NodePool/AKSNodeClass GitOps), KEDA 관리형 활성화, Kyverno 3-ApplicationSet 포팅(Enforce 정책 실측 검증 완료). workbench 로그인 프로파일 신설+krew --krew-root 버그 수정(v0.5.0). argocd-tunnel-connect/-disconnect 스킬 신설(SSH self-kill 버그 발견·수정). 초기admin비번 교체+Secret삭제는 여전히 미완(13차부터 이월). 다음: 새 작업은 사용자 지시 대기.
+2026-09-07(15차) - dev NAP 정책 확정: live/dev/aks 생성 시 처음부터 enable_karpenter=true+system풀 auto_scaling_enabled=false(AWS 원본 hub·dev 동일 적용 확인, hub 지뢰 회피 목적). live/dev/aks 자체는 아직 미생성, 실제 구현은 별도 plan 세션. 이월 미결: ArgoCD 초기admin비번 교체+Secret삭제(13차~), .omc phaseout(방향만 선언). 다음: 사용자 지시 대기.
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->

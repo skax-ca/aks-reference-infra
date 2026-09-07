@@ -68,6 +68,10 @@ __pycache__/
 !/.omc/project-memory.json
 # 프로젝트 스코프 스킬(OMC 규약상 커밋 대상)
 !/.omc/skills/
+# 설계 결정 근거(ADR). CLAUDE.md가 여러 절에서 SSOT로 지정하는데 지금까지 git 밖에
+# 있었다 — 이 머신이 사라지면 복구 불가능한 유일 사본이었다(2026-09-07 발견, 백업
+# 목적의 최소 조치. 내용을 docs/decisions.md 등으로 옮기는 포팅은 별도 작업).
+!/.omc/plans/
 
 # 스킬 자체 런타임 상태(PID·로그 등, 커밋 제외). .omc/state/는 OMC 세션·워크트리
 # 생명주기에 묶여 부적절해 쓰지 않는다 — argocd-tunnel-connect 등 스킬이 자기 디렉토리

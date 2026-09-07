@@ -8,84 +8,6 @@
   "structure": "bootstrap/(자격증명 계층, hub·dev 양쪽 실제 Azure 검증 완료 — CI 신원은 2026-09-04부터 구독 전체 Owner 등가, AKS identity는 여기서 더 이상 안 만듦) + live/hub/networking·live/hub/vwan·live/dev/networking·live/hub/aks(전부 배포 완료, hub↔dev vWAN 연결 + hub AKS 클러스터 가동, identity·role assignment는 자체 Terraform 관리로 전환, live/hub/networking에 AGFC용 alb 위임 서브넷·live/hub/aks에 ALB controller IAM 추가 배포 완료 2026-09-04) + live/dev/aks(Phase 2 계속, hub 패턴을 그대로 승계해 착수 예정) + live/hub/workbench(2026-09-04 완전 배포·검증 완료 — aks-workbench-v0.3.0, PR #7~#10, SSH+sudo 없는 kubectl 정상 동작). 별도 저장소 skax-ca/aks-platform-gitops(계층2 GitOps, 로컬 ~/born2k/ai/aks-platform-gitops)도 2026-09-04 신설 — 이 저장소의 세션에서 함께 관리, self-managed ArgoCD 매니페스트 11개(bootstrap/·projects/·clusters/hub/·addons/) 작성·push 완료(커밋 acc9608), 2026-09-04(13차) argocd-seed.sh 전체 실행 완료 — ArgoCD 자기관리 Synced Healthy로 실제 가동 중(hub 클러스터, 커밋 10d3ae7). AGFC addon(alb-controller/loadbalancer)은 namespace 순서 문제로 아직 미가동.",
   "customNotes": [
     {
-      "timestamp": 1787807683942,
-      "source": "manual",
-      "category": "open-items",
-      "content": "2026-08-27 - bootstrap/ 자격증명 계층 구현 완료(ralplan 5R + ralph 4R, APPROVE). 남은 미결: (1) 사용자가 실제 Azure 자격증명으로 bootstrap/README.md의 3-1(멱등성)·3-2(negative test) 절차를 직접 실행해 검증해야 함(이 세션은 가짜 az 스텁으로만 검증) (2) iac-module-library의 docs/naming/abbreviations/azure.md에 storage account/resource group/managed identity/log analytics/virtual wan 약어 등재 필요(현재 placeholder \"todo-\" 접두사 사용 중) (3) hub 신원의 dev 구독 내 크로스 구독 vWAN 권한 스코프 미확정 - modules/azure/vnet 모듈 계약 확인 후 Phase 1에서 결정 (4) Option C(MI-as-FIC 추가 방어 계층)는 사용자가 나중으로 미룸, 30분 실측 스파이크 필요."
-    },
-    {
-      "timestamp": 1787807687657,
-      "source": "manual",
-      "category": "architecture",
-      "content": "macOS 시스템 bash(3.2, GPLv3 문제로 이 버전에 고정)는 `$(...)` 명령 치환 안에서 errexit를 전혀 적용하지 않는다. die() 함수가 단순 exit만 하면 서브셸 경계를 못 넘어 조회 실패가 \"0건 통과\"로 둔갑할 수 있다(verify.sh에서 4라운드 검증 끝에 발견). 해법: TOP_PID=$$ + trap 'exit N' TERM + kill -s TERM \"$TOP_PID\" 패턴으로 exit 코드 전파 대신 프로세스 시그널을 쓴다(config.sh의 die() 구현 참고). bash 스크립트로 검증/게이트 도구를 짤 때 일반적으로 적용 가능."
-    },
-    {
-      "timestamp": 1787813051135,
-      "source": "manual",
-      "category": "open-items",
-      "content": "2026-08-27(2차 세션) - bootstrap/ hub 대상 실제 Azure 검증 완료(3-1 멱등성 + 3-2 음성 테스트 전 과정 통과, verify.sh drift 없음 exit 0 실측 확인). 이전 세션의 미결 항목 갱신: (1) 실제 실행 검증 → 완료. (2) 네이밍 약어 등재 → bootstrap이 실제 쓰는 rg/st/entapp 3종만 iac-module-library의 azure.md에 등재 완료(entapp는 CAF 표에 없는 첫 non-ARM 등재 사례), hub 리소스 전체를 todo- 접두사에서 정식 이름으로 재생성함. managed identity/log analytics/virtual wan 약어는 bootstrap이 안 써서 미등재 상태로 남음(Phase 1 vWAN 때 필요). (3) 크로스 구독 vWAN 권한 스코프 - 여전히 미확정, modules/azure/vnet 계약 확인 후 Phase 1에서 결정. (4) Option C(MI-as-FIC) - 여전히 보류. 신규 미결: dev(spoke) 인스턴스는 이 로그인 계정에 구독이 1개뿐이라 미검증, 두 번째 구독 생기면 BOOTSTRAP_TARGET=spoke SPOKE_ENV=dev로 반복. 커밋 6f088b8(aks-reference-infra), 원격 저장소 없어 push 미해당."
-    },
-    {
-      "timestamp": 1787813060862,
-      "source": "manual",
-      "category": "architecture",
-      "content": "Azure ARM/RBAC 조회는 쓰기 성공 직후 읽기가 즉시 최신 상태를 반영하지 않는 eventual consistency가 실제로 발생한다(2026-08-27 hub bootstrap 실행 중 3회 실측). 세 가지 다른 얼굴로 나타났다: (1) 커스텀 역할 정의 생성 직후 role assignment 생성 시도가 \"Role doesn't exist\"로 실패 - SP 복제 지연만 재시도하던 헬퍼(retry_on_principal_not_found)를 retry_on_replication_delay로 확장해 이 에러 패턴도 재시도 대상에 추가해 해결. (2) 역할 존재를 이미 확인했는데도 그 직후 재조회(--name 단건 조회)가 빈 배열을 반환 - --custom-role-only 전체 조회와 --name 단건 조회가 같은 시점에 다른 결과를 낼 수 있음. 존재 확인 후 재조회에도 최대 5회 재시도(role_definition_list_retry, config.sh 신설)를 적용해 해결. (3) role assignment 조회 시 roleDefinitionName으로 필터링하면 그 값이 role assignment와 role definition 간 조인(join)으로 채워지는 필드라 방금 생성/갱신 직후 null일 수 있어 존재하는 항목을 \"부재\"로 오판 - roleDefinitionId(조인 불필요한 직접 속성)로 필터링해 해결. 교훈: 재시도로 흡수 가능한 지연과, 애초에 지연 없는 필드로 바꿔야 하는 지연은 다른 해법이 필요하다. bash 스크립트로 Azure CLI 기반 idempotent 프로비저닝/검증 도구를 짤 때 일반적으로 적용 가능(macOS bash 3.2의 $() errexit 미적용 이슈와 함께 이 프로젝트의 두 번째 \"실행해봐야 아는\" 계열 교훈)."
-    },
-    {
-      "timestamp": 1787819557919,
-      "source": "manual",
-      "category": "architecture",
-      "content": "2026-08-27(3차 세션) - live/hub/networking 실제 Azure hub 구독 apply 성공(GitHub Actions CI, run 33054015583, Plan: 24 to add/0 change/0 destroy, apply 후 재-plan 수렴 검증 통과). GitHub repo skax-ca/aks-reference-infra(private) 신설. 실행 중 실측한 버그 3건, 이후 이 프로젝트의 모든 live/* CI 배선에 재발 가능: (1) GitHub Actions OIDC의 sub 클레임이 이 조직/계정에서는 \"repo:org/repo:...\" 평문이 아니라 \"repo:org@org_id/repo@repo_id:...\" 불변 숫자 ID 접미사 형식이다(AADSTS700213으로 실측). bootstrap/config.sh가 gh api로 org id·repo id를 조회해 FIC subject를 조합하도록 수정했다(GH_ORG_REPO 값 자체는 그대로 \"org/repo\" 사람이 읽는 형식). 새 GitHub repo/구독 조합마다 이 형식이 유지되는지 확인 필요 - 계정별로 다를 수 있다. (2) azurerm provider 기본값(resource_provider_registrations=\"core\")이 배포와 무관한 프로바이더(Microsoft.Cache 등)까지 구독 스코프에서 자동 등록하려 시도하는데, bootstrap의 CI 신원은 RG 스코프 커스텀 역할뿐이라 그 권한이 없어 조용히 무한 대기한다(에러 없이 멈춤, az provider list로 NotRegistered 확인 후에야 원인 파악). 모든 live/*/providers.tf에 resource_provider_registrations = \"none\"을 기본값으로 둔다. (3) Terraform/OpenTofu 언어에는 getenv() 함수가 없다(존재하지 않는 함수를 있다고 착각해 설계했었음) - 로컬 tofu validate는 이 오류를 잡지 못했다(precondition 표현식을 완전히 평가하지 않음), 실제 tofu plan에서만 \"Call to unknown function\"으로 드러난다. CI 전용 가드가 필요하면 환경변수를 직접 읽지 말고 CI 워크플로가 TF_VAR_*로 명시 주입하는 별도 변수(예: var.ci_run)로 판별한다. 부수 교훈: workflow_dispatch나 gh run cancel로 tofu plan/apply 중인 run을 취소하면 azurerm backend의 blob lease가 정상 해제 안 되고 orphan 상태로 남아 다음 run의 lock 획득을 막는다(az storage blob lease break로 직접 해제 필요, 사람 계정엔 기본적으로 그 권한이 없어 임시 RBAC 부여 후 작업 뒤 회수해야 함)."
-    },
-    {
-      "timestamp": 1787819561908,
-      "source": "manual",
-      "category": "notes",
-      "content": "2026-08-27(3차 세션) - 이전 세션 미결 항목 갱신: live/hub/networking 실제 배포 완료(위 architecture 노트 참고), GitHub repo 생성 완료(skax-ca/aks-reference-infra, private). 신규 미결: (1) live/hub/vwan(Virtual WAN) 아직 미착수, 크로스 구독 vWAN 권한 스코프 여전히 미확정 (2) live/dev/networking - CIDR 10.61.0.0/16만 예약, 코드는 미작성, 별도 구독 필요 (3) dev(spoke) 인스턴스 bootstrap 검증 - 구독 1개뿐이라 계속 블록 (4) Option C(MI-as-FIC) 여전히 보류. 워크로드 RG(rg-demo-hub-krc-workload-01)와 state RG(rg-demo-hub-krc-tfstate-01) 모두 hub 구독에 존재 확인됨, state storage account는 stdemohubc626df26."
-    },
-    {
-      "timestamp": 1787877289464,
-      "source": "manual",
-      "category": "open-items",
-      "content": "2026-08-28(4차 세션) - live/hub/networking에 Pod 네트워킹용 secondary CIDR(100.64.0.0/16, RFC 6598, AWS 원본 cidr_dup과 동일 값) 추가해 hub 구독에 apply 완료(CI run: plan 0add/1change/0destroy → azurerm_virtual_network in-place update만, apply 후 재-plan 수렴 검증 통과, az network vnet show로 실물 확인). Phase 2 AKS 네트워킹 기본값을 CLAUDE.md 3절에 확정 기록: Azure CNI Pod Subnet(flat), Overlay는 채택 안 함(근거: Overlay는 캡슐화 없어 성능은 flat과 동급이나 클러스터 밖 Pod 트래픽이 노드 IP로 SNAT돼 NSG 플로우 로그·Network Watcher에서 Pod 단위 가시성 소실 — AWS VPC CNI의 네이티브 가시성 철학과 불일치, AWS EKS Best Practices·Microsoft Learn 공식 문서 대조로 확인). 이전 세션 미결 항목 갱신: (1) live/hub/vwan 아직 미착수 — 착수 시 cidr_pod_dup을 허브 라우팅 테이블 전파에서 제외해야 \"스포크 간 Pod CIDR 중복 허용\"이 실제로 성립(AWS가 VPC Peering 대신 TGW를 택한 것과 동일 논리, iac-module-library docs/decisions.md 확인) (2) live/dev/networking, dev(spoke) bootstrap 검증 — 여전히 별도 구독 필요로 블록 (3) Option C(MI-as-FIC) 여전히 보류. Pod 전용 azurerm_subnet 자체는 아직 안 만듦(Phase 2 AKS 모듈 없어 소비자 없음, 의도적)."
-    },
-    {
-      "timestamp": 1787906031240,
-      "source": "manual",
-      "category": "notes",
-      "content": "2026-08-28(5차 세션) - dev 구독(af8171fb-678c-401e-80bc-7be4d0cb6c56, hub와 같은 테넌트) 확보. bootstrap dev 완료·검증 통과(BOOTSTRAP_TARGET=spoke SPOKE_ENV=dev), GitHub 변수 AZURE_HUB_*/AZURE_DEV_* 분리 + dev environment 생성. live/hub/vwan 실제 배포 완료(vwan-demo-hub-krc-main, vhub-demo-hub-krc-main 10.62.0.0/22 Standard, hub VNet 연결만·스포크 없음 — 설계 전문 .omc/plans/live-hub-vwan-dev-networking.md). 이 계획 세션 중 기존 결정(스포크 간 Pod CIDR 중복 허용)을 정정 — Azure CNI Pod Subnet은 크로스 VNet 트래픽에도 SNAT 안 해서 dup 재사용이 성립 안 됨, dev는 고유 100.65.0.0/16(hub는 100.64.0.0/16 유지). live/hub/networking/main.tf 주석과 CLAUDE.md 3절에 근거 전문 반영 완료. live/dev/networking 코드 작성·push 완료(commit b897f48)했으나 CI가 dev SP의 role assignment Storage 전파 지연으로 막힘(architecture 노트 참고). 다음 세션: (1) CI 재시도(gh run rerun 33153826604 --failed) (2) 성공 시 apply (3) 5단계: 크로스 구독 role assignment(peer/action 단일 액션, dev VNet 리소스 스코프) + live/hub/vwan 2차 apply로 스포크 연결."
-    },
-    {
-      "timestamp": 1787906036314,
-      "source": "manual",
-      "category": "architecture",
-      "content": "2026-08-28(5차 세션) - Azure eventual consistency의 네 번째 얼굴, 이번엔 Storage 데이터플레인: 컨테이너 스코프 role assignment(ARM 조회로는 정상 존재 확인됨)가 실제 Storage Blob 서비스의 권한 판단에는 1시간+ 반영 안 됨(공식 문서 상한은 30분 — learn.microsoft.com/en-us/azure/storage/blobs/authorize-access-azure-active-directory). GitHub Actions/OIDC 문제로 오인하기 쉬운데, 정적 secret으로 SP에 직접 로그인해 같은 명령을 재현하면 CI/OIDC 경로와 무관함을 확실히 구분할 수 있다(사용자 명시 승인 하에 임시 secret 생성 후 진단 즉시 삭제 — bootstrap의 \"정적 자격증명 0건\" 불변식을 일시적으로 깨는 진단 전용 절차이지 상시 관행이 아니다, verify.sh로 복원 확인 필수). 별개로, 완전히 새로 생성/추가된 Azure 구독은 Microsoft.Storage·Microsoft.Network 등 모든 Resource Provider가 미등록 상태로 시작한다 — az storage account create가 알아보기 어려운 \"SubscriptionNotFound\"로 실패하는데 실제 원인은 RP 미등록이다(az provider register --namespace <RP>로 사전 등록 필요, 수 분 소요). AWS는 서비스별 계정 등록 단계 자체가 없어 구조적으로 이 문제가 없다. 다음 스포크 구독을 쓸 때는 bootstrap 전에 Microsoft.Storage/Microsoft.Network/Microsoft.Authorization을 미리 등록해두면 이 지연을 없앨 수 있다."
-    },
-    {
-      "timestamp": 1788397200000,
-      "source": "manual",
-      "category": "mcp-tooling-fix",
-      "content": "2026-09-03(6차 세션) - 이전 세션(921bbda, notepad_*/project_memory_* MCP 도구 permissions.deny 차단)에도 불구하고 이번 세션 시작 시 techStack/build/conventions/structure가 다시 빈 자동스캔 스키마로 손상돼 있었다(git status가 세션 시작 시점엔 clean이었는데, 세션 도중 확인하니 이 파일만 unstaged modified로 나타남 — Claude가 이 도구를 호출한 적은 이번 세션에 전혀 없었다). iac-module-library가 같은 증상을 먼저 겪고 이틀 앞서(2026-09-03, 커밋 07c2288) 근본원인을 소스 직접 확인으로 규명해뒀다: 진짜 트리거는 MCP 도구 호출이 아니라 OMC 플러그인의 SessionStart 훅(project-memory-session.mjs → shouldRescan())이 매 세션 시작마다 무조건 실행되며 lastScanned가 24시간 넘게 지나면 자동 재스캔·덮어씀. 이 detector(constants.js의 CONFIG_PATTERNS)는 package.json/Cargo.toml/go.mod 등 JS/Rust/Python/Go 계열만 인식하고 Terraform/OpenTofu(.tf)는 목록에 없어, 이 저장소(bash+OpenTofu)에서는 항상 빈 languages:[] 스키마로 귀결된다. permissions.deny는 Claude의 도구 호출 경로만 막을 뿐 이 훅 경로엔 적용되지 않는다(Claude Code에 훅 단위 선택적 비활성화 기능 자체가 없음, disableAllHooks만 존재하나 이 프로젝트의 OMC 훅 전체를 죽이는 과잉 조치라 채택 안 함). 적용한 조치: lastScanned를 9999999999999(먼 미래 sentinel)로 고정해 shouldRescan()이 영구 false가 되게 함 + techStack/build/conventions/structure를 현재 상태를 반영한 서술형 문자열로 복원. 한계: 이 pin은 SessionStart의 rescan-overwrite만 막고, PostToolUse의 hotPaths 추적·customNotes 자동학습(FIFO20, 20개 초과 시 경고 없이 가장 오래된 항목 삭제)은 이 pin과 무관하게 계속 동작한다 — 세션 시작 시 lastScanned가 여전히 sentinel인지, 4개 필드가 여전히 서술형 문자열인지 확인할 것. 근거 전문(소스 코드 경로·공식 문서 인용)은 iac-module-library의 .omc/project-memory.json mcp-tooling-fix 카테고리(2026-09-01·2026-09-03 항목) 참조 — 이 저장소용으로 새로 조사하지 않고 그대로 적용했다."
-    },
-    {
-      "timestamp": 1788397800000,
-      "source": "manual",
-      "category": "notes",
-      "content": "2026-09-03(6차 세션) - Phase 1(네트워킹) 완료 선언. live/dev/networking apply 성공(전파 지연 5일+ 경과로 자연 해소, 재현 불필요 확인됨 — 다음에 비슷한 Azure eventual consistency 증상을 만나면 '얼마나 지났는가'로 재시도 가치를 먼저 판단할 것). 크로스 구독 vWAN 스포크 연결(peer/action, dev 워크로드 RG 스코프, bootstrap.sh 6-1절에 통합)을 실제로 부여·검증하고 live/hub/vwan 2차 apply로 hub↔dev 연결 성립(양방향 라우팅 실측 확인). 이전 세션 미결 항목 갱신: (1) 크로스 구독 vWAN 권한 스코프 → 확정·구현·검증 완료 (2) Option C(MI-as-FIC) → 여전히 보류, 재검토 트리거 없음. 신규 미결: (1) docs/ 포팅(원본 eks-reference-infra에서 기계적 이식, hub/spoke lifecycle·runbooks) (2) .githooks/·scripts/validate-doc-conventions.py 포팅 (3) Phase 2(AKS)는 iac-module-library에 aks 모듈이 올라오면 별도 deepinit/plan 사이클로 착수 — 이번 세션이 완료한 ralplan(live-hub-vwan-dev-networking.md)의 범위 밖임을 확인함. 커밋: 75b28f2(bootstrap 크로스구독권한), 12ae376(project-memory sentinel), 1c32094(CLAUDE.md 재작성+repo명 오기 4곳 정정). 전부 push 완료."
-    },
-    {
-      "timestamp": 1788397800001,
-      "source": "manual",
-      "category": "architecture",
-      "content": "2026-09-03(6차 세션) - Azure vWAN에는 AWS RAM(Resource Access Manager)의 정확한 대응물이 없다는 것을 실측 확인. AWS는 hub가 TGW를 계정/OU 단위로 한 번 공유하면 스포크가 자기 계정의 이미 가진 전권으로 attachment를 직접 만든다(hub 계정에 새 IAM 권한 불필요, OU 공유 시 이후 스포크는 완전 자동 상속). Azure vWAN 연결(hubVirtualNetworkConnections)은 hub 쪽에 생기는 리소스라 반대 방향(스포크가 소유)을 택하면 스포크 CI가 hub의 공유 컨트롤 플레인 쓰기 권한을 가져야 해 폭발 반경이 훨씬 크다 — 그래서 hub가 연결을 소유하는 방향을 유지하되(peer/action 단일 액션만 원격 구독에 필요), '스포크가 늘 때마다 사람이 최소 1번은 개입해야 하는' AWS 대비 구조적 제약은 그대로 남는다. 다만 스코프를 VNet 리소스 단위에서 워크로드 RG 단위로 완화해 bootstrap.sh에 통합함으로써 '개입 횟수'는 스포크당 1회(부트스트랩 실행 1번)로 최소화했다 — bootstrap.sh는 항상 VNet apply보다 먼저 실행되므로 VNet 존재 여부와 무관해지는 것이 이 완화가 성립하는 핵심 이유(닭과 달걀 문제 해소). 근거 전문은 .omc/plans/live-hub-vwan-dev-networking.md 12절."
-    },
-    {
-      "timestamp": 1788418200000,
-      "source": "manual",
-      "category": "notes",
-      "content": "2026-09-03(7차 세션) - Phase 2(AKS) 착수: live/hub/aks 실배포 완료. iac-module-library의 aks-cluster 모듈이 v0.3.0(Overlay 기본값 전환)까지 오면서 hub·dev VNet의 Pod secondary CIDR(100.64/65.0.0/16)이 불필요해져 제거(PR #1). live/hub/aks를 RALPLAN 2라운드(Architect+Critic)로 설계 승인 후 team(worker-1: bootstrap 확장, worker-2: root 스캐폴딩) 병렬 실행. hub 구독에 aks-demo-hub-krc-main-01 클러스터 실제 가동(노드 2대 Ready, Overlay CNI, Karpenter는 GitOps 계층 부재로 enable_karpenter=false 시작). 이전 세션 미결 항목 갱신: Phase 2(AKS) 착수 완료. 신규 미결: (1) workbench 후속 계획(Azure에 AWS workbench 대응 모듈 없음) (2) aks-platform-gitops 착수 시 Karpenter·Entra RBAC·deletion_protection=true 재검토 (3) GitOps가 ilb 서브넷에 내부 LB를 세울 때 identity role assignment 스코프(현재 aks-node 단일 서브넷) 확장 필요 여부 재검토 (4) docs/ 포팅·.githooks 포팅 여전히 미착수. 커밋: 56db43e(CIDR 제거), 86f3845(live/hub/aks 신설+bootstrap 확장), 6c46f2f(identity ID 대소문자 수정), 23a4165(모듈 v0.5.0 업그레이드). 전부 push·merge 완료."
-    },
-    {
       "timestamp": 1788423600000,
       "source": "manual",
       "category": "architecture",
@@ -198,6 +120,12 @@
       "source": "manual",
       "category": "notes",
       "content": "2026-09-07(14차 세션) - AWS eks-reference-infra 대비 aks-reference-infra의 addon 공백을 전수 확인하고 전부 메웠다. 최종 대응표: ALBC→AGFC(GitOps 전량, 완료), Karpenter→NAP(컨트롤러는 Azure 관리형 node_provisioning_profile.mode=Auto 하나로 끝나고 NodePool/AKSNodeClass CR만 GitOps 소관 - 공식문서 'you create and manage'), cluster-autoscaler→AKS 네이티브(완전 관리형, addon 불필요), KEDA→AKS managed add-on(workload_autoscaler_profile.keda_enabled, 완전 관리형 - 처음엔 GitOps 포팅 대상으로 잘못 판단했다가 공식문서로 정정), Kyverno→GitOps 3-ApplicationSet 포팅(관리형 대응 없음, 유일하게 순수 신규 addon). 실행: aks-reference-infra PR #11(enable_karpenter)·#12(enable_keda)·#13(workbench 로그인 프로파일)·#14(krew 버그 수정) 전부 머지+apply+실측 검증. iac-module-library aks-cluster-v0.6.0(enable_keda 신설)·aks-workbench-v0.4.0·v0.5.0. aks-platform-gitops에 addons/catalog/karpenter.yaml·addons/baseline/kyverno.yaml·addons/kyverno/custom-policies 신설. hub 클러스터 ArgoCD Application 8개 전부 Synced/Healthy로 최종 확인(argocd-tunnel-connect 스킬로 직접 kubectl 접속해 검증). 신규 미결: (1) 13차부터 이월 - ArgoCD 초기 admin 비번 교체 확인 후 argocd-initial-admin-secret 삭제, 사용자 대기 중 (2) dev 클러스터에 Karpenter/NAP 적용 여부 미결정(hub만 opt-in) (3) 사용자가 이번 세션에 '.omc 참조를 향후 전부 끊어낼 계획'이라고 명시(project_omc_phaseout.md, 어시스턴트 자체 메모리) - 이 project-memory.json·notepad.md 자체도 결국 이관 대상이나 구체 시점·대체 수단 미정, 사용자 지시 전에는 기존 방식 유지."
+    },
+    {
+      "timestamp": 1788746660780,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-09-07(15차 세션) - dev 클러스터 Karpenter/NAP 적용 정책 확정(코드 변경 없음, live/dev/aks 자체가 아직 미생성 - 결정만 기록). AWS 원본(eks-reference-infra) live/hub/eks·live/dev/eks 둘 다 enable_karpenter=true임을 grep으로 실측 확인 - hub만 특별 취급할 근거 없음, parity 유지가 맞다고 판단. 결정: live/dev/aks를 나중에 만들 때 처음부터 enable_karpenter=true + system 노드풀 auto_scaling_enabled=false로 설계한다(live/hub/aks/main.tf 210~212행 주석이 문서화한 \"나중에 NAP 켤 때 고정 크기 풀로 되돌려야 하는 지뢰\"를 dev는 처음부터 피해가는 것). 사용자 확인 완료(AskUserQuestion). 실제 구현은 live/dev/aks 스캐폴딩 자체가 착수될 때(별도 plan 세션 필요, CLAUDE.md 필수 절차 대상) 적용한다."
     }
   ],
   "directoryMap": {
