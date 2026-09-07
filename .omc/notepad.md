@@ -3,10 +3,75 @@
 
 ## Priority Context
 <!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
-2026-09-07(15차) - dev NAP 정책 확정: live/dev/aks 생성 시 처음부터 enable_karpenter=true+system풀 auto_scaling_enabled=false(AWS 원본 hub·dev 동일 적용 확인, hub 지뢰 회피 목적). live/dev/aks 자체는 아직 미생성, 실제 구현은 별도 plan 세션. 이월 미결: ArgoCD 초기admin비번 교체+Secret삭제(13차~), .omc phaseout(방향만 선언). 다음: 사용자 지시 대기.
+2026-09-07(18차) - AGFC를 AKS App Routing(Gateway API/Istio)으로 전면 교체: aks-reference-infra(PR#16-18 머지)·aks-platform-gitops(main)·iac-module-library(aks-cluster-v0.7.0, web_app_routing 변수 신설) 3개 repo 걸침. Terraform drift(azurerm vs azapi) 실측 해소, apply 성공. 🔴 미해결: ARM은 Succeeded인데 istiod Deployment가 클러스터에 전혀 안 뜸(GatewayClass도 없음) — 재조정·프리뷰플래그등록·disable재enable 전부 시도, 원인 미상(private cluster 의심). PR #15(OMC decouple) 아직 미머지. 이월: ArgoCD 초기비번 교체, dev NAP.
 
 ## Working Memory
 <!-- Session notes. Auto-pruned after 7 days. -->
+### 2026-09-07(18차 세션) - AGFC → AKS App Routing(Gateway API/Istio) 전면 교체, 3개 repo 동시 작업
+
+**출발점**: 17차가 미룬 두 갈래(브랜치 push/PR 여부, hub 철거→재구축 검증 범위) 중
+1번(PR #15 push+PR)만 처리하고, 2번(철거→재구축)은 범위를 정하려던 참에 사용자가
+"Gateway API를 eks-reference-infra 최신 이력에 맞게 도입해달라"는 별개 요청으로
+전환 — 이 세션 전체가 그 요청으로 흘러갔다(2번 항목은 이번에도 착수 못 함).
+
+**1. AGFC(Application Gateway for Containers) 폐기 결정**: Gateway API 도입 조사 중,
+AGFC는 frontend가 공인 FQDN만 지원하고 private/internal 옵션이 없다는 걸 Microsoft
+공식 문서로 확정(이 저장소의 "hub는 전부 private" 원칙과 정면 충돌) — 대안 3개
+비교(Cilium Gateway API 관리형 미지원으로 탈락 · Envoy Gateway 자체설치 · AKS App
+Routing 관리형) 끝에 "AKS는 관리형 서비스를 적극 지원·활용한다"는 사용자 판단으로
+App Routing 채택.
+
+**2. azurerm이 아직 안 만든 필드 — azapi로 메움, 그리고 그게 만든 새 드리프트**:
+App Routing의 Gateway API/Istio 필드(`ingressProfile.gatewayAPI`·
+`webAppRouting.gatewayAPIImplementations`)를 azurerm 프로바이더가 아직 노출 안
+함(hashicorp/terraform-provider-azurerm#22392) — `azapi_update_resource`로 얹었다
+(Microsoft 공식 가이드가 명시한 azurerm+azapi 공존 패턴). 그런데 azurerm 자신의
+`aks-cluster` 모듈이 `web_app_routing` 블록을 전혀 모르니, 매 apply마다 그 블록을
+지우려는 새 drift가 생겼다(실측: 첫 apply 후 수렴 검증이 "No changes"가 아니었음).
+**근본 해결**: `iac-module-library`에 `web_app_routing` passthrough 변수를 신설
+(aks-cluster-v0.7.0, PR #47 — 설계 우선 규칙에 따라 변수 자체 설명에 근거를 남기고
+`docs/decisions.md` 별도 ADR은 스킵, enable_keda와 같은 선례). 모듈 버전을 올리고
+`web_app_routing = { default_nginx_controller = "None" }`을 명시하자 azurerm 쪽
+diff가 완전히 사라지고 azapi는 자기 몫(gatewayAPI·gatewayAPIImplementations)만
+남았다 — 재-plan이 진짜 "No changes"로 수렴함을 실측 확인.
+
+**3. GitOps 쪽에서 자기 자신을 두 번 저격**: `aks-platform-gitops`에서
+`+argocd:skip-file-rendering` 마커를 평문 Directory 소스 파일에 붙였다가 그
+Application 자신이 렌더링을 못 하는 사고, 그 사고를 문서화하던 주석에 마커
+문자열을 그대로 적어 `addons/baseline/gateway.yaml` 자신이 root-app 스캔에서
+빠져 ApplicationSet 전체가 pruned되는 사고 — 둘 다 `root-app.yaml` 자신이 이미
+경고해 둔 "마커를 설명하는 주석도 마커다" 함정을 직접 재현한 것. 둘 다 즉시
+재현·수정(helm 차트로 감싸기 / 문자열을 풀어쓰기).
+
+**4. 실제 apply까지 마쳤으나 마지막 한 조각이 안 풀림**: AGFC 잔존물(identity·
+federated credential·role assignment 2개·RP 등록 2개)은 전부 정리 완료, CI
+apply도 성공("Apply complete"), drift도 최종적으로 "No changes"까지 수렴했다.
+**그런데 실제 클러스터 안에서 istiod Deployment가 단 한 번도 안 뜬다** —
+`aks-istio-system` 네임스페이스에 PDB·HPA 껍데기만 생기고 실제 파드가 없다.
+ARM Activity Log는 매번 "Succeeded"만 찍는 침묵 실패. 시도한 것: `az aks update`
+재조정 트리거, `ManagedGatewayAPIPreview`·`AppRoutingIstioGatewayAPIPreview`
+프리뷰 플래그 구독 등록(둘 다 원래 `NotRegistered`였다 — GA 이후엔 필요 없다는
+공식 문서와 배치되지만 이 구독엔 아직 반영 안 됐을 가능성 의심했음), 공식 GA
+CLI(`az aks approuting gateway istio enable`), disable→재enable 사이클까지 —
+전부 ARM 레벨에서는 성공하지만 K8s 쪽 reconciliation이 안 움직인다. Kubernetes
+버전(1.35.7)·CRD bundle(v1.4.1/standard, 정확히 일치)은 확인 결과 문제 없음 —
+private cluster 조합이 이 신규 GA 기능(2026-04 GA)의 검증 범위를 벗어났을
+가능성을 의심하나 확정 못 함. **다음 세션 최우선**: 이 문제 계속 조사 또는 Azure
+지원팀 문의.
+
+**부수 작업**: `argocd-tunnel-connect` 기본 포트를 8080→18080으로 변경(로컬에서
+`eks-reference-infra`와 포트 충돌, main 직접 커밋). ArgoCD 초기 admin 비밀번호를
+사용자에게 조회해 전달함(교체는 아직 안 함 — 이월 유지).
+
+**커밋/PR**: aks-reference-infra #16·#17·#18(전부 머지) + 316af4b(포트, main
+직접). aks-platform-gitops 3커밋(main 직접, 이 repo는 애초에 PR 안 씀).
+iac-module-library #47(머지) + `aks-cluster-v0.7.0` 태그. **PR #15(OMC decouple,
+aks-reference-infra)는 여전히 미머지** — 17차부터 이월.
+
+**세션 중 실측 교훈 하나**: `.trivyignore.yaml`의 `paths`는 저장소 루트 기준
+상대경로라, 모듈 서브디렉토리만 콕 집어 `trivy config`를 돌리면 이미 예외
+처리된 항목도 다시 걸린다(경로 불일치) — 반드시 CI와 동일하게 루트에서 스캔할 것.
+
 ### 2026-09-07(14차 세션) - AWS 대비 addon 공백 전부 해소(ALBC 버그 수정·Karpenter/KEDA/Kyverno)
 
 13차가 남긴 두 미결(초기 admin 비번 확인·alb-controller/loadbalancer sync 실패)을

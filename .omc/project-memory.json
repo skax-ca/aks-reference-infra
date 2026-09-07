@@ -8,18 +8,6 @@
   "structure": "bootstrap/(자격증명 계층, hub·dev 양쪽 실제 Azure 검증 완료 — CI 신원은 2026-09-04부터 구독 전체 Owner 등가, AKS identity는 여기서 더 이상 안 만듦) + live/hub/networking·live/hub/vwan·live/dev/networking·live/hub/aks(전부 배포 완료, hub↔dev vWAN 연결 + hub AKS 클러스터 가동, identity·role assignment는 자체 Terraform 관리로 전환, live/hub/networking에 AGFC용 alb 위임 서브넷·live/hub/aks에 ALB controller IAM 추가 배포 완료 2026-09-04) + live/dev/aks(Phase 2 계속, hub 패턴을 그대로 승계해 착수 예정) + live/hub/workbench(2026-09-04 완전 배포·검증 완료 — aks-workbench-v0.3.0, PR #7~#10, SSH+sudo 없는 kubectl 정상 동작). 별도 저장소 skax-ca/aks-platform-gitops(계층2 GitOps, 로컬 ~/born2k/ai/aks-platform-gitops)도 2026-09-04 신설 — 이 저장소의 세션에서 함께 관리, self-managed ArgoCD 매니페스트 11개(bootstrap/·projects/·clusters/hub/·addons/) 작성·push 완료(커밋 acc9608), 2026-09-04(13차) argocd-seed.sh 전체 실행 완료 — ArgoCD 자기관리 Synced Healthy로 실제 가동 중(hub 클러스터, 커밋 10d3ae7). AGFC addon(alb-controller/loadbalancer)은 namespace 순서 문제로 아직 미가동.",
   "customNotes": [
     {
-      "timestamp": 1788423600000,
-      "source": "manual",
-      "category": "architecture",
-      "content": "2026-09-03(8차 세션) - AWS EKS 콘솔과 Azure AKS Portal의 private cluster 그래픽 리소스 뷰 접근성 차이를 공식 문서로 확정. EKS는 `com.amazonaws.region-code.eks-proxy`라는 AWS 관리형 백엔드가 사용자 브라우저 대신 K8s API를 호출하는 구조라(docs.aws.amazon.com/eks/latest/userguide/vpc-interface-endpoints.html: \"backs cluster resource views in AWS consoles... not called directly by your applications\"), private cluster(endpointPublicAccess=false)여도 IAM 권한(eks:AccessKubernetesApi)+access entries만 있으면 콘솔 Resources 탭이 그대로 동작한다. Azure AKS는 이 계층이 없다(learn.microsoft.com/azure/aks/access-private-cluster: \"you must access the Azure portal from a network that can reach the subnet\") — Azure Portal의 그래픽 Kubernetes 리소스 뷰는 사용자 브라우저 자신이 VNet에 네트워크로 도달해야 하고, 유일한 관리형 우회는 Run command(kubectl 한 줄 실행기, 그래픽 브라우징 아님)뿐이다. 향후 워크벤치/private cluster 접근성 설계 시 이 비대칭을 전제로 판단할 것 — Azure에서 EKS 콘솔과 동등한 경험을 얻으려면 VNet 안에 실제 브라우저(GUI 데스크톱)를 띄우는 것 외에 대안이 없다."
-    },
-    {
-      "timestamp": 1788423600001,
-      "source": "manual",
-      "category": "open-items",
-      "content": "2026-09-03(8차 세션) - workbench 후속 계획 구체화(이전 세션 미결 항목 갱신). AWS workbench 모듈(SSM 전용·인바운드 0·GUI 없음, iac-module-library modules/aws/workbench/README.md 확인) 철학과 'Azure Portal 그래픽 리소스 뷰를 보고 싶다'는 신규 요구가 상충함을 확인. 3가지 경로 식별: ①현행 유지(Portal 내장 Run command, 신규 인프라 0) ②CLI 전용 workbench(AWS SSM 패턴 대응, Ubuntu Server + Azure AD SSH/Bastion 터널, 실제 kubeconfig로 kubectl 직접 사용 가능 — command invoke보다 강력) ③GUI 데스크톱 workbench(Ubuntu Desktop+xfce4+Firefox + Azure Bastion Standard SKU 전용 서브넷, 상시 과금, AWS 원본 철학과 이질적). live/hub/networking의 vm 서브넷(10.60.2.0/24)이 이미 이 용도로 예약돼 있고, aks-cluster 모듈이 private_dns_zone_id를 지정하지 않아 Azure 기본값(System)이 적용돼 private DNS zone이 hub VNet 전체에 자동 연결돼 있음을 확인 — vm 서브넷에서 노드 서브넷과 별도 피어링 없이 바로 AKS API 도달 가능. 사용자는 아직 미결정(고민 단계) — 다음 세션에 방향 정해지면 CLAUDE.md 절차대로 plan부터 잡을 것."
-    },
-    {
       "timestamp": 1788418200001,
       "source": "manual",
       "category": "architecture",
@@ -126,6 +114,18 @@
       "source": "manual",
       "category": "architecture",
       "content": "2026-09-07(15차 세션) - dev 클러스터 Karpenter/NAP 적용 정책 확정(코드 변경 없음, live/dev/aks 자체가 아직 미생성 - 결정만 기록). AWS 원본(eks-reference-infra) live/hub/eks·live/dev/eks 둘 다 enable_karpenter=true임을 grep으로 실측 확인 - hub만 특별 취급할 근거 없음, parity 유지가 맞다고 판단. 결정: live/dev/aks를 나중에 만들 때 처음부터 enable_karpenter=true + system 노드풀 auto_scaling_enabled=false로 설계한다(live/hub/aks/main.tf 210~212행 주석이 문서화한 \"나중에 NAP 켤 때 고정 크기 풀로 되돌려야 하는 지뢰\"를 dev는 처음부터 피해가는 것). 사용자 확인 완료(AskUserQuestion). 실제 구현은 live/dev/aks 스캐폴딩 자체가 착수될 때(별도 plan 세션 필요, CLAUDE.md 필수 절차 대상) 적용한다."
+    },
+    {
+      "timestamp": 1788782741714,
+      "source": "manual",
+      "category": "architecture",
+      "content": "2026-09-07(18차) - AGFC(Application Gateway for Containers) 폐기, AKS App Routing(Gateway API/Istio 기반, 관리형)으로 교체. 근거: AGFC는 frontend가 공인 FQDN만 지원(private/internal 옵션 없음, Microsoft 공식 문서로 확정) — 이 저장소의 \"hub는 전부 private\" 원칙과 충돌. 검토했다 기각한 대안: Cilium Gateway API(AKS 관리형 CNI가 기능 노출 안 함, github.com/Azure/AKS#5444) · Envoy Gateway 자체설치(Terraform 불필요했으나 \"AKS는 관리형 서비스를 적극 활용\" 기조와 안 맞아 보류). Terraform 구현: azurerm이 아직 gatewayAPI/gatewayAPIImplementations 필드를 안 만들어(hashicorp/terraform-provider-azurerm#22392) live/hub/aks/main.tf에 azapi_update_resource로 얹음(Microsoft 공식 azurerm+azapi 공존 가이드 패턴). iac-module-library의 aks-cluster 모듈에 web_app_routing passthrough 신설(v0.7.0)해 azurerm 쪽 drift 해소 — module.aks_cluster에 web_app_routing={default_nginx_controller=\"None\"} 필수 전달."
+    },
+    {
+      "timestamp": 1788782756352,
+      "source": "manual",
+      "category": "open-items",
+      "content": "2026-09-07(18차) - 🔴 최우선 미해결: App Routing Istio 컨트롤 플레인(istiod)이 클러스터에 안 뜬다. ARM(ingressProfile.gatewayAPI.installation=Standard, webAppRouting.gatewayApiImplementations.appRoutingIstio.mode=Enabled)은 매번 provisioningState=Succeeded인데, aks-istio-system 네임스페이스엔 PodDisruptionBudget·HorizontalPodAutoscaler 껍데기만 생기고 실제 Deployment/istiod가 전혀 안 만들어짐 → GatewayClass approuting-istio도 없음 → Gateway shared-gateway가 Accepted:Unknown에 계속 머묾. 시도해서 전부 실패한 것: az aks update 재조정 트리거, ManagedGatewayAPIPreview·AppRoutingIstioGatewayAPIPreview 프리뷰 기능 등록(원래 NotRegistered였음, 등록해도 무변화), 공식 GA CLI(az aks approuting gateway istio enable), disable→재enable 사이클. 배제한 원인: K8s 버전(1.35.7, 호환 범위 안) · CRD bundle 버전(v1.4.1/standard, 정확히 일치) · ARM 레벨 에러(Activity Log 전부 정상). 의심되나 미확정: private cluster(live/hub/aks private_cluster_enabled=true) 조합이 이 신규 GA 기능(2026-04 GA)의 실제 검증 범위 밖일 가능성. 다음 세션: Azure 지원팀 문의 또는 추가 조사(진단 로그·diagnostic settings 확인 등).\n\n이월(15차 이전부터): ArgoCD 초기 admin 비밀번호 교체 후 argocd-initial-admin-secret 삭제 미완(18차에 비번을 사용자에게 조회해 전달만 함). dev 클러스터 NAP 구현 미착수(정책만 확정). PR #15(chore/docs-omc-decouple, aks-reference-infra) 여전히 미머지. hub 철거→재구축 실검증(docs/hub-lifecycle.md 기반) 범위조차 미정 — 17차부터 두 세션 연속 보류."
     }
   ],
   "directoryMap": {
@@ -151,9 +151,21 @@
   },
   "hotPaths": [
     {
+      "path": "live/hub/aks/main.tf",
+      "accessCount": 26,
+      "lastAccessed": 1788775206257,
+      "type": "file"
+    },
+    {
       "path": "CLAUDE.md",
       "accessCount": 16,
       "lastAccessed": 1788414802646,
+      "type": "file"
+    },
+    {
+      "path": "live/hub/networking/main.tf",
+      "accessCount": 14,
+      "lastAccessed": 1788771471394,
       "type": "file"
     },
     {
@@ -169,21 +181,9 @@
       "type": "file"
     },
     {
-      "path": "live/hub/aks/main.tf",
-      "accessCount": 11,
-      "lastAccessed": 1788742684868,
-      "type": "file"
-    },
-    {
       "path": "bootstrap/bootstrap.sh",
       "accessCount": 10,
       "lastAccessed": 1788415406817,
-      "type": "file"
-    },
-    {
-      "path": "live/hub/networking/main.tf",
-      "accessCount": 10,
-      "lastAccessed": 1788419247090,
       "type": "file"
     },
     {
@@ -208,6 +208,18 @@
       "path": ".claude/skills/argocd-tunnel-connect/scripts/connect.sh",
       "accessCount": 4,
       "lastAccessed": 1788738931056,
+      "type": "file"
+    },
+    {
+      "path": "live/hub/aks/versions.tf",
+      "accessCount": 4,
+      "lastAccessed": 1788771420927,
+      "type": "file"
+    },
+    {
+      "path": "live/hub/aks/providers.tf",
+      "accessCount": 4,
+      "lastAccessed": 1788771425735,
       "type": "file"
     },
     {
@@ -250,18 +262,6 @@
       "path": "live/hub/aks/outputs.tf",
       "accessCount": 2,
       "lastAccessed": 1788414619947,
-      "type": "file"
-    },
-    {
-      "path": "live/hub/aks/providers.tf",
-      "accessCount": 2,
-      "lastAccessed": 1788414624791,
-      "type": "file"
-    },
-    {
-      "path": "live/hub/aks/versions.tf",
-      "accessCount": 2,
-      "lastAccessed": 1788414625680,
       "type": "file"
     },
     {
