@@ -281,25 +281,36 @@ fi
 # 갖지만, 저빈도 1회성 작업이라 옮길 실익이 낮다는 별개 판단(README 참고).
 #
 # ⚠️ 2026-09-08: `BOOTSTRAP_TARGET == "hub"` 게이트를 제거했다. "AKS는 hub만 쓴다"는
-# 원래 가정이 `live/dev/aks` 신설로 깨졌고(스포크 구독도 이 RP가 등록돼 있어야 apply가
+# 원래 가정이 `live/dev/aks` 신설로 깨졌고(스포크 구독도 이 RP들이 등록돼 있어야 apply가
 # 성립한다), 이 검사 자체는 구독 단위 상태 조회라 대상과 무관하게 멱등이고 비용이 없다.
+#
+# ⚠️ 2026-09-08: 목록에 Microsoft.Compute·Microsoft.ManagedIdentity를 추가했다.
+# `az provider list`로 hub·dev 두 구독을 직접 비교(comm -23)해 실측한 결과 — dev
+# 구독은 Microsoft.ContainerService뿐 아니라 이 둘도 NotRegistered였다. hub는 예전에
+# (아마 live/hub/workbench의 VM 배포나 다른 수동 작업으로) 우연히 이미 등록돼 있어
+# 이 스크립트가 그 필요성을 놓치고 있었다 — `live/dev/aks`가 실제로 만드는 리소스
+# (azurerm_user_assigned_identity → ManagedIdentity, aks-cluster 모듈의 VMSS 노드 →
+# Compute)를 기준으로 최소 목록을 잡았다. 이 셋보다 넓은 다른 RP(Bing·Databricks 등,
+# hub 구독에 있지만 이 저장소와 무관한 것들)는 의도적으로 등록하지 않는다.
 #
 # ⚠️ --wait를 붙인다. 등록은 비동기라 --wait 없이는 다음 실행이 아직 "Registering"을
 # 보고 다시 register를 호출해 "재실행하면 변경 0건"이라는 이 스크립트의 수용 기준이
 # 깨진다.
-ensure_container_service_provider() {
-  local state
-  state="$(az_or_die "Microsoft.ContainerService 등록 상태" -- \
-    az_ provider show --namespace Microsoft.ContainerService --query registrationState -o tsv)"
-  if [[ "$state" == "Registered" ]]; then
-    ok "[aks] Microsoft.ContainerService 리소스 프로바이더 등록됨"
-  else
-    az_ provider register --namespace Microsoft.ContainerService --wait >/dev/null
-    changed "[aks] Microsoft.ContainerService 리소스 프로바이더 등록(이전 상태: $state)"
-  fi
+ensure_aks_resource_providers() {
+  local ns state
+  for ns in Microsoft.ContainerService Microsoft.Compute Microsoft.ManagedIdentity; do
+    state="$(az_or_die "${ns} 등록 상태" -- \
+      az_ provider show --namespace "$ns" --query registrationState -o tsv)"
+    if [[ "$state" == "Registered" ]]; then
+      ok "[aks] ${ns} 리소스 프로바이더 등록됨"
+    else
+      az_ provider register --namespace "$ns" --wait >/dev/null
+      changed "[aks] ${ns} 리소스 프로바이더 등록(이전 상태: $state)"
+    fi
+  done
 }
 
-ensure_container_service_provider
+ensure_aks_resource_providers
 
 # ── 7. state RG 잠금 (반드시 마지막 — 이후 어떤 변경도 이 RG 안에서 막힌다) ──
 # 잠금 존재 시 재실행 절차(계획 5절): 이 RG에 변경이 필요하면 (1) 사람이 잠금
