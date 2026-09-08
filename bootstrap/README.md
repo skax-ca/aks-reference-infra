@@ -244,7 +244,10 @@ GitOps 워크로드가 없는 데모 클러스터라 destroy 비용이 낮았다
 스코프 `*/register/action`도 가지므로 이것도 Terraform으로 옮길 수 있지만, 사람이
 부트스트랩 시점에 한 번 처리하면 되는 저빈도 작업이라 옮길 실익이 낮다고 판단해
 남겨 뒀다(별개 판단, identity·role assignment 이관과 묶지 않았다). 등록은 비동기라
-`bootstrap.sh`는 `--wait`로 완료까지 기다린다.
+`bootstrap.sh`는 `--wait`로 완료까지 기다린다. 2026-09-08부로 이 등록·검사는
+`BOOTSTRAP_TARGET`과 무관하게 hub·spoke 양쪽에서 무조건 실행된다. `live/dev/aks`
+신설로 "AKS는 hub만 쓴다"는 원래 가정이 깨졌고, 구독 단위 상태 조회라 대상과 무관하게
+멱등이고 비용이 없다.
 
 ## 3. 검증
 

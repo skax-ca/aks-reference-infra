@@ -377,20 +377,21 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
   fi
 fi
 
-# ── RP 등록 (hub 대상만) ─────────────────────────────────────────────────────
+# ── RP 등록 (hub·spoke 공통) ─────────────────────────────────────────────────
 # ⚠️ AKS 클러스터용 identity·role assignment 검사는 2026-09-04부로 여기서
-# 제거했다 — 그 산출물이 이제 `live/hub/aks`의 Terraform state 안에 있어(`tofu
+# 제거했다 — 그 산출물이 이제 `live/<env>/aks`의 Terraform state 안에 있어(`tofu
 # plan`이 자기 검증 역할을 대신한다), CI 신원(App Registration) 권한을 보는 이
 # 스크립트의 검사 대상이 아니게 됐다. RP 등록만 그대로 남긴다(bootstrap.sh 참고).
-if [[ "$BOOTSTRAP_TARGET" == "hub" ]]; then
-  check_container_service_provider() {
-    local state
-    state="$(az_or_die "Microsoft.ContainerService 등록 상태" -- \
-      az_ provider show --namespace Microsoft.ContainerService --query registrationState -o tsv)"
-    [[ "$state" == "Registered" ]] && echo ok || echo drift
-  }
-  report "[aks] Microsoft.ContainerService 리소스 프로바이더 등록" "$(check_container_service_provider)"
-fi
+#
+# ⚠️ 2026-09-08: bootstrap.sh와 같은 근거로 `BOOTSTRAP_TARGET == "hub"` 게이트를
+# 제거했다 — `live/dev/aks` 신설로 스포크 구독도 이 RP 등록이 apply 사전조건이 됐다.
+check_container_service_provider() {
+  local state
+  state="$(az_or_die "Microsoft.ContainerService 등록 상태" -- \
+    az_ provider show --namespace Microsoft.ContainerService --query registrationState -o tsv)"
+  [[ "$state" == "Registered" ]] && echo ok || echo drift
+}
+report "[aks] Microsoft.ContainerService 리소스 프로바이더 등록" "$(check_container_service_provider)"
 
 # ── state RG 잠금 + 내구성 설정 ──────────────────────────────────────────────
 check_state_lock() {

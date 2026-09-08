@@ -274,11 +274,15 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
   ensure_role_assignment "$SPOKE_PEER_ROLE_NAME" "$RG_SCOPE" "spoke-peer" "$HUB_SP_ID"
 fi
 
-# ── 6-2. RP 등록 (hub 대상만) ────────────────────────────────────────────────
+# ── 6-2. RP 등록 (hub·spoke 공통) ────────────────────────────────────────────
 # ⚠️ AKS 클러스터용 identity·role assignment는 2026-09-04부로 여기서 만들지
-# 않는다(config.sh 참고 — `live/hub/aks`가 이제 자기 identity를 Terraform으로 직접
+# 않는다(config.sh 참고 — `live/<env>/aks`가 이제 자기 identity를 Terraform으로 직접
 # 만든다). RP 등록만 그대로 남긴다 — CI가 이제 구독 전체 Owner라 `*/register/action`도
 # 갖지만, 저빈도 1회성 작업이라 옮길 실익이 낮다는 별개 판단(README 참고).
+#
+# ⚠️ 2026-09-08: `BOOTSTRAP_TARGET == "hub"` 게이트를 제거했다. "AKS는 hub만 쓴다"는
+# 원래 가정이 `live/dev/aks` 신설로 깨졌고(스포크 구독도 이 RP가 등록돼 있어야 apply가
+# 성립한다), 이 검사 자체는 구독 단위 상태 조회라 대상과 무관하게 멱등이고 비용이 없다.
 #
 # ⚠️ --wait를 붙인다. 등록은 비동기라 --wait 없이는 다음 실행이 아직 "Registering"을
 # 보고 다시 register를 호출해 "재실행하면 변경 0건"이라는 이 스크립트의 수용 기준이
@@ -295,9 +299,7 @@ ensure_container_service_provider() {
   fi
 }
 
-if [[ "$BOOTSTRAP_TARGET" == "hub" ]]; then
-  ensure_container_service_provider
-fi
+ensure_container_service_provider
 
 # ── 7. state RG 잠금 (반드시 마지막 — 이후 어떤 변경도 이 RG 안에서 막힌다) ──
 # 잠금 존재 시 재실행 절차(계획 5절): 이 RG에 변경이 필요하면 (1) 사람이 잠금
