@@ -38,7 +38,7 @@ live/hub/vwan/          ✅ Virtual WAN(hub, networking과 분리된 state)
 live/hub/aks/           ✅ AKS 클러스터(hub, Karpenter/NAP·KEDA·AGFC workload identity 포함)
 live/hub/workbench/     ✅ CLI 전용 운영 VM(hub, private 클러스터의 유일한 일상 접근 지점)
 live/dev/networking/    ✅ VNet(spoke 첫 인스턴스), vWAN 스포크 연결 완료
-live/dev/aks/           ⏳ 미착수(Karpenter/NAP opt-in 정책만 확정, 스캐폴딩 전)
+live/dev/aks/           ✅ AKS 클러스터(dev, hub와 풀 패리티. Karpenter/NAP·KEDA·App Routing 포함, 노드 2대 Ready 실측)
 .github/workflows/      배포 루트마다 워크플로 하나(plan은 push, apply/destroy는 workflow_dispatch)
 docs/                   hub-lifecycle.md ✅ · spoke-lifecycle.md·runbooks.md ⏳(6절)
 scripts/                ⏳ 아직 없음(원본의 `validate-doc-conventions.py` 등 포팅 예정, 4절)
