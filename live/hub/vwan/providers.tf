@@ -20,6 +20,23 @@ provider "azurerm" {
   features {}
 }
 
+# 2026-09-08 신설 — dev 구독을 향한 두 번째 provider(별칭). ARM_CLIENT_ID·
+# ARM_TENANT_ID·ARM_USE_OIDC는 env에서 그대로 물려받고(위 기본 provider와 같은
+# hub CI 신원), subscription_id만 dev로 바꾼다. 이 신원은 bootstrap.sh
+# (BOOTSTRAP_TARGET=spoke)가 dev 워크로드 RG 스코프로 준 spoke-peer 역할
+# (peer/action + virtualNetworks/read, 2026-09-08 read 추가)을 이미 갖고 있다 —
+# 같은 테넌트의 다른 구독이라 별도 federated credential·assume 체인이 필요 없다
+# (AWS 원본의 cross-account trust 같은 게 필요 없는 이유, virtual-wan-faq: 같은
+# 테넌트 간 연결은 RBAC만으로 성립하는 1급 시나리오).
+provider "azurerm" {
+  alias = "dev"
+
+  subscription_id                 = var.dev_subscription_id
+  resource_provider_registrations = "none"
+
+  features {}
+}
+
 # ── CI 전용 인증 가드 ─────────────────────────────────────────────────────────
 #
 # AWS 원본은 실행 Role의 신뢰 정책이 GitHub Actions OIDC 하나만 허용해 로컬 plan/apply가
