@@ -1,0 +1,15 @@
+# backend.hcl 의 형태를 보여주는 예시(gitignore 대상인 실제 backend.hcl은 이 파일을 복사해
+# 진짜 Storage Account 이름으로 채운다). 이 파일 자체는 값을 채우지 않은 placeholder라
+# 커밋해도 안전하다. live/dev/networking의 backend.hcl.example과 같은 Storage Account를
+# 쓰되(같은 dev 구독) key만 다르다 — state는 root마다 분리한다.
+#
+# 사용법: cp backend.hcl.example backend.hcl 후 아래 값을 채운 뒤
+#         tofu init -backend-config=backend.hcl
+
+resource_group_name = "rg-demo-dev-krc-tfstate-01"
+# Storage Account 이름 형태: st<workload><env><8자리 hex>(bootstrap/README.md "기대 상태" 절).
+# 실제 값은 bootstrap 실행 로그 또는 GitHub repo 변수(DEV_TF_STATE_ACCOUNT)에서 확인한다.
+storage_account_name = "stdemodevXXXXXXXX"
+container_name       = "tfstate"
+key                  = "dev/aks.tfstate"
+use_azuread_auth     = true
