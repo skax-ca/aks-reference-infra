@@ -42,6 +42,37 @@ data "azurerm_virtual_network" "hub" {
   resource_group_name = data.azurerm_resource_group.workload.name
 }
 
+# 스포크(dev) VNet 자동 발견 — 2026-09-08, CI 변수 주입(휘발성 workflow_dispatch
+# input)에서 태그 기반 data source 조회로 교체. AWS 원본(eks-reference-infra의
+# live/hub/tgw)이 spoke attachment를 태그로 자동 발견하는 것과 같은 패턴이다.
+# `azurerm_resources`는 대상이 없으면 하드 에러가 아니라 빈 리스트를 반환한다
+# (registry.terraform.io hashicorp/azurerm docs/d/resources.html.markdown의
+# Example Usage 자체가 "타입+태그로 spoke VNet을 찾아 peering" 시나리오다) — dev가
+# 아직 없어도 이 root는 스포크 연결 0개로 정상 apply된다. dev networking이 생긴
+# 뒤 이 root를 한 번 더 apply하면 자동으로 발견해 연결이 생긴다(AWS 원본의 "hub
+# networking 재적용" 단계와 대칭, docs/hub-lifecycle.md 4절 참고).
+#
+# 필요 권한은 dev 구독의 virtualNetworks/read 하나뿐이다(bootstrap.sh
+# BOOTSTRAP_TARGET=spoke가 spoke-peer 역할에 peer/action과 나란히 부여, 2026-09-08).
+data "azurerm_resources" "dev_spoke_vnets" {
+  provider = azurerm.dev
+
+  type = "Microsoft.Network/virtualNetworks"
+  required_tags = {
+    Workload    = var.workload
+    Environment = "dev"
+  }
+}
+
+locals {
+  # 오늘은 스포크가 dev 하나뿐이라 고정 키("dev")로 묶는다. 스포크가 늘어나면
+  # (qa 등) 이 local을 태그의 Environment 값으로 그룹핑하도록 넓힌다 — 지금은
+  # YAGNI로 미룬다.
+  spoke_connections = {
+    for r in data.azurerm_resources.dev_spoke_vnets.resources : "dev" => r.id
+  }
+}
+
 resource "azurerm_virtual_wan" "this" {
   name                = "vwan-${var.workload}-${var.env}-${var.region_code}-main"
   resource_group_name = data.azurerm_resource_group.workload.name
@@ -95,12 +126,9 @@ resource "azurerm_virtual_hub_connection" "hub" {
   remote_virtual_network_id = data.azurerm_virtual_network.hub.id
 }
 
-# 스포크 연결 — dev VNet ID는 data source로 조회하지 않고 CI 변수로 주입한다.
-# 조회하려면 dev 구독에 virtualNetworks/read가 추가로 필요한데, 그 한 액션을
-# 아끼는 편이 낫다 — 존재하지
-# 않는 VNet ID를 넘기면 peer/action 호출 자체가 실패해 큰 소리로 드러난다.
+# 스포크 연결 — dev VNet ID는 위 data source(azurerm_resources)로 자동 발견한다.
 resource "azurerm_virtual_hub_connection" "spoke" {
-  for_each = var.spoke_connections
+  for_each = local.spoke_connections
 
   name                      = "${azurerm_virtual_hub.this.name}-${each.key}"
   virtual_hub_id            = azurerm_virtual_hub.this.id

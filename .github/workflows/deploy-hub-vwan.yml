@@ -27,13 +27,6 @@ on:
         description: "destroy일 때만 필수. 정확히 `destroy live/hub/vwan`를 입력한다"
         type: string
         default: ""
-      spoke_connections:
-        description: >-
-          스포크 연결 주입(2차 apply 전용, JSON map). 예:
-          {"dev":".../virtualNetworks/vnet-demo-dev-krc-main"}.
-          비워두면(기본값) 스포크 연결 없이 vWAN·vHub·hub 연결만 유지한다.
-        type: string
-        default: "{}"
 
 # state는 단일 자원이다. cancel-in-progress는 false여야 한다.
 concurrency:
@@ -51,10 +44,10 @@ env:
   ARM_USE_OIDC: "true"
   TF_VAR_subscription_id: ${{ vars.AZURE_HUB_SUBSCRIPTION_ID }}
   TF_VAR_ci_run: "true"
-  # push(자동 plan)에서는 workflow_dispatch 입력이 없어 빈 맵으로 떨어진다 — 1차 apply
-  # 형태(스포크 없음)를 기본으로 유지한다. 스포크를 추가하는 2차 apply는 반드시
-  # workflow_dispatch로 spoke_connections를 채워 넣는다.
-  TF_VAR_spoke_connections: ${{ inputs.spoke_connections || '{}' }}
+  # dev VNet을 태그 기반 data source로 자동 발견하는 두 번째 provider(azurerm.dev,
+  # providers.tf)의 subscription_id. live/dev/networking이 이미 쓰는 것과 같은 repo
+  # variable을 재사용한다(2026-09-08, CI 변수 직접 주입 방식에서 전환).
+  TF_VAR_dev_subscription_id: ${{ vars.AZURE_DEV_SUBSCRIPTION_ID }}
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────

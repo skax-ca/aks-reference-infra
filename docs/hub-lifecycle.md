@@ -49,7 +49,7 @@ live/hub/workbench/        CLI 전용 운영 VM
 .github/workflows/         배포 루트마다 워크플로 하나
 ```
 
-루트마다 **state를 분리**한다. 결합은 `terraform_remote_state`가 아니라 **Name·태그 기반 `data` 조회**로만 한다(크로스 구독은 예외, CI 변수로 리소스 ID를 명시 주입, 4절).
+루트마다 **state를 분리**한다. 결합은 `terraform_remote_state`가 아니라 **Name·태그 기반 `data` 조회**로만 한다. 크로스 구독(4절의 dev VNet 자동 발견)도 예외가 아니다 - 두 번째 provider(별칭)로 대상 구독을 향해 같은 태그 기반 조회를 한다.
 
 ### 3. 부트스트랩: state Storage Account · App Registration · 커스텀 역할
 
@@ -85,13 +85,25 @@ tofu -chdir=live/hub/networking validate
 gh workflow run deploy-hub-network.yml --ref main -f action=apply
 ```
 
-같은 방식으로 `live/hub/vwan`을 초기화한다(`key = "hub/vwan.tfstate"`). `spoke_connections` 변수는 기본값 `{}`다. 스포크 연결 없이 vWAN·vHub·hub 연결만 먼저 세운다. dev VNet이 생기고 크로스 구독 role assignment(`bootstrap.sh`의 `BOOTSTRAP_TARGET=spoke` 실행)가 걸린 뒤에만 `{ dev = "<dev VNet 리소스 ID>" }`를 CI 변수로 주입해 2차 apply한다.
+같은 방식으로 `live/hub/vwan`을 초기화한다(`key = "hub/vwan.tfstate"`). 스포크(dev) VNet은
+`azurerm_resources`(태그 `Workload`·`Environment=dev` 기준)로 **자동 발견**한다(2026-09-08,
+CI 변수 직접 주입에서 전환 - bootstrap.sh `BOOTSTRAP_TARGET=spoke`가 부여하는
+`virtualNetworks/read`+`peer/action` 2액션만 있으면 된다). dev가 아직 없으면 이 data
+source는 빈 리스트를 반환해 스포크 연결 0개로 정상 apply된다 - **hub를 spoke 없이 통째로
+먼저 지어도 된다.**
 
 ```bash
 gh workflow run deploy-hub-vwan.yml --ref main -f action=apply
 ```
 
-> **networking apply 전까지 vwan 워크플로의 plan은 실패한다**(VNet을 못 찾는다), 순서가 있다는 신호이지 고장이 아니다.
+> **networking apply 전까지 vwan 워크플로의 plan은 실패한다**(hub VNet을 못 찾는다), 순서가 있다는 신호이지 고장이 아니다.
+
+🔑 **dev(spoke)가 나중에 생기면 이 워크플로를 한 번 더 apply한다.** AWS 원본
+(`eks-reference-infra` `docs/spoke-lifecycle.md` 4절)의 "hub networking → hub eks → spoke
+networking → spoke eks → **hub networking 재적용**"과 정확히 같은 패턴이다 - hub는 spoke
+존재 여부와 무관하게 완결적으로 지을 수 있고, dev networking이 그 뒤에 생기면 hub vwan을
+한 번 더 apply해야 그 연결이 채워진다. 스포크가 여러 개(qa 등)로 늘어나도 태그만 맞으면
+코드 변경 없이 같은 재적용으로 전부 잡힌다.
 
 ### 5. AKS 클러스터 (L2)
 

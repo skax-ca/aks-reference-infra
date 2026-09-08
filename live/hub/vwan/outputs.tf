@@ -22,6 +22,6 @@ output "hub_connection_id" {
 }
 
 output "spoke_connection_ids" {
-  description = "스포크 이름 → 연결 ID. var.spoke_connections가 빈 맵이면 빈 맵이다."
+  description = "스포크 이름 → 연결 ID. local.spoke_connections(태그 기반 자동 발견)가 빈 맵이면 빈 맵이다."
   value       = { for k, v in azurerm_virtual_hub_connection.spoke : k => v.id }
 }

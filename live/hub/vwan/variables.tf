@@ -68,19 +68,16 @@ variable "ci_run" {
   nullable    = false
 }
 
-variable "spoke_connections" {
+variable "dev_subscription_id" {
   description = <<-EOT
-    vHub에 연결할 스포크 VNet — 스포크 이름 → VNet 리소스 ID(전체 경로) 맵.
+    dev(스포크) 구독 ID. live/hub/vwan이 dev VNet을 태그 기반으로 자동 발견할 때
+    쓰는 두 번째 provider(azurerm.dev, providers.tf)의 subscription_id다
+    (2026-09-08, CI 변수 직접 주입에서 data source 자동 발견으로 전환하며 신설).
 
-    기본값 `{}` — 스포크 연결 없이 vWAN·vHub·hub 연결만 먼저 세우는 1차 apply를
-    지원한다. dev VNet이 생기고 크로스 구독 role assignment가 걸린 뒤 2차 apply에서
-    `{ dev = "<dev VNet 리소스 ID>" }`를 CI 변수로 주입한다.
-
-    ⛔ data source로 조회하지 않고 값을 그대로 받는다 — 조회하려면 dev 구독에
-    virtualNetworks/read가 추가로 필요한데, hub CI 신원에게 그 권한까지 주지 않는다
-    (크로스 구독 권한은 dev 쪽 peer/action 단일 액션 하나로 충분하다).
+    ⛔ 기본값을 두지 않는다 — 구독 식별 정보라 git 에 두지 않는다. 주입 경로:
+       CI   : GitHub repo 변수 AZURE_DEV_SUBSCRIPTION_ID → TF_VAR_dev_subscription_id
+              (live/dev/networking이 이미 쓰는 것과 같은 값, 재사용이다)
+       로컬 : export TF_VAR_dev_subscription_id=...
   EOT
-  type        = map(string)
-  default     = {}
-  nullable    = false
+  type        = string
 }
