@@ -134,3 +134,48 @@ resource "azurerm_virtual_hub_connection" "spoke" {
   virtual_hub_id            = azurerm_virtual_hub.this.id
   remote_virtual_network_id = each.value
 }
+
+# ── dev(spoke) GitOps 등록 — hub ArgoCD의 Entra Workload Identity ──────────────
+#
+# .omc/plans/dev-gitops-registration.md(6.5차 패치) 결정: 이 UAMI+FIC는 이 root에
+# 둔다(live/hub/aks가 아니라) — DNS Link(아래)와 같은 "hub↔dev 크로스 구독 배선"
+# 역할의 연장이고, 새 root를 만들면 워크플로·backend key 신설 비용이 든다.
+#
+# ⛔ AWS의 cross-account-trust-role과 대칭되는 "신뢰 전용" 리소스를 dev 쪽에 만들지
+# 않는다 — Azure RBAC 역할 할당은 tenant 전역 ARM 오퍼레이션이라 그런 게 필요 없다
+# (entra-id-authorization 공식 문서: role assignment의 assignee는 어느 구독
+# 소속이든 상관없다. 단 assignment 자체는 대상 구독 ARM에 저장된다 — "0개"가 아니라
+# "AWS 대비 1개 적다"가 정확한 표현).
+#
+# 이 identity는 접속 *대상*(scratch든 실 dev든)과 무관하게 hub 자신의 OIDC issuer +
+# K8s ServiceAccount subject에만 묶인다 — 영속 리소스이고 scratch 리허설 때도
+# 파기 대상에서 제외한다(5차 Architect 검토, FIC는 hub 쪽 issuer 종속).
+resource "azurerm_user_assigned_identity" "argocd" {
+  name                = "id-${var.workload}-${var.env}-${var.region_code}-argocd-01"
+  resource_group_name = data.azurerm_resource_group.workload.name
+  location            = var.location
+  tags                = local.tags
+}
+
+# hub AKS 클러스터의 OIDC issuer URL 조회. 결정적 네이밍 → data 조회(CLAUDE.md 1절) —
+# live/hub/aks가 이미 이 이름으로 클러스터를 만들었다(module.aks_cluster 네이밍 규약과
+# 동일 합성식).
+data "azurerm_kubernetes_cluster" "hub" {
+  name                = "aks-${var.workload}-${var.env}-${var.region_code}-main-01"
+  resource_group_name = data.azurerm_resource_group.workload.name
+}
+
+# ArgoCD SA 2개(argo-cd 10.3.0 chart, release명 "argocd")를 federate한다. 두 이름
+# 모두 release명으로 템플릿되지 않는 chart values의 리터럴 기본값이다(controller.
+# serviceAccount.name·server.serviceAccount.name) — application-controller가
+# 실제로 스포크 API 서버와 통신해 reconcile하고, server는 UI·CLI·`argocd app diff`
+# 경로에서 같은 API를 호출한다(둘 다 필요, Architect 검토 M-4).
+resource "azurerm_federated_identity_credential" "argocd" {
+  for_each = toset(["argocd-application-controller", "argocd-server"])
+
+  name                      = "fic-argocd-${each.value}"
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = data.azurerm_kubernetes_cluster.hub.oidc_issuer_url
+  user_assigned_identity_id = azurerm_user_assigned_identity.argocd.id
+  subject                   = "system:serviceaccount:argocd:${each.value}"
+}
