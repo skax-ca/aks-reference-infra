@@ -185,6 +185,14 @@ module "aks_workbench" {
   subnet_id   = data.azurerm_subnet.vm.id
   identity_id = azurerm_user_assigned_identity.workbench.id
 
+  # ⚠️ 2026-09-08 dev 첫 apply 실측: 모듈 기본값 Standard_B2s가 이 구독에서
+  # SkuNotAvailable(409, reasonCode=NotAvailableForSubscription, koreacentral)로 거부됐다.
+  # `az vm list-skus --subscription <dev>`로 직접 조회한 결과, 구형 B2s만 이 구독·리전
+  # 조합에서 막혀 있고 Standard_B2s_v2는 restrictions가 비어 있다(hub 구독은 B2s가
+  # 문제없이 동작 중 — 구독별 용량 배정 차이이지 이 저장소 설계 문제가 아니다). dev만
+  # v2로 오버라이드한다 — hub는 그대로 둔다(hub main.tf에 vm_size를 넣지 않는다).
+  vm_size = "Standard_B2s_v2"
+
   # role assignment 순서 의존 명시(live/dev/aks/main.tf의 동일 클래스 문제와 같은 이유) —
   # 이게 없으면 kubeconfig 부트스트랩이 role assignment 전에 실행돼 조용히 실패할 수 있다.
   # time_sleep을 거치는 이유는 위 time_sleep.role_propagation 주석 참고(AAD 전파 지연).
