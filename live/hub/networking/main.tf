@@ -153,9 +153,9 @@ module "vnet" {
   # dev(spoke)가 아직 없어도 hub 는 이미 "구독 하나의 단일 고정 거처"(CLAUDE.md 2절) —
   # AWS 원본이 문서화한 실수 삭제 최후 방어선과 같은 의도로 켠다.
   # ⚠️ 파기는 2단계다: deletion_protection = false 로 먼저 apply 한 뒤 destroy.
-  # 2026-09-08 hub 철거→재구축 실검증(docs/hub-lifecycle.md 11절)을 위해 일시 해제.
-  # 재구축 완료 후 반드시 true로 복원한다(⛔ 11절).
-  deletion_protection = false
+  # 2026-09-08 hub 철거→재구축 실검증(docs/hub-lifecycle.md 11절)을 위해 일시 해제했다가,
+  # 재구축 완료 후 이 커밋으로 복원했다(⛔ 11절 원칙대로).
+  deletion_protection = true
 
   # azurerm 은 provider 레벨 default_tags 인자가 없어(vnet 모듈 README 확인) 여기서 명시
   # 배선한다. 태그 키 이름은 AWS 원본과 맞춘다.

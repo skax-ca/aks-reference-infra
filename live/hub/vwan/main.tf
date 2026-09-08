@@ -82,10 +82,10 @@ resource "azurerm_virtual_wan" "this" {
   # hub 는 "구독 하나의 단일 고정 거처"(CLAUDE.md 2절) — live/hub/networking의 VNet과
   # 같은 이유로 실수 삭제 최후 방어선을 켠다. 파기는 2단계(prevent_destroy=false로
   # 먼저 apply한 뒤 destroy)다.
-  # 2026-09-08 hub 철거→재구축 실검증(docs/hub-lifecycle.md 11절)을 위해 일시 해제.
-  # 재구축 완료 후 반드시 true로 복원한다(⛔ 11절).
+  # 2026-09-08 hub 철거→재구축 실검증(docs/hub-lifecycle.md 11절)을 위해 일시 해제했다가,
+  # 재구축 완료 후 이 커밋으로 복원했다(⛔ 11절 원칙대로).
   lifecycle {
-    prevent_destroy = false
+    prevent_destroy = true
   }
 
   tags = local.tags
@@ -102,10 +102,10 @@ resource "azurerm_virtual_hub" "this" {
   # 않는다.
   sku = "Standard"
 
-  # 2026-09-08 hub 철거→재구축 실검증(docs/hub-lifecycle.md 11절)을 위해 일시 해제.
-  # 재구축 완료 후 반드시 true로 복원한다(⛔ 11절).
+  # 2026-09-08 hub 철거→재구축 실검증(docs/hub-lifecycle.md 11절)을 위해 일시 해제했다가,
+  # 재구축 완료 후 이 커밋으로 복원했다(⛔ 11절 원칙대로).
   lifecycle {
-    prevent_destroy = false
+    prevent_destroy = true
   }
 
   tags = local.tags
