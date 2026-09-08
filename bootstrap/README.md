@@ -227,7 +227,7 @@ GitOps 워크로드가 없는 데모 클러스터라 destroy 비용이 낮았다
 | identity의 거처 | 워크로드 RG(`rg-<workload>-hub-krc-workload-01`) | 〃 |
 | role assignment | built-in `Network Contributor` | `live/hub/aks`(Terraform, `azurerm_role_assignment.aks_node_subnet`) |
 | role assignment 스코프 | `aks-node` 서브넷 리소스 하나 | 〃 |
-| 리소스 프로바이더 | `Microsoft.ContainerService`가 `Registered` | **여전히 bootstrap**(아래 참고) |
+| 리소스 프로바이더 | `Microsoft.ContainerService`·`Microsoft.Compute`·`Microsoft.ManagedIdentity`가 `Registered` | **여전히 bootstrap**(아래 참고) |
 
 ⚠️ 스코프가 노드 RG 전체가 아니라 서브넷 하나로 좁은 건 실수가 아니다. MS 공식
 문서(`concepts-network-cni-overview`)가 BYO-VNet 시나리오(이 root처럼 VNet을
@@ -240,14 +240,18 @@ GitOps 워크로드가 없는 데모 클러스터라 destroy 비용이 낮았다
 예전에 bash 재시도(`retry_on_replication_delay`)로 흡수하던 문제를 이제 provider가
 대신 흡수한다.
 
-⚠️ **`Microsoft.ContainerService` 등록만 bootstrap에 남아있다.** CI가 이제 구독
-스코프 `*/register/action`도 가지므로 이것도 Terraform으로 옮길 수 있지만, 사람이
+⚠️ **RP 등록 3종(`Microsoft.ContainerService`·`Microsoft.Compute`·
+`Microsoft.ManagedIdentity`)만 bootstrap에 남아있다.** CI가 이제 구독 스코프
+`*/register/action`도 가지므로 이것도 Terraform으로 옮길 수 있지만, 사람이
 부트스트랩 시점에 한 번 처리하면 되는 저빈도 작업이라 옮길 실익이 낮다고 판단해
 남겨 뒀다(별개 판단, identity·role assignment 이관과 묶지 않았다). 등록은 비동기라
 `bootstrap.sh`는 `--wait`로 완료까지 기다린다. 2026-09-08부로 이 등록·검사는
 `BOOTSTRAP_TARGET`과 무관하게 hub·spoke 양쪽에서 무조건 실행된다. `live/dev/aks`
 신설로 "AKS는 hub만 쓴다"는 원래 가정이 깨졌고, 구독 단위 상태 조회라 대상과 무관하게
-멱등이고 비용이 없다.
+멱등이고 비용이 없다. 목록에 `Microsoft.Compute`·`Microsoft.ManagedIdentity`가 추가된
+이유: dev 구독을 `az provider list`로 hub와 직접 비교(`comm -23`) 실측한 결과 이 둘도
+`NotRegistered`였다. hub는 과거 다른 작업(예: `live/hub/workbench`의 VM 배포)으로
+이미 등록돼 있어 이 요구사항 자체가 지금까지 드러나지 않았을 뿐이다.
 
 ## 3. 검증
 

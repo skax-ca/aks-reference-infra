@@ -385,13 +385,18 @@ fi
 #
 # ⚠️ 2026-09-08: bootstrap.sh와 같은 근거로 `BOOTSTRAP_TARGET == "hub"` 게이트를
 # 제거했다 — `live/dev/aks` 신설로 스포크 구독도 이 RP 등록이 apply 사전조건이 됐다.
-check_container_service_provider() {
-  local state
-  state="$(az_or_die "Microsoft.ContainerService 등록 상태" -- \
-    az_ provider show --namespace Microsoft.ContainerService --query registrationState -o tsv)"
+# 목록도 bootstrap.sh와 동일하게 Microsoft.Compute·Microsoft.ManagedIdentity를
+# 추가했다(실측 근거는 bootstrap.sh의 같은 자리 주석 참고 — dev 구독은 이 둘도
+# NotRegistered였다).
+check_resource_provider() {
+  local ns="$1" state
+  state="$(az_or_die "${ns} 등록 상태" -- \
+    az_ provider show --namespace "$ns" --query registrationState -o tsv)"
   [[ "$state" == "Registered" ]] && echo ok || echo drift
 }
-report "[aks] Microsoft.ContainerService 리소스 프로바이더 등록" "$(check_container_service_provider)"
+for ns in Microsoft.ContainerService Microsoft.Compute Microsoft.ManagedIdentity; do
+  report "[aks] ${ns} 리소스 프로바이더 등록" "$(check_resource_provider "$ns")"
+done
 
 # ── state RG 잠금 + 내구성 설정 ──────────────────────────────────────────────
 check_state_lock() {
