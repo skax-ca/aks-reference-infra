@@ -315,7 +315,7 @@ az aks list --query "[?tags.Workload=='demo' && tags.Environment=='hub']"
 
 ### 14. 4단계: 잔존물 검증
 
-⏳ 이 저장소는 아직 `scripts/teardown-verify.sh`(원본의 자동 검증 스크립트)를 포팅하지 않았다(CLAUDE.md 4절). 지금은 아래 `az` 명령으로 태그 기준 수동 확인한다.
+⏳ 이 저장소는 아직 `scripts/teardown-verify.sh`(원본의 자동 검증 스크립트)를 포팅하지 않았다(`CLAUDE.md` 참고). 지금은 아래 `az` 명령으로 태그 기준 수동 확인한다.
 
 | 순위 | 자원 | 확인 |
 |:---:|------|------|
@@ -382,4 +382,4 @@ az vm deallocate --ids <workbench-vm-id>
 | state lock이 풀리지 않는다 | apply가 중단됐다 | Storage Account의 blob lease를 확인 후 `az storage blob lease break`로 해제 |
 | 로컬 destroy가 `var.ci_run` 가드로 막힌다 | `require_oidc` 조건 | 로컬 경로는 없다: 워크플로로 파기한다 |
 | 지운 리소스가 되살아난다 | ArgoCD 컨트롤러가 살아 있다 | 12절: `patch`가 아니라 컨트롤러를 `scale 0` |
-| `tofu init`이 provider 다운로드에서 실패 | runner-registry 간 일시적 네트워크 지연 | 새 dispatch가 아니라 `gh run rerun <run-id> --failed`(CLAUDE.md 2절) |
+| `tofu init`이 provider 다운로드에서 실패 | runner-registry 간 일시적 네트워크 지연 | 새 dispatch가 아니라 `gh run rerun <run-id> --failed`(`CLAUDE.md` 참고) |
