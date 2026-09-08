@@ -365,13 +365,22 @@ state_data_role_definition_json() {  # state_data_role_definition_json <assignab
     }'
 }
 
-# ── 스포크 연결 역할: peer/action 단일 액션 ──────────────────────────────────
+# ── 스포크 연결 역할: peer/action + read 2액션 ──────────────────────────────
 # hub CI 신원이 이 역할을 dev 워크로드 RG 스코프로 받아 live/hub/vwan의
 # azurerm_virtual_hub_connection.spoke를 성립시킨다. assignable scope와 실제 할당
 # 스코프가 **둘 다 스포크 워크로드 RG**다(bootstrap.sh의 크로스 구독 스포크 연결
 # 절이 $RG_SCOPE를 그대로 양쪽에 넘긴다). VNet 리소스 단위로 좁히는 최초안은
 # 2026-09-03에 기각됐다 — bootstrap.sh는 항상 networking apply보다 먼저 실행돼
 # 그 시점엔 VNet이 아직 없다(bootstrap/README.md 「크로스 구독 연결」절).
+#
+# 2026-09-08 `virtualNetworks/read`를 추가(peer/action 단일 액션에서 확장).
+# 이전엔 dev VNet ID를 CI 변수로 직접 주입해 read 없이 버텼으나, 그 값이
+# workflow_dispatch input이라 push-triggered plan·재적용마다 매번 비어(spoke
+# 연결이 "destroy 대상"으로 잘못 잡히는) 사고 재현 위험이 있었다(hub 철거→재구축
+# 실검증 착수 중 실측). live/hub/vwan이 `azurerm_resources`(태그 기반)로 dev
+# VNet을 직접 조회하도록 바꿔 이 위험을 구조적으로 없앤다 — Terraform CI 신원에
+# 이미 구독 전체 Owner 등가를 준 것(0절)과 같은 실용적 판단으로, peer/action
+# 하나를 아끼려고 CI 변수 재주입 실수 위험을 감수할 값어치가 없다고 판단했다.
 spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignable-scope>
   local scope="$1"
   jq -n \
@@ -381,8 +390,11 @@ spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignab
       Name: $name,
       # RoleName 중복 이유는 workload_role_definition_json 주석 참고(az CLI update 경로 버그).
       RoleName: $name,
-      Description: "Single-action grant for the hub CI identity to peer this spoke VNet into the hub Virtual WAN hub (aks-reference-infra live/hub/vwan spoke connection).",
-      Actions: ["Microsoft.Network/virtualNetworks/peer/action"],
+      Description: "Grant for the hub CI identity to discover(read) and peer(peer/action) this spoke VNet into the hub Virtual WAN hub (aks-reference-infra live/hub/vwan spoke connection).",
+      Actions: [
+        "Microsoft.Network/virtualNetworks/peer/action",
+        "Microsoft.Network/virtualNetworks/read"
+      ],
       NotActions: [],
       DataActions: [],
       NotDataActions: [],
