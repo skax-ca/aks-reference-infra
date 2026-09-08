@@ -105,6 +105,21 @@ gh workflow run deploy-hub-aks.yml --ref main -f action=apply
 
 > 🔴 **`cni_mode`·`pod_cidr`·`private_cluster_enabled`는 `network_profile` 블록 전체가 ForceNew라 첫 apply가 사실상 최종 선택이다.** 1절에서 값을 미리 확정해 둔다.
 
+🔑 **node resource group(`MC_*`)에 우리 Terraform이 만든 적 없는 리소스가 자동으로 생긴다.** apply 직후 실측 확인 방법:
+
+```bash
+NODE_RG=$(az aks show -g <rg> -n <cluster> --query nodeResourceGroup -o tsv)
+az resource list --resource-group "$NODE_RG" -o table
+```
+
+이 저장소 hub 클러스터 기준(2026-09-08 실측) 내용물: VMSS(노드 컴퓨트, 가장 큰 비용 항목)·`kubernetes-internal`(내부 LB, 7절 Gateway가 붙는 바로 그 LB)·NSG(AKS 자체 생성분 - `live/hub/networking`이 서브넷 레벨에 만드는 NSG와는 별개 리소스)·API 서버 Private Endpoint+NIC·private DNS zone+VNet link(`private_cluster_enabled=true`라 생김)·managed identity 2종(kubelet용·App Routing workload identity). 전부 클러스터 태그(`Workload`·`Environment`)를 물려받지만:
+
+- **IAM**: 워크로드 RG 하나에만 스코프된 역할로는 이 RG 안을 Azure RBAC로 못 본다(K8s RBAC와 별개 축) - CI 신원을 구독 전체 Owner로 둔 이유 중 하나가 정확히 이 제약이다(0절, `bootstrap/config.sh` 관련 주석 참고).
+- **비용**: 리소스 그룹별 Cost Analysis에서 hub 비용이 두 RG로 쪼개져 보인다. 태그 기준 조회로 우회한다.
+- **라이프사이클**: 10절 표의 `MC_*` 행 참고 - destroy 시 "대개" 자동 정리되지만 IaC 밖 자원이 남아있으면 지연된다.
+
+Container Insights(`omsagent` addon)를 켜면 Log Analytics workspace도 이 RG가 아닌 별도 위치(기본값 `DefaultResourceGroup-<region>`)에 또 생긴다 - 지금은 addon이 꺼져 있어 해당 없음(`az aks show --query addonProfiles.omsagent`로 확인).
+
 ### 6. workbench: private 클러스터의 유일한 일상 접근 지점 (L2.5)
 
 같은 방식으로 `live/hub/workbench`를 초기화한다(`key = "hub/workbench.tfstate"`). 이 root는 `data.azurerm_kubernetes_cluster`로 AKS 클러스터를 Name 기반 조회하므로 **아래가 먼저 있어야 한다**: AKS 클러스터. identity·role assignment는 aks와 같은 패턴으로 이 root가 직접 만든다.
