@@ -100,13 +100,18 @@ module "aks_cluster" {
   # ⛔ 소싱 URL 은 git::https:// 하나로 유지한다(모듈 repo 규약, AWS 원본과 동일 근거).
   # ⛔ ?ref= 는 정확 태그 핀이다. git 소싱에 ~> 는 동작하지 않는다.
   #
-  # ref 는 live/hub/aks 와 **같은 태그로 고정한다**(aks-cluster-v0.7.0). 두 클러스터가
-  # 같은 기능 범위를 쓰는 한 모듈 버전이 갈리면 "hub 에서 검증한 설계"라는 승계 근거가
-  # 무너진다. hub 가 이 태그에 도달하기까지의 경위(v0.3.0 의 cilium/network_policy 정합성
-  # 오류 → v0.4.0, upgrade_settings 미선언으로 인한 perpetual diff → v0.5.0, KEDA 변수
-  # 신설 → v0.6.0, web_app_routing passthrough 신설 → v0.7.0)는 live/hub/aks/main.tf 의
-  # 같은 자리 주석이 전부 기록하고 있다 — 여기서 중복 서술하지 않는다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.7.0&depth=1"
+  # ref 는 v0.8.0 — 여기서 처음으로 hub(v0.7.0 유지)와 갈라진다. 지금까지 "hub 와
+  # 같은 태그" 원칙을 지켜온 건 두 클러스터가 같은 기능 범위(Karpenter/NAP·KEDA·
+  # App Routing)를 승계했기 때문인데, entra_integration_enabled(v0.8.0 신설, 아래)는
+  # dev 고유 요구사항이다 — hub 의 self-managed ArgoCD 는 자기 자신이 도는 클러스터를
+  # 가리키는 self-hosting 지름길(cluster-secret 의 server: https://kubernetes.default.svc)
+  # 만 쓰므로 Entra RBAC 노출이 필요 없고, dev 는 hub 구독의 ArgoCD 가 크로스 구독으로
+  # 접근해야 해서 필요하다(dev-gitops-registration 설계). hub 가 v0.7.0 에 도달하기까지의
+  # 경위(v0.3.0 의 cilium/network_policy 정합성 오류 → v0.4.0, upgrade_settings 미선언으로
+  # 인한 perpetual diff → v0.5.0, KEDA 변수 신설 → v0.6.0, web_app_routing passthrough
+  # 신설 → v0.7.0)는 live/hub/aks/main.tf 의 같은 자리 주석이 전부 기록하고 있다 — 여기서
+  # 중복 서술하지 않는다.
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.8.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다(모듈 repo 규약).
   # {demo, dev, krc} → aks-demo-dev-krc-main-01
