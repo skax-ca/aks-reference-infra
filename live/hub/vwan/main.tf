@@ -179,3 +179,51 @@ resource "azurerm_federated_identity_credential" "argocd" {
   user_assigned_identity_id = azurerm_user_assigned_identity.argocd.id
   subject                   = "system:serviceaccount:argocd:${each.value}"
 }
+
+# ── 스포크 AKS 자동 발견 — hub ArgoCD의 인가(role assignment) 스코프용 ─────────
+#
+# dev-gitops-registration Step 7: 위 UAMI+FIC는 인증(hub ArgoCD가 자기 신원을
+# 증명하는 것)만 담당한다 — 그 신원으로 실제 K8s API 요청이 인가받으려면
+# 대상 클러스터 리소스 ID 스코프의 role assignment가 별도로 필요하다(인증·
+# 인가는 별개 축, Step 2 실측이 이미 확인한 잔존 리스크와 같은 구분).
+#
+# spoke_connections(위 45~74행, VNet 자동 발견)과 같은 이유로 dev AKS 리소스
+# ID를 CI 변수 주입이 아니라 태그 기반 azurerm_resources로 직접 조회한다
+# (bootstrap/config.sh의 spoke-peer 역할에 2026-09-09 managedClusters/read
+# 추가, dev 구독에 이미 적용·verify.sh로 drift 없음 확인 완료).
+#
+# ⚠️ spoke_connections와 달리 그룹핑 키를 리터럴 "dev"로 고정하지 않는다 —
+# r.tags["Environment"]로 뽑는다. provider(azurerm.dev)가 구독 단위로
+# 고정돼 있어 오늘은 결과가 dev 하나뿐이지만, 한 구독에 여러 환경이 같이
+# 있는 경우(예: 비프로덕션 구독에 dev+qa 공존)까지 대비한 것이다 — 리터럴
+# 키였다면 그 경우 서로 다른 스포크가 조용히 한 키로 뭉개진다. 비용은
+# 이 한 줄뿐이라 지금 반영한다(2026-09-09, "다중 스포크 확장성 검토" 요청
+# 대응). `spoke_connections` 자체의 리터럴 "dev" 키는 이 변경과 별개
+# open-item으로 계획 문서에 남겨두고 이번 스코프에서는 건드리지 않는다.
+data "azurerm_resources" "spoke_aks_clusters" {
+  provider = azurerm.dev
+
+  type = "Microsoft.ContainerService/managedClusters"
+  required_tags = {
+    Workload = var.workload
+  }
+}
+
+locals {
+  spoke_aks_ids = {
+    for r in data.azurerm_resources.spoke_aks_clusters.resources : r.tags["Environment"] => r.id
+  }
+}
+
+# hub ArgoCD UAMI에 각 스포크 AKS의 K8s API 인가 권한 부여 — Step 2에서
+# 검증한 토큰 교환 경로(argocd-k8s-auth azure)가 실제로 인가받는 지점이
+# 여기다. principal이 다른 구독 소속이라 skip_service_principal_aad_check가
+# 필요하다(live/dev/aks/main.tf의 같은 패턴과 동일 근거).
+resource "azurerm_role_assignment" "argocd_spoke_aks_access" {
+  for_each = local.spoke_aks_ids
+
+  scope                            = each.value
+  role_definition_name             = "Azure Kubernetes Service RBAC Cluster Admin"
+  principal_id                     = azurerm_user_assigned_identity.argocd.principal_id
+  skip_service_principal_aad_check = true
+}
