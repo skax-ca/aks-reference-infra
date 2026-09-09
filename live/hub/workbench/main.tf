@@ -1,6 +1,6 @@
 # live/hub/workbench — AKS 운영 workbench 배포 루트 (허브)
 #
-# iac-module-library 의 modules/azure/aks-workbench(aks-workbench-v0.3.0) 를 소비한다.
+# iac-module-library 의 modules/azure/aks-workbench(aks-workbench-v0.7.0) 를 소비한다.
 #
 # ⚠️ 네트워킹은 live/hub/networking 이 소유한다. 이 root 는 이미 배포된 vm 서브넷을
 #    Name 기반 data 로 조회만 한다 — 서브넷을 새로 만들지 않는다(CLAUDE.md 1절,
@@ -160,7 +160,22 @@ module "aks_workbench" {
   # 이 root가 그날 처음 넘김) krew install이 "unknown flag: --krew-root"로 실패하는
   # 것을 실측 발견 — krew는 그 플래그를 지원하지 않는다(공식 문서 확인, KREW_ROOT
   # 환경변수만으로 충분). v0.5.0이 그 플래그를 제거했다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.5.0&depth=1"
+  #
+  # v0.6.0으로 올린 이유: live/dev/workbench 재배포 중 실측 — 부팅 15초 만에
+  # apt-daily-upgrade.timer가 자체 apt-get update로 lists lock을 잡고, 이 스크립트의
+  # 두 번째 apt-get update(azure-cli repo 추가 후)와 경합해 az CLI 설치가 실패했다.
+  # 기존 DPkg::Lock::Timeout=600(v0.2.0)은 이 축(update의 lists lock)에는 재시도를
+  # 안 건다는 것도 실제 apt-get 프로세스 2개를 동시에 띄워 재현·확인(apt 2.8.3,
+  # Ubuntu 24.04 noble). v0.6.0이 apt-get 호출 전에 apt-daily 타이머·서비스를
+  # stop→kill→mask해 경쟁자 자체를 제거했다 — 레이스 컨디션이라 hub는 이전 버전에서도
+  # 우연히 재현되지 않았을 뿐 안전했던 게 아니다.
+  #
+  # v0.7.0으로 올린 이유: 같은 재배포에서 실측한 두 번째 버그 — cloud-init이 root로
+  # 실행될 때 $HOME이 "/"로 잡혀(/root 아님) kubelogin convert-kubeconfig가 존재하지
+  # 않는 "/.kube/config"를 대상으로 삼고 조용히 성공(exit 0)해버린다. hub는
+  # aks_entra_rbac_enabled = false(아래)라 이 변환 단계 자체를 안 타 이 버그의 영향을
+  # 받지 않지만, 모듈은 두 수정이 같은 태그로 묶여 있어 함께 올라온다.
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.7.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다.
   # {demo, hub, krc} → vm-demo-hub-krc-workbench-01
