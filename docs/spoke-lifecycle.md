@@ -105,11 +105,10 @@ gh workflow run deploy-dev-aks.yml --ref main -f action=apply
 > 이미 확정돼 있다.
 
 같은 방식으로 `live/dev/workbench`를 초기화한다(`key = "dev/workbench.tfstate"`).
-`live/hub/workbench`를 템플릿으로 그대로 복제한다 - 도구 핀(az·
-kubectl·helm·argocd·krew)은 hub와 동일하지만, 모듈 ref는 hub와 **다르다**
-(`aks-workbench-v0.7.0` - hub는 아직 `v0.5.0`). env=dev로 갈리는 축은 backend
-key(`dev/workbench.tfstate`)·tfstate RG(`rg-demo-dev-krc-tfstate-01`)·Storage
-Account 참조(`DEV_TF_STATE_ACCOUNT`)·CI 신원(`AZURE_DEV_CLIENT_ID`·
+`live/hub/workbench`를 템플릿으로 그대로 복제한다 - 도구 핀(az·kubectl·helm·argocd·
+krew)·모듈 ref(`aks-workbench-v0.7.0`) 전부 hub와 동일하다. env=dev로 갈리는 축은
+backend key(`dev/workbench.tfstate`)·tfstate RG(`rg-demo-dev-krc-tfstate-01`)·
+Storage Account 참조(`DEV_TF_STATE_ACCOUNT`)·CI 신원(`AZURE_DEV_CLIENT_ID`·
 `AZURE_DEV_SUBSCRIPTION_ID`)·workbench 변수(`AZURE_DEV_WORKBENCH_SSH_CIDRS`·
 `AZURE_DEV_WORKBENCH_ADMIN_OBJECT_ID`).
 
@@ -117,14 +116,13 @@ Account 참조(`DEV_TF_STATE_ACCOUNT`)·CI 신원(`AZURE_DEV_CLIENT_ID`·
 gh workflow run deploy-dev-workbench.yml --ref main -f action=apply
 ```
 
-🔑 **cloud-init의 kubelogin 변환 분기에 레이스 컨디션 버그 2건이 있다 - `aks-workbench-
+🔑 **cloud-init의 kubelogin 변환 분기에 레이스 컨디션 버그 2건이 있었다 - `aks-workbench-
 v0.7.0`부터 고정됐다.** (1) `apt-daily-upgrade.timer`가 부팅 15초 만에 자체
 `apt-get update`로 lists lock을 잡아 cloud-init의 azure-cli 설치용 `apt-get update`와
 경합할 수 있다 - `v0.6.0`부터 타이머·서비스를 stop→kill→mask해 제거한다. (2) cloud-init이
 root로 실행될 때 `$HOME`이 `/`로 잡혀(`/root` 아님) `kubelogin convert-kubeconfig`가
 존재하지 않는 `/.kube/config`를 대상으로 삼고 조용히 성공(exit 0)해버릴 수 있다 -
-`v0.7.0`부터 `--kubeconfig /root/.kube/config`를 명시한다. ⛔ **hub workbench는 아직
-`v0.5.0`이라 이 버그 2건이 잠재해 있다** - 다음 재배포 때 반드시 `v0.7.0`으로 올린다.
+`v0.7.0`부터 `--kubeconfig /root/.kube/config`를 명시한다.
 
 apply 후 접근을 확인한다(private key는 `~/.ssh/`에만 존재, `.pub`만 커밋):
 
