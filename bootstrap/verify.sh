@@ -333,12 +333,25 @@ else
   mismatch "[state-data] role assignment - Storage Account가 없어 스코프를 계산할 수 없다"
 fi
 
-# ── 불변식 (a) 예외: 스포크 워크로드 RG 스코프의 외부(hub) principal role
-#    assignment 허용 목록 완전 일치 ("0건"을 "허용 목록 1건과 완전 일치"로 승격한
-#    유일한 예외. bootstrap.sh 6-1절이 만든다. 스코프는 VNet 리소스가 아니라
-#    워크로드 RG 전체다 — dev VNet이 아직 없는 bootstrap 시점에 함께 끝내기 위한
-#    의도적 완화, 대가는 hub SP가 이 RG에 나중에 생길 다른 리소스에도
-#    peer/action을 갖는다는 것) ──
+# ── 불변식 (a) 예외: 스포크 워크로드 RG 스코프의 외부 principal role assignment
+#    허용 목록 완전 일치 ("0건"을 "허용 목록과 완전 일치"로 승격한 유일한 예외.
+#    스코프는 VNet 리소스가 아니라 워크로드 RG 전체다 — dev VNet이 아직 없는
+#    bootstrap 시점에 함께 끝내기 위한 의도적 완화, 대가는 hub SP가 이 RG에
+#    나중에 생길 다른 리소스에도 peer/action을 갖는다는 것) ──
+#
+# ⚠️ 이 허용 목록은 두 갈래로 구성된다(2026-09-09, MAJOR M4 정정):
+#    1) hub SP + spoke-peer 역할(bootstrap.sh 6-1절이 만든다) — principal·역할
+#       둘 다 정확히 일치해야 하는 엄격 검사, 기존과 동일.
+#    2) `WORKBENCH_ADMIN_LOGIN_ROLE_NAME`(live/dev/workbench가 Terraform으로
+#       만드는, 사람이 SSH sudo 로그인하는 role assignment) — bootstrap이 만든
+#       게 아니라 principal identity를 알 수 없으므로(Terraform 변수, GitHub
+#       repo 변수 소관) 위 "App Registration owners"와 같은 원칙: 존재 자체는
+#       허용하되 신원은 사람이 육안 대조한다. 처음엔 hub SP 1건만 있어 구분이
+#       필요 없었는데, workbench 배포로 두 번째 외부 principal이 생기며 mismatch가
+#       났다 — 이 자리에서 이 스크립트가 처음부터 알던 hub SP와, 별도 계층
+#       (Terraform)이 만드는 항목을 구분해 분류한다.
+#    이 두 갈래 중 어디에도 안 걸리는 항목은 여전히 fail-closed로 drift
+#    취급한다(예상 밖 principal이 RG 스코프에 role assignment를 얻은 경우).
 if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
   HUB_APP_ID_CHECK="$(az_or_die "hub App Registration" -- az_ ad app list --display-name "$HUB_APP_NAME" --query "[0].appId" -o tsv)"
   if [[ -z "$HUB_APP_ID_CHECK" || "$HUB_APP_ID_CHECK" == "None" ]]; then
@@ -354,25 +367,78 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
     report "[spoke-peer] 커스텀 역할 Actions 완전 일치" "$(check_spoke_peer_role)"
 
     # 워크로드 RG 스코프의 role assignment 전체에서 "이 대상 자신의 SP(workload
-    # 역할, 이미 위에서 확인됨)"를 뺀 나머지가 허용 목록(hub SP + spoke-peer
-    # 역할 1건)과 완전히 일치해야 한다. 이렇게 "자기 자신 제외"로 걸러야
-    # workload role assignment 존재 확인과 중복 판정하지 않는다.
+    # 역할, 이미 위에서 확인됨)"를 뺀 나머지를 세 갈래로 분류한다(2026-09-09
+    # MAJOR M4 정정 — 원래는 "정확히 1건, hub SP" 단일 판정이었으나
+    # workbench_admin_login이 생겨 그 전제가 깨졌다). 이렇게 "자기 자신 제외"로
+    # 걸러야 workload role assignment 존재 확인과 중복 판정하지 않는다.
     rg_assignments="$(az_or_die "$ENV_TOKEN 워크로드 RG 스코프 role assignment" -- \
       az_ role assignment list --scope "$RG_SCOPE" --query "[?scope=='$RG_SCOPE']" -o json)"
     external_assignments="$(jq --arg sp "$SP_ID" '[.[] | select(.principalId != $sp)]' <<<"$rg_assignments")"
     external_count="$(jq 'length' <<<"$external_assignments")"
     require_int "$external_count" "[$ENV_TOKEN] 워크로드 RG 스코프 외부 principal role assignment 개수"
-    if [[ "$external_count" -ne 1 ]]; then
-      mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 외부 principal role assignment - ${external_count}건 존재(정확히 1건이어야 한다)"
-    else
-      spoke_peer_role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$SPOKE_PEER_ROLE_NAME")")"
-      actual_role_id="$(jq -r '.[0].roleDefinitionId' <<<"$external_assignments")"
-      actual_principal_id="$(jq -r '.[0].principalId' <<<"$external_assignments")"
-      if [[ -n "$spoke_peer_role_id" && "$actual_role_id" == "$spoke_peer_role_id" && "$actual_principal_id" == "$HUB_SP_ID_CHECK" ]]; then
-        ok "[$ENV_TOKEN] 워크로드 RG 스코프 외부 principal role assignment: 허용 목록과 완전 일치(hub SP, $SPOKE_PEER_ROLE_NAME)"
+
+    spoke_peer_role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$SPOKE_PEER_ROLE_NAME")")"
+    hub_peer_assignments="$(jq --arg rid "$spoke_peer_role_id" '[.[] | select(.roleDefinitionId == $rid)]' <<<"$external_assignments")"
+    hub_peer_count="$(jq 'length' <<<"$hub_peer_assignments")"
+    admin_login_assignments="$(jq --arg name "$WORKBENCH_ADMIN_LOGIN_ROLE_NAME" \
+      '[.[] | select(.roleDefinitionName == $name)]' <<<"$external_assignments")"
+    admin_login_count="$(jq 'length' <<<"$admin_login_assignments")"
+    other_assignments="$(jq --arg rid "$spoke_peer_role_id" --arg name "$WORKBENCH_ADMIN_LOGIN_ROLE_NAME" \
+      '[.[] | select(.roleDefinitionId != $rid and .roleDefinitionName != $name)]' <<<"$external_assignments")"
+    other_count="$(jq 'length' <<<"$other_assignments")"
+
+    # 1) hub SP + spoke-peer 역할 — 엄격 검사, 기존과 동일(principal·역할 둘 다
+    #    정확히 일치해야 한다).
+    if [[ "$hub_peer_count" -eq 1 ]]; then
+      actual_principal_id="$(jq -r '.[0].principalId' <<<"$hub_peer_assignments")"
+      if [[ -n "$spoke_peer_role_id" && "$actual_principal_id" == "$HUB_SP_ID_CHECK" ]]; then
+        ok "[$ENV_TOKEN] 워크로드 RG 스코프 hub SP role assignment: 허용 목록과 완전 일치($SPOKE_PEER_ROLE_NAME)"
       else
-        mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 외부 principal role assignment - 역할/principal 불일치(기대: $SPOKE_PEER_ROLE_NAME @ hub SP $HUB_SP_ID_CHECK, 실제: role=$actual_role_id principal=$actual_principal_id)"
+        mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 hub SP role assignment - principal 불일치(기대: hub SP $HUB_SP_ID_CHECK, 실제: $actual_principal_id)"
       fi
+    else
+      mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 hub SP($SPOKE_PEER_ROLE_NAME) role assignment - ${hub_peer_count}건 존재(정확히 1건이어야 한다)"
+    fi
+
+    # 2) workbench admin login — bootstrap이 만든 게 아니라(live/dev/workbench,
+    #    Terraform 소관) principal identity를 이 스크립트가 검증할 수 없다.
+    #    "App Registration owners"와 같은 원칙: 존재는 허용하되 신원은 사람이
+    #    육안 대조한다.
+    if [[ "$admin_login_count" -le 1 ]]; then
+      ok "[$ENV_TOKEN] 워크로드 RG 스코프 $WORKBENCH_ADMIN_LOGIN_ROLE_NAME role assignment: ${admin_login_count}건(live/dev/workbench 소관 — 사람이 예상 계정과 육안 대조할 것)"
+    else
+      mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 $WORKBENCH_ADMIN_LOGIN_ROLE_NAME role assignment - ${admin_login_count}건 존재(0~1건이어야 한다)"
+    fi
+
+    # 3) 그 외 — 여전히 fail-closed. 알려진 두 갈래 어디에도 안 걸리면 drift.
+    if [[ "$other_count" -eq 0 ]]; then
+      ok "[$ENV_TOKEN] 워크로드 RG 스코프 알 수 없는 외부 principal role assignment: 0건"
+    else
+      mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 알 수 없는 외부 principal role assignment - ${other_count}건 존재(0건이어야 한다)"
+    fi
+
+    # ── dev AKS private DNS zone에 대한 hub SP DNS 권한(dev-gitops-registration
+    #    Step 8, 2026-09-09) — bootstrap.sh 6-1b절이 만든다. zone은 System
+    #    기본값이라 이름이 결정적이지 않으므로 bootstrap.sh와 같은 기준(리전
+    #    접미사)으로 동적 조회한다. zone이 아직 없으면(live/dev/aks apply 전)
+    #    na로 판정한다 — 조회 실패가 아니라 아직 없는 선행 리소스이기 때문이다
+    #    (report()의 na 범주, 위 na 설명 참고).
+    dev_dns_zone_id="$(az_or_die "dev AKS private DNS zone 목록" -- \
+      az_ network private-dns zone list \
+        --query "[?ends_with(name, '.privatelink.${REGION}.azmk8s.io')].id | [0]" -o tsv)"
+    if [[ -z "$dev_dns_zone_id" || "$dev_dns_zone_id" == "None" ]]; then
+      report "[dns-zone-peer] dev AKS private DNS zone($DNS_ZONE_CONTRIBUTOR_ROLE_NAME) role assignment" na
+    else
+      check_dns_zone_peer_role() {
+        local role_id count
+        role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$DNS_ZONE_CONTRIBUTOR_ROLE_NAME")")"
+        [[ -n "$role_id" ]] || { echo absent; return; }
+        count="$(az_or_die "role assignment($DNS_ZONE_CONTRIBUTOR_ROLE_NAME @ $dev_dns_zone_id)" -- \
+          az_ role assignment list --assignee "$HUB_SP_ID_CHECK" --scope "$dev_dns_zone_id" \
+            --query "length([?roleDefinitionId=='$role_id'])" -o tsv)"
+        [[ "$count" -gt 0 ]] && echo ok || echo absent
+      }
+      report "[dns-zone-peer] dev AKS private DNS zone($DNS_ZONE_CONTRIBUTOR_ROLE_NAME) role assignment" "$(check_dns_zone_peer_role)"
     fi
   fi
 fi
