@@ -159,9 +159,13 @@ module "aks_workbench" {
   # ⛔ 소싱 URL 은 git::https:// 하나로 유지한다(모듈 repo 규약).
   # ⛔ ?ref= 는 정확 태그 핀이다. git 소싱에 ~> 는 동작하지 않는다.
   #
-  # ref 는 live/hub/workbench 와 **같은 태그로 고정한다**(aks-workbench-v0.5.0). 두
-  # workbench 가 서로 다른 모듈 버전으로 갈라지면 hub 에서 얻은 실측 근거가 dev 에
-  # 그대로 적용되지 않는다. v0.5.0 까지 올라온 경위는 전부 hub 실배포에서 나왔다:
+  # ref 는 v0.6.0 — 여기서 hub(v0.5.0 유지, 아직 미적용)와 처음 갈라진다. v0.5.0까지는
+  # "hub와 같은 태그"였고 그 경위도 전부 hub 실배포에서 나왔지만, v0.6.0은 **이 root
+  # (dev)의 재배포**(2026-09-09, Step 6 apply)가 직접 발견·수정한 버그다 — hub는 같은
+  # 잠재 결함(부팅 초기 apt-daily 타이머와의 lists lock 경합)을 아직 실제로 만난 적이
+  # 없을 뿐 안전한 게 아니다(레이스 컨디션이라 매번 재현되지 않았을 뿐). hub도 다음
+  # workbench 재배포 시 이 태그로 함께 올릴 것 — 이 저장소 범위 밖의 후속 작업으로 남김.
+  # v0.5.0 까지 올라온 경위는 전부 hub 실배포에서 나왔다:
   #
   #   v0.2.0 — v0.1.0의 custom_data가 apt-get 락 경합 시 재시도 없이 실패해
   #            (2026-09-04 hub 첫 실배포 실측 — "Could not get lock
@@ -183,9 +187,19 @@ module "aks_workbench" {
   #            krew install이 "unknown flag: --krew-root"로 실패하는 것을 실측 발견 —
   #            krew는 그 플래그를 지원하지 않는다(공식 문서 확인, KREW_ROOT 환경변수만으로
   #            충분). v0.5.0이 그 플래그를 제거했다.
+  #   v0.6.0 — 2026-09-09 dev workbench 재배포(Step 5의 Entra RBAC 전환에 맞춰 이
+  #            root를 갱신하는 apply) 중 실측: 부팅 15초 만에 apt-daily-upgrade.timer가
+  #            자체 apt-get update로 lists lock을 잡고, 이 스크립트의 두 번째
+  #            apt-get update(azure-cli repo 추가 후)와 경합해 az CLI 설치가 실패 →
+  #            로그인·kubeconfig·kubelogin 변환까지 연쇄 실패했다. 기존
+  #            DPkg::Lock::Timeout=600(v0.2.0)은 이 축(update의 lists lock)에는
+  #            재시도를 안 건다는 것도 같은 세션에서 실제 apt-get 프로세스 2개를
+  #            동시에 띄워 재현·확인(apt 2.8.3, Ubuntu 24.04 noble). v0.6.0이
+  #            apt-get 호출 전에 apt-daily 타이머·서비스를 stop→kill→mask해 경쟁자
+  #            자체를 제거했다.
   #
   # ⚠️ custom_data는 ForceNew라 이 ref를 올리는 것 자체가 VM 재생성을 유발한다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.5.0&depth=1"
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.6.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다.
   # {demo, dev, krc} → vm-demo-dev-krc-workbench-01
