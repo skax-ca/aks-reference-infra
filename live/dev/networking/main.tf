@@ -83,7 +83,10 @@ module "vnet" {
   # true. AWS 원본의 dev는 false(파기가 잦은 환경 가정)였지만, 이 레퍼런스 인스턴스는
   # 실수 삭제 방지를 우선한다. 해제하려면 deletion_protection=false로 먼저 apply한 뒤
   # destroy(hub와 동일 2단계 절차).
-  deletion_protection = true
+  #
+  # 2026-09-09: spoke-lifecycle.md 실측 검증(철거→재구축)을 위해 일시 false로 전환.
+  # 재구축 완료 후 true로 복원한다(docs/spoke-lifecycle.md 9절).
+  deletion_protection = false
 
   tags = {
     Environment = var.env
