@@ -197,9 +197,17 @@ module "aks_workbench" {
   #            동시에 띄워 재현·확인(apt 2.8.3, Ubuntu 24.04 noble). v0.6.0이
   #            apt-get 호출 전에 apt-daily 타이머·서비스를 stop→kill→mask해 경쟁자
   #            자체를 제거했다.
+  #   v0.7.0 — v0.6.0을 이 root에 실제 적용해 재검증하는 중 실측한 두 번째 버그:
+  #            cloud-init(systemd cloud-final.service)이 root로 이 스크립트를 실행할
+  #            때 $HOME이 "/"로 잡혀(/proc/1/environ 확인, /root 아님) kubelogin
+  #            convert-kubeconfig가 존재하지 않는 "/.kube/config"를 변환 대상으로 잡고
+  #            조용히 성공(exit 0)해버렸다 — az aks get-credentials가 실제로 쓴
+  #            /root/.kube/config는 안 건드려져 devicecode 그대로 남고 kubectl이
+  #            대화형 로그인을 요구하며 멈췄다. v0.7.0이 --kubeconfig
+  #            /root/.kube/config를 명시해 이 환경 의존을 없앴다.
   #
   # ⚠️ custom_data는 ForceNew라 이 ref를 올리는 것 자체가 VM 재생성을 유발한다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.6.0&depth=1"
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.7.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다.
   # {demo, dev, krc} → vm-demo-dev-krc-workbench-01
