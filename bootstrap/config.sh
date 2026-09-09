@@ -381,6 +381,15 @@ state_data_role_definition_json() {  # state_data_role_definition_json <assignab
 # VNet을 직접 조회하도록 바꿔 이 위험을 구조적으로 없앤다 — Terraform CI 신원에
 # 이미 구독 전체 Owner 등가를 준 것(0절)과 같은 실용적 판단으로, peer/action
 # 하나를 아끼려고 CI 변수 재주입 실수 위험을 감수할 값어치가 없다고 판단했다.
+#
+# 2026-09-09 `managedClusters/read`를 추가(dev-gitops-registration Step 7) —
+# hub ArgoCD UAMI에 dev AKS 접근 role assignment를 주려면 그 리소스 ID가
+# 필요한데, 위와 같은 이유(휘발성 CI 변수 주입 금지)로 dev AKS도
+# `azurerm_resources`(태그 기반)로 hub 쪽에서 직접 조회한다. 이 역할 이름이
+# 이제 "spoke-peer"(VNet 피어링 전용)보다 넓어졌지만, 새 역할을 또 만들지
+# 않는다 — 이미 "hub가 스포크를 발견하기 위한 read 전용 권한 모음"이라는
+# 성격이 같고, 역할이 늘어날수록 verify.sh의 "RG 스코프 외부 principal
+# 허용 목록" 검사도 늘려야 해 관리 비용만 커진다(YAGNI).
 spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignable-scope>
   local scope="$1"
   jq -n \
@@ -390,10 +399,11 @@ spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignab
       Name: $name,
       # RoleName 중복 이유는 workload_role_definition_json 주석 참고(az CLI update 경로 버그).
       RoleName: $name,
-      Description: "Grant for the hub CI identity to discover(read) and peer(peer/action) this spoke VNet into the hub Virtual WAN hub (aks-reference-infra live/hub/vwan spoke connection).",
+      Description: "Grant for the hub CI identity to discover(read) this spoke VNet/AKS and peer(peer/action) the VNet into the hub Virtual WAN hub (aks-reference-infra live/hub/vwan spoke connection + dev-gitops-registration).",
       Actions: [
         "Microsoft.Network/virtualNetworks/peer/action",
-        "Microsoft.Network/virtualNetworks/read"
+        "Microsoft.Network/virtualNetworks/read",
+        "Microsoft.ContainerService/managedClusters/read"
       ],
       NotActions: [],
       DataActions: [],

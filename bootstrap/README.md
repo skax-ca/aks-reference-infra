@@ -173,7 +173,7 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 
 | 항목 | 값 |
 |------|-----|
-| 역할 | `aks-ref-bootstrap-spoke-peer-<env>`(`peer/action`+`virtualNetworks/read` 2액션, 2026-09-08 read 추가 - 아래 참고) |
+| 역할 | `aks-ref-bootstrap-spoke-peer-<env>`(`peer/action`+`virtualNetworks/read`+`managedClusters/read` 3액션, 2026-09-08 read 추가·2026-09-09 managedClusters/read 추가 - 아래 참고) |
 | assignable scope / 할당 스코프 | 스포크 **워크로드 RG**(`rg-<workload>-<env>-krc-workload-01`) |
 | 할당 대상 | hub App Registration(`entapp-<workload>-hub-krc-gha-01`)의 SP |
 | 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때만 자동 포함(「크로스 구독 스포크 연결 권한」절). CI가 아니라 `bootstrap.sh`를 실행하는 사람이 만든다 |
@@ -182,9 +182,9 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 `live/*/networking`의 VNet apply보다 먼저 실행되므로, 그 시점엔 VNet이 아직 없어 리소스
 단위로 좁힐 수 없다(닭과 달걀 문제). VNet 리소스 단위로 좁히는 대안도 검토했으나,
 그러면 스포크마다 별도 스크립트를 한 번 더 실행해야 해 `bootstrap.sh` 1회로 끝나지
-않는다. 두 액션 다 쓰기 범위가 좁아(피어링·읽기, 리소스 생성/삭제 불가) 위험도가
+않는다. 세 액션 다 쓰기 범위가 좁아(피어링·읽기, 리소스 생성/삭제 불가) 위험도가
 낮으므로, RG 스코프로 완화하고 `bootstrap.sh`에 통합하는 쪽을 택했다. 대가는 hub SP가
-이 RG에 나중에 생길 다른 리소스에도 이 두 액션을 갖는다는 것이다.
+이 RG에 나중에 생길 다른 리소스에도 이 세 액션을 갖는다는 것이다.
 
 ⚠️ **2026-09-08 `virtualNetworks/read` 추가.** 원래는 `peer/action` 하나였다 - dev VNet
 ID를 CI 변수(workflow_dispatch input)로 직접 주입해 read 없이 버텼는데, 그 값이
@@ -192,6 +192,15 @@ push-triggered plan이나 입력을 깜빡한 dispatch마다 비어(spoke 연결
 잡히는) 사고 위험이 있었다(hub 철거→재구축 실검증 중 실측). `live/hub/vwan`이
 `azurerm_resources`(태그 기반)로 dev VNet을 직접 조회하도록 바꿔 이 위험을 구조적으로
 없앴다 - CI 신원에 이미 구독 전체 Owner 등가를 준 것(위)과 같은 실용적 판단이다.
+
+⚠️ **2026-09-09 `managedClusters/read` 추가.** dev-gitops-registration 설계(hub
+self-managed ArgoCD를 dev AKS에 등록) Step 7 - hub ArgoCD UAMI에 dev AKS 접근 role
+assignment를 주려면 그 리소스 ID가 필요한데, 위 VNet과 같은 이유로 CI 변수 주입 대신
+`live/hub/vwan`이 `azurerm_resources`(태그 기반)로 dev AKS도 직접 조회하도록 했다.
+이름은 여전히 `spoke-peer`이지만("VNet 피어링 전용" 딱지가 이제 정확하지 않다) - 새
+역할을 또 만들면 `verify.sh`의 "RG 스코프 외부 principal 허용 목록" 검사 항목이
+늘어나 관리 비용만 커져(YAGNI), 이미 있는 "hub가 스포크를 발견하기 위한 read 전용
+권한 모음"에 추가하는 쪽을 택했다.
 
 ⚠️ **`Contributor` 안내는 이 시나리오의 근거가 아니다.** 검색에서 자주 나오는 "원격 VNet
 구독의 Contributor가 필요하다"는 문장은 크로스 **테넌트** 문서의 것이다. 이 설계는 동일
