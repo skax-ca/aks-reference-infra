@@ -100,13 +100,18 @@ module "aks_cluster" {
   # ⛔ 소싱 URL 은 git::https:// 하나로 유지한다(모듈 repo 규약, AWS 원본과 동일 근거).
   # ⛔ ?ref= 는 정확 태그 핀이다. git 소싱에 ~> 는 동작하지 않는다.
   #
-  # ref 는 live/hub/aks 와 **같은 태그로 고정한다**(aks-cluster-v0.7.0). 두 클러스터가
-  # 같은 기능 범위를 쓰는 한 모듈 버전이 갈리면 "hub 에서 검증한 설계"라는 승계 근거가
-  # 무너진다. hub 가 이 태그에 도달하기까지의 경위(v0.3.0 의 cilium/network_policy 정합성
-  # 오류 → v0.4.0, upgrade_settings 미선언으로 인한 perpetual diff → v0.5.0, KEDA 변수
-  # 신설 → v0.6.0, web_app_routing passthrough 신설 → v0.7.0)는 live/hub/aks/main.tf 의
-  # 같은 자리 주석이 전부 기록하고 있다 — 여기서 중복 서술하지 않는다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.7.0&depth=1"
+  # ref 는 v0.8.0 — 여기서 처음으로 hub(v0.7.0 유지)와 갈라진다. 지금까지 "hub 와
+  # 같은 태그" 원칙을 지켜온 건 두 클러스터가 같은 기능 범위(Karpenter/NAP·KEDA·
+  # App Routing)를 승계했기 때문인데, entra_integration_enabled(v0.8.0 신설, 아래)는
+  # dev 고유 요구사항이다 — hub 의 self-managed ArgoCD 는 자기 자신이 도는 클러스터를
+  # 가리키는 self-hosting 지름길(cluster-secret 의 server: https://kubernetes.default.svc)
+  # 만 쓰므로 Entra RBAC 노출이 필요 없고, dev 는 hub 구독의 ArgoCD 가 크로스 구독으로
+  # 접근해야 해서 필요하다(dev-gitops-registration 설계). hub 가 v0.7.0 에 도달하기까지의
+  # 경위(v0.3.0 의 cilium/network_policy 정합성 오류 → v0.4.0, upgrade_settings 미선언으로
+  # 인한 perpetual diff → v0.5.0, KEDA 변수 신설 → v0.6.0, web_app_routing passthrough
+  # 신설 → v0.7.0)는 live/hub/aks/main.tf 의 같은 자리 주석이 전부 기록하고 있다 — 여기서
+  # 중복 서술하지 않는다.
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.8.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다(모듈 repo 규약).
   # {demo, dev, krc} → aks-demo-dev-krc-main-01
@@ -146,6 +151,26 @@ module "aks_cluster" {
   # 결과 CustomizeDiff의 ForceNew 목록에 이 필드가 없고, HasChanges 시 in-place
   # update 경로(ManagedClusters.CreateOrUpdate)가 있다. 클러스터 재생성 승인 불필요.
   workload_identity_enabled = true
+
+  # ── Entra RBAC(크로스 구독 GitOps 접근) ────────────────────────────────────
+  #
+  # ⛔ 비가역 — Azure 공식 문서(managed-azure-ad): "Microsoft Entra integration
+  # can't be disabled after it's enabled on a cluster." 되돌리려면 클러스터
+  # 재생성이 필요하다. `az aks update --disable-azure-rbac`는 azure_rbac_enabled
+  # 만 개별로 끌 뿐 Entra 통합 자체는 못 끈다.
+  #
+  # entra_admin_group_object_ids는 넘기지 않는다(모듈 기본값 [] 유지) — 사람 admin
+  # 그룹은 만들지 않는다. 접근 권한은 이 블록이 아니라 클러스터 리소스 ID 스코프의
+  # azurerm_role_assignment로 개별 부여한다(workbench UAMI·hub ArgoCD UAMI 각각
+  # 별도 커밋 — dev-gitops-registration 설계 7차, Step 6·7). local_account_disabled
+  # 는 건드리지 않는다(모듈 기본값 false 유지, G2 원칙) — 로컬 admin kubeconfig
+  # (break-glass) 경로는 그대로 살려둔다.
+  #
+  # ⚠️ ForceNew 아님 — azurerm provider 소스(kubernetes_cluster_resource.go)
+  # 확인 결과 azure_active_directory_role_based_access_control 블록은
+  # CustomizeDiff의 ForceNew 목록에 없고 in-place 업데이트 경로
+  # (ResetAADProfileThenPoll)가 있다. 클러스터 재생성 없이 반영된다.
+  entra_integration_enabled = true
 
   # 모듈 기본값과 같지만 명시한다(위 cni_mode 와 같은 이유 — 이 값도 ForceNew 다).
   # GitOps(pull) 전제라 공개 엔드포인트가 필요 없다. private 클러스터라도 검증은
