@@ -93,8 +93,8 @@ VNet만 만들고 vWAN을 전혀 모른다") - dev 쪽에서 apply·확인할 �
 
 같은 방식으로 `live/dev/aks`를 초기화한다(`key = "dev/aks.tfstate"`). hub의 모든 기능
 (Karpenter/NAP·KEDA·App Routing Gateway API/Istio)을 처음부터 켠 채 승계한다 -
-`enable_karpenter=true`(15차 세션 결정: dev는 hub처럼 나중에 켜는 지뢰를 처음부터
-피해간다), `system_node_pool.auto_scaling_enabled=false`. 모듈 ref는 최초 스캐폴딩
+`enable_karpenter=true`(dev는 hub처럼 나중에 켜는 지뢰를 처음부터 피해간다 -
+`live/hub/aks/main.tf`의 관련 주석 참고), `system_node_pool.auto_scaling_enabled=false`. 모듈 ref는 최초 스캐폴딩
 시점엔 hub와 같은 태그였으나, 6절의 GitOps 등록 과정에서 `private_cluster_public_
 fqdn_enabled`가 필요해져 `aks-cluster-v0.9.0`으로 dev가 먼저 올라갔다(hub는 아직
 `v0.7.0`) - "hub 선행·dev 승계"가 항상 성립하는 건 아니고, dev 쪽 필요가 먼저
@@ -121,9 +121,9 @@ Account 참조(`DEV_TF_STATE_ACCOUNT`)·CI 신원(`AZURE_DEV_CLIENT_ID`·
 gh workflow run deploy-dev-workbench.yml --ref main -f action=apply
 ```
 
-✅ **첫 apply는 실패했으나(2026-09-08) 근본 원인 2건을 규명·수정해 완주했다**(2026-09-09,
-22차 세션). dev가 이 저장소에서 이 코드 경로(cloud-init의 kubelogin 변환 분기)를 처음
-실행한 케이스였다: (1) `apt-daily-upgrade.timer`가 부팅 15초 만에 자체 `apt-get update`로
+✅ **첫 apply는 실패했으나(2026-09-08) 근본 원인 2건을 규명·수정해 완주했다**(2026-09-09).
+dev가 이 저장소에서 이 코드 경로(cloud-init의 kubelogin 변환 분기)를 처음 실행한
+케이스였다: (1) `apt-daily-upgrade.timer`가 부팅 15초 만에 자체 `apt-get update`로
 lists lock을 잡아 cloud-init의 azure-cli 설치용 `apt-get update`와 경합 - 타이머·서비스를
 stop→kill→mask해 경쟁자 자체를 제거(`aks-workbench-v0.6.0`). (2) cloud-init이 root로
 실행될 때 `$HOME`이 `/`로 잡혀(`/root` 아님) `kubelogin convert-kubeconfig`가 존재하지
@@ -143,77 +143,98 @@ kubectl get nodes            # sudo 없이 동작해야 한다
 
 ### 6. GitOps 등록: hub ArgoCD에 원격 클러스터로 등록
 
-hub의 `cluster-secret.yaml`(`aks-platform-gitops/clusters/hub/aks-demo-hub-krc-main-01/
-cluster-secret.yaml`)은 `server: https://kubernetes.default.svc`(self-managed ArgoCD가
-**자기 자신이 도는 클러스터**를 가리키는 매직 URL)를 쓴다 - 이건 등록이 아니라 라벨링이
-목적이다(ArgoCD가 내장 `in-cluster` 항목에 이미 닿아 있다). dev는 **원격** 클러스터라 이
-패턴이 그대로 통하지 않는다 - 실제 API endpoint·인증 수단이 필요하다.
+hub의 `cluster-secret.yaml`은 `server: https://kubernetes.default.svc`(자기 자신을
+가리키는 매직 URL)를 쓴다 - dev는 **원격** 클러스터라 이 패턴이 안 통한다. 실제 API
+endpoint·인증 수단이 필요하다. AWS 원본처럼 spoke 쪽에 `cross-account-trust-role`
+같은 "신뢰 전용" 리소스를 따로 만들지 않는다 - Azure RBAC role assignment는 tenant
+전역 ARM 오퍼레이션이라 그게 필요 없다(`entra-id-authorization` 공식 문서). 설계
+검토 경위는 `.omc/plans/dev-gitops-registration.md`(로컬 전용) 참고, 여기는 실행
+절차만 다룬다.
 
-AWS 원본(`spoke-lifecycle.md`)은 `cross-account-trust-role`(IAM Role, hub의 IRSA
-Principal을 trust) + EKS API endpoint + CA 인증서로 이 문제를 푼다. Azure는
-`cross-account-trust-role`에 대응하는 "신뢰 전용" 리소스를 spoke 쪽에 따로 만들지
-**않는다** - Azure RBAC 역할 할당은 tenant 전역 ARM 오퍼레이션이라(`entra-id-
-authorization` 공식 문서: role assignment의 assignee는 어느 구독 소속이든 상관없다)
-그런 게 애초에 필요 없다. 대신 **인증(신원 증명)**과 **인가(API 접근 권한)**를 두
-루트로 나눈다 - 자세한 설계 경위·검토 라운드는 `.omc/plans/dev-gitops-registration.md`
-(로컬 전용, git 밖) 참고, 아래는 실제 완주해 실측 검증된 결과만 요약한다:
+**선행 조건(hub 쪽, spoke가 몇 개든 한 번만)** - `live/hub/vwan`이 이미 만들어 둔 것:
+hub 전용 User-assigned Identity(`id-demo-hub-krc-argocd-01`) + ArgoCD SA 2개
+(`argocd-application-controller`·`argocd-server`)의 Federated Identity Credential,
+그리고 태그 기반으로 spoke AKS를 자동 발견해 그 UAMI에 `Azure Kubernetes Service
+RBAC Cluster Admin` role assignment를 부여하는 로직. 새 spoke가 `Workload` 태그만
+달고 있으면 `live/hub/vwan` 재적용만으로 role assignment가 자동 생긴다 - 이 root를
+다시 만질 필요는 없다.
 
-**인증(1회성, spoke가 몇 개든 hub 쪽에 한 번만)**: `live/hub/vwan`에 hub 전용
-User-assigned Identity(`id-demo-hub-krc-argocd-01`)와 Federated Identity Credential
-2개(`argocd-application-controller`·`argocd-server` - 두 ArgoCD SA 모두, `server`도
-`argocd app diff`·UI 경로에서 원격 클러스터 API를 호출하기 때문)를 만든다. issuer는
-hub AKS의 OIDC issuer URL, `aks-platform-gitops`의 `bootstrap/argocd-values.yaml`에
-이 SA들의 workload identity 라벨·애노테이션을 배선해야 실제로 토큰 파일이 파드에
-주입된다(누락하면 인증 자체가 조용히 실패).
+```bash
+# spoke 쪽 값 수집
+az aks show -n <cluster> -g <rg> --query fqdn -o tsv
+#   ⚠️ privateFqdn이 아니다 - hub는 공인 인터넷 경로로 이 이름을 조회한다.
+#   private_cluster_public_fqdn_enabled=true(live/<env>/aks, aks-cluster-v0.9.0+)가
+#   켜져 있어야 이 값이 채워진다. 안 켜져 있으면 서버 주소 자체가 없다.
 
-**인가(spoke마다 1개 role assignment)**: 같은 `live/hub/vwan`이 태그 기반
-`azurerm_resources`로 spoke AKS 리소스를 자동 발견해(provider `azurerm.dev`,
-`Microsoft.ContainerService/managedClusters`, `Workload` 태그만 필터) 위 UAMI에
-`Azure Kubernetes Service RBAC Cluster Admin` role assignment를 리소스 ID 스코프로
-부여한다(`skip_service_principal_aad_check = true` - principal이 dev 구독 소속이라
-필요). **결과적으로 AWS 대비 실제 delta는 "2개 리소스(trust Role + access entry) →
-1개 리소스(role assignment)"**다("0개"가 아니다 - assignment 자체는 대상 구독 ARM에
-저장된다). 새 spoke를 추가할 때 이 루트를 다시 만질 필요는 없다 - 새 AKS가 같은
-`Workload` 태그를 달고 있으면 `live/hub/vwan` 재적용만으로 role assignment가 자동
-생긴다(2026-09-09 `spoke_connections`/`spoke_aks_ids` 그룹핑 키를 `r.tags["Environment"]`
-로 통일해 이 자동화가 실제로 다중 스포크에서 동작함을 확인, PR #32).
+az aks get-credentials -n <cluster> -g <rg> -f /tmp/kc --overwrite-existing
+grep certificate-authority-data /tmp/kc | awk '{print $2}'   # caData(base64)
+
+# hub 쪽 UAMI 값 (한 번 확인해두면 spoke마다 그대로 재사용)
+az identity show -n id-demo-hub-krc-argocd-01 -g <hub workload rg> --query clientId -o tsv
+az account show --query tenantId -o tsv
+```
 
 `<project>-platform-gitops`에 `clusters/<env>/<cluster-name>/cluster-secret.yaml`을
-추가한다(실물: `clusters/dev/aks-demo-dev-krc-main-01/cluster-secret.yaml`):
+추가한다(실물 예시: `clusters/dev/aks-demo-dev-krc-main-01/cluster-secret.yaml`):
 
-| 필드 | 값 | 확인 방법 |
-|---|---|---|
-| `metadata.labels.environment` | `<SPOKE_ENV>`(예: `dev`) | baseline ApplicationSet(`gateway.yaml`·`kyverno.yaml`)의 cluster generator가 이 키의 **존재만** 검사 |
-| `metadata.labels.tier`·`region` | 분류용 | selector에 안 쓰임, 값 자체는 자유 |
-| `addon-<name>: enabled` 라벨 | opt-in 카탈로그 구독 | 필요한 addon만(예: `addon-karpenter: enabled` - `live/<env>/aks`가 `enable_karpenter=true`인 경우) |
-| `stringData.server` | AKS **public FQDN**(`https://<fqdn>:443`) | `az aks show -n <cluster> -g <rg> --query fqdn` - ⚠️ **`privateFqdn`이 아니다.** hub는 자신의 VNet 밖(공인 인터넷 경로)에서 이 이름을 조회하므로 `privateFqdn`(zone-scoped)은 도달 불가 |
-| `stringData.project` | `platform` | `projects/platform.yaml`의 AppProject 이름과 반드시 일치(project-scoped cluster) |
-| `stringData.config.execProviderConfig` | `argocd-k8s-auth azure` + `AAD_LOGIN_METHOD=workloadidentity` + 위 hub UAMI의 `client_id`·tenant `id` | ⚠️ `kubelogin`이 아니다 - ArgoCD 컨테이너 이미지엔 없다, ArgoCD 자신이 번들하는 `argocd-k8s-auth`가 AWS의 `awsAuthConfig.roleARN`에 대응하는 자리다 |
-| `stringData.config.tlsClientConfig.caData` | 대상 AKS API 서버 CA(base64) | `az aks get-credentials`가 로컬에 쓴 kubeconfig의 `certificate-authority-data`를 그대로 옮긴다(정적 시크릿 아님 - CA 인증서는 공개 정보) |
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: <cluster-name>
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: cluster
+    environment: <SPOKE_ENV>        # baseline ApplicationSet이 존재만 검사
+    addon-karpenter: enabled        # opt-in 카탈로그 - 필요한 addon만
+type: Opaque
+stringData:
+  name: <cluster-name>
+  server: https://<fqdn>:443        # 위에서 수집한 fqdn
+  project: platform                 # projects/platform.yaml의 AppProject 이름과 일치해야 함
+  config: |
+    {
+      "execProviderConfig": {
+        "command": "argocd-k8s-auth",
+        "args": ["azure"],
+        "env": {
+          "AAD_LOGIN_METHOD": "workloadidentity",
+          "AZURE_CLIENT_ID": "<hub UAMI clientId>",
+          "AZURE_TENANT_ID": "<tenant id>",
+          "AZURE_FEDERATED_TOKEN_FILE": "/var/run/secrets/azure/tokens/azure-identity-token",
+          "AZURE_AUTHORITY_HOST": "https://login.microsoftonline.com/"
+        },
+        "apiVersion": "client.authentication.k8s.io/v1beta1"
+      },
+      "tlsClientConfig": { "caData": "<위에서 수집한 caData>" }
+    }
+```
 
-⚠️ **AWS 원본과 달리 `projects/platform.yaml`의 AppProject `destinations`를 반드시
-편집한다.** AWS는 region 단위 glob으로 spoke EKS API endpoint 전체를 미리 허용해뒀지만,
-이 저장소는 그런 glob을 두지 않았다 - 클러스터마다 정확한 FQDN을 `destinations`에
-추가해야 한다(빠뜨리면 AppProject 거부로 팬아웃된 Application이 전부 `InvalidSpecError`로
-죽는다). 새 spoke를 추가할 때마다 이 파일도 같이 고쳐야 하는 게 이 저장소의 선택이다 -
-region glob을 두지 않은 이유는 아직 별도로 문서화하지 않았다(open item).
+⚠️ **`execProviderConfig.command`는 `kubelogin`이 아니라 `argocd-k8s-auth`다** - ArgoCD
+컨테이너 이미지에 `kubelogin`은 없다. AWS의 `stringData.config.awsAuthConfig.roleARN`에
+대응하는 자리가 이 블록 전체다.
 
-**DNS 관련 별도 리소스가 필요 없다** - AKS의 private cluster는 기본적으로 클러스터
-자신의 VNet에 링크된 private DNS zone에서만 FQDN이 풀린다(자칫 hub↔dev 사이에
-`azurerm_private_dns_zone_virtual_network_link`나 Private DNS Zone Contributor
-role assignment 같은 DNS 배선이 필요해 보이지만, **AWS EKS의 private-only 엔드포인트가
-이미 일반 공개 DNS로 private IP를 직접 반환하는 것과 동일한 메커니즘**을 azurerm
-provider의 `private_cluster_public_fqdn_enabled`(`ForceNew` 아님, in-place 적용
-가능)로 얻을 수 있다 - 이 필드를 켜면 hub는 vWAN으로 이미 있는 IP 라우팅만으로
-`stringData.server`에 접근 가능해진다(실측: 로컬 Mac의 일반 ISP DNS로 dev AKS FQDN을
-조회해 private IP를 직접 반환함을 확인). `iac-module-library`의 `aks-cluster` 모듈은
-`v0.9.0`부터 이 필드를 passthrough로 노출한다 - 새 spoke를 만들 때 `live/<env>/aks`에
-`private_cluster_public_fqdn_enabled = true`를 반드시 설정한다(설정하지 않으면
-`stringData.server`에 쓸 FQDN 자체가 없다).
+⚠️ **`projects/platform.yaml`의 AppProject `destinations`도 같이 편집한다**(AWS
+원본과 다른 점 - region 단위 glob이 없어 클러스터마다 정확한 `server` 값을 명시
+추가해야 한다). 빠뜨리면 AppProject 거부로 팬아웃된 Application이 전부
+`InvalidSpecError`로 죽는다.
 
-root-app이 이 커밋을 pull하면(또는 `argocd.argoproj.io/refresh: hard` 애노테이션으로
-강제 refresh하면 기본 폴링 주기를 기다리지 않고 즉시) baseline/opt-in ApplicationSet이
-이 클러스터를 fan-out 대상에 자동 추가한다. **재배포 시 재등록**은 14절.
+```bash
+git add clusters/<env>/ projects/platform.yaml
+git commit -m "..." && git push
+```
+
+root-app의 기본 폴링(수 분)을 기다리지 않으려면 hub에서 강제 refresh한다(workbench
+또는 `az aks command invoke`로):
+
+```bash
+kubectl patch application root-app -n argocd --type merge \
+  -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
+```
+
+**완료 조건**: baseline/opt-in ApplicationSet이 이 클러스터를 대상으로 Application을
+자동 생성하고 `Synced`/`Healthy`로 수렴한다 - 7절 4·5번과 같은 기준, hub의 ArgoCD에서
+확인한다. **재배포 시 재등록**은 14절.
 
 ### 7. 완료 판정
 
@@ -263,9 +284,13 @@ AKS는 `deletion_protection`이 이미 `false`라 이 단계가 필요 없다(`h
 이미 겪은 문제와 원리가 같다 - 이 Secret은 두 역할을 겸한다: ①ArgoCD가 이
 클러스터에 접속할 자격증명, ②ApplicationSet cluster generator가 fan-out 대상으로 판단하는
 라벨. 통째로 지우면 ArgoCD가 접속 방법 자체를 잃어 cascade delete가 불가능해지고, 실제
-Deployment·NodePool·ClusterPolicy는 dev 클러스터에 orphan으로 남는다. 6절이 확정되면 이
-절도 AWS 원본의 ①~⑥ 단계별 절차(라벨만 먼저 제거 → hub root-app 반영 확인 → dev에서
-addon 파드 소멸 확인 → 이후에만 Secret 전체 삭제)를 이 저장소의 실제 필드명으로 채운다.
+Deployment·NodePool·ClusterPolicy는 dev 클러스터에 orphan으로 남는다. AWS 원본과 같은
+순서를 따른다: ① `metadata.labels`만 먼저 지운다(`stringData.server`·`config`는 그대로
+둔다) → ② hub의 `root-app`이 그 커밋을 반영했는지 확인(`kubectl -n argocd get application
+root-app -o jsonpath='{.status.sync.revisions}'`) → ③ dev 클러스터 자신에서 addon
+파드가 실제로 사라졌는지 확인(`az aks command invoke ... "kubectl get pods -A"`) →
+④ 그 다음에만 `cluster-secret.yaml`을 통째로 삭제한다. ⚠️ 이 순서 자체는 아직 이
+저장소에서 실제로 실행해 본 적이 없다(6절과 달리 미검증).
 
 이후 `hub-lifecycle.md`와 같은 방식으로 workbench(5절에서 신설)에서 실행한다(①ArgoCD 컨트롤러
 정지는 hub 쪽 - 여기 해당 없음 ②Gateway/Ingress/LoadBalancer Service ③PVC ④NAP
@@ -339,4 +364,4 @@ Analytics workspace, prevent_destroy 코드 정정 필요 등). dev 고유 항�
 |------|------|------|
 | hub vwan plan에 dev 스포크 연결이 안 보인다 | dev networking이 아직 없거나 태그가 안 맞음 | `az resource list --tag Workload=demo --tag Environment=dev --resource-type Microsoft.Network/virtualNetworks`로 실물·태그 직접 확인 |
 | dev bootstrap.sh가 구독 불일치로 즉시 중단 | `az account show`가 hub를 가리킴 | `az account set --subscription <dev GUID>` 먼저 실행(3절) |
-| dev workbench SSH 타임아웃 | hub workbench와 같은 서브넷 레벨 NSG 함정 가능성 | `hub-lifecycle.md`에는 없는 절 - hub 12차 세션의 "서브넷 레벨 NSG 누락" 패턴이 dev에도 재현되는지 첫 apply 후 확인 |
+| dev workbench SSH 타임아웃 | 서브넷 레벨 NSG에 인바운드 허용 규칙이 없음(hub workbench가 처음 겪은 함정 - `live/hub/workbench/main.tf`의 관련 주석 참고) | `az network nsg rule list`로 서브넷 NSG에 SSH 인바운드 규칙이 실제로 붙어 있는지 확인 |
