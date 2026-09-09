@@ -12,7 +12,7 @@ hub-spoke AKS GitOps 패턴의 **레퍼런스 배포 루트**다(`eks-reference-
 |------|------|------|
 | **이 repo (`aks-reference-infra`)** | hub-spoke 패턴을 **소비해 배포**하는 루트 | 이 배포 코드. 설계 근거는 해당 `.tf`/`.sh` 파일의 인라인 주석이 SSOT다. 운영 절차는 `docs/hub-lifecycle.md`(✅)·`docs/spoke-lifecycle.md`·`docs/runbooks.md`(⏳, 6절) |
 | `iac-module-library` | Terraform/OpenTofu 모듈·설계 | 모듈 계약(`docs/module-catalog.md`), 네이밍 약어(`docs/naming/abbreviations/azure.md`), 아키텍처 결정(`docs/decisions.md`), 문서 문체 규칙(`docs/conventions.md`) |
-| `aks-platform-gitops` | ArgoCD Application·AppProject·cluster-secret (계층 2) | ✅ hub 클러스터에 배포 완료(self-managed ArgoCD·AGFC·Karpenter·Kyverno, `eks-platform-gitops` 대응). 설계 근거는 그 저장소 자신의 `README.md` |
+| `aks-platform-gitops` | ArgoCD Application·AppProject·cluster-secret (계층 2) | ✅ hub·dev 양쪽 등록 완료(self-managed ArgoCD·AKS App Routing·Karpenter·Kyverno, `eks-platform-gitops` 대응. dev는 2026-09-09 Entra Workload Identity 기반으로 등록). 설계 근거는 그 저장소 자신의 `README.md` |
 
 ⚠️ **설계·컨벤션의 근거는 이 repo에 없다.** "왜 OpenTofu인가" 같은 질문은
 `iac-module-library`의 `CLAUDE.md`·`docs/decisions.md`가 갖는다. 이 repo 고유의 설계
