@@ -387,9 +387,20 @@ state_data_role_definition_json() {  # state_data_role_definition_json <assignab
 # 필요한데, 위와 같은 이유(휘발성 CI 변수 주입 금지)로 dev AKS도
 # `azurerm_resources`(태그 기반)로 hub 쪽에서 직접 조회한다. 이 역할 이름이
 # 이제 "spoke-peer"(VNet 피어링 전용)보다 넓어졌지만, 새 역할을 또 만들지
-# 않는다 — 이미 "hub가 스포크를 발견하기 위한 read 전용 권한 모음"이라는
+# 않는다 — 이미 "hub가 스포크를 발견하고 배선하기 위한 권한 모음"이라는
 # 성격이 같고, 역할이 늘어날수록 verify.sh의 "RG 스코프 외부 principal
 # 허용 목록" 검사도 늘려야 해 관리 비용만 커진다(YAGNI).
+#
+# 2026-09-09(같은 날 2차) `Microsoft.Authorization/roleAssignments/*` 3종
+# 추가 — 위 managedClusters/read만으로 CI plan은 통과했지만 apply가 403
+# AuthorizationFailed로 실패하는 걸 실측했다: azurerm_role_assignment
+# 리소스는 생성 전 "이미 존재하는지" 확인하는 존재 여부 조회(read) 자체가
+# 대상 스코프(dev AKS)의 `roleAssignments/read`를 요구하고, 생성은 당연히
+# `roleAssignments/write`를 요구한다 - "이 리소스를 조회할 권한"과 "role
+# assignment 레코드 자체를 다룰 권한"은 완전히 별개 축이라는 걸 이번에
+# 처음 확인했다. delete도 함께 넣는다 - Terraform이 이 리소스의 전체
+# CRUD(교체·파기 포함)를 스스로 감당하지 못하면 나중에 이 role assignment
+# 자체를 되돌리거나 다른 스포크로 옮길 때 사람이 수동 개입해야 한다.
 spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignable-scope>
   local scope="$1"
   jq -n \
@@ -399,11 +410,14 @@ spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignab
       Name: $name,
       # RoleName 중복 이유는 workload_role_definition_json 주석 참고(az CLI update 경로 버그).
       RoleName: $name,
-      Description: "Grant for the hub CI identity to discover(read) this spoke VNet/AKS and peer(peer/action) the VNet into the hub Virtual WAN hub (aks-reference-infra live/hub/vwan spoke connection + dev-gitops-registration).",
+      Description: "Grant for the hub CI identity to discover(read) this spoke VNet/AKS, peer(peer/action) the VNet into the hub Virtual WAN hub, and manage the role assignment that grants hub ArgoCD access to this spoke AKS (aks-reference-infra live/hub/vwan spoke connection + dev-gitops-registration).",
       Actions: [
         "Microsoft.Network/virtualNetworks/peer/action",
         "Microsoft.Network/virtualNetworks/read",
-        "Microsoft.ContainerService/managedClusters/read"
+        "Microsoft.ContainerService/managedClusters/read",
+        "Microsoft.Authorization/roleAssignments/read",
+        "Microsoft.Authorization/roleAssignments/write",
+        "Microsoft.Authorization/roleAssignments/delete"
       ],
       NotActions: [],
       DataActions: [],

@@ -173,7 +173,7 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 
 | 항목 | 값 |
 |------|-----|
-| 역할 | `aks-ref-bootstrap-spoke-peer-<env>`(`peer/action`+`virtualNetworks/read`+`managedClusters/read` 3액션, 2026-09-08 read 추가·2026-09-09 managedClusters/read 추가 - 아래 참고) |
+| 역할 | `aks-ref-bootstrap-spoke-peer-<env>`(`peer/action`+`virtualNetworks/read`+`managedClusters/read`+`roleAssignments/read,write,delete` 6액션, 2026-09-08 read 추가·2026-09-09 managedClusters/read + roleAssignments 3종 추가 - 아래 참고) |
 | assignable scope / 할당 스코프 | 스포크 **워크로드 RG**(`rg-<workload>-<env>-krc-workload-01`) |
 | 할당 대상 | hub App Registration(`entapp-<workload>-hub-krc-gha-01`)의 SP |
 | 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때만 자동 포함(「크로스 구독 스포크 연결 권한」절). CI가 아니라 `bootstrap.sh`를 실행하는 사람이 만든다 |
@@ -182,9 +182,10 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 `live/*/networking`의 VNet apply보다 먼저 실행되므로, 그 시점엔 VNet이 아직 없어 리소스
 단위로 좁힐 수 없다(닭과 달걀 문제). VNet 리소스 단위로 좁히는 대안도 검토했으나,
 그러면 스포크마다 별도 스크립트를 한 번 더 실행해야 해 `bootstrap.sh` 1회로 끝나지
-않는다. 세 액션 다 쓰기 범위가 좁아(피어링·읽기, 리소스 생성/삭제 불가) 위험도가
-낮으므로, RG 스코프로 완화하고 `bootstrap.sh`에 통합하는 쪽을 택했다. 대가는 hub SP가
-이 RG에 나중에 생길 다른 리소스에도 이 세 액션을 갖는다는 것이다.
+않는다. RG 스코프로 완화하고 `bootstrap.sh`에 통합하는 쪽을 택했다. 대가는 hub SP가
+이 RG에 나중에 생길 다른 리소스에도 이 액션들을 갖는다는 것이다(2026-09-09
+`roleAssignments/*` 추가 이후로는 "쓰기 범위가 좁다"는 이전 서술이 더 이상 정확하지
+않다 - 아래 참고).
 
 ⚠️ **2026-09-08 `virtualNetworks/read` 추가.** 원래는 `peer/action` 하나였다 - dev VNet
 ID를 CI 변수(workflow_dispatch input)로 직접 주입해 read 없이 버텼는데, 그 값이
@@ -199,8 +200,19 @@ assignment를 주려면 그 리소스 ID가 필요한데, 위 VNet과 같은 이
 `live/hub/vwan`이 `azurerm_resources`(태그 기반)로 dev AKS도 직접 조회하도록 했다.
 이름은 여전히 `spoke-peer`이지만("VNet 피어링 전용" 딱지가 이제 정확하지 않다) - 새
 역할을 또 만들면 `verify.sh`의 "RG 스코프 외부 principal 허용 목록" 검사 항목이
-늘어나 관리 비용만 커져(YAGNI), 이미 있는 "hub가 스포크를 발견하기 위한 read 전용
+늘어나 관리 비용만 커져(YAGNI), 이미 있는 "hub가 스포크를 발견하고 배선하기 위한
 권한 모음"에 추가하는 쪽을 택했다.
+
+⚠️ **2026-09-09(같은 날 2차) `Microsoft.Authorization/roleAssignments/read,write,delete`
+3종 추가.** 위 `managedClusters/read`만으로 CI plan은 통과했지만 실제 apply가 403
+`AuthorizationFailed`로 실패하는 걸 실측했다 - `azurerm_role_assignment` 리소스는
+생성 전 존재 여부 확인(read) 자체가 대상 스코프(dev AKS)의
+`Microsoft.Authorization/roleAssignments/read`를 요구하고, 생성은
+`roleAssignments/write`를 요구한다. "이 리소스를 조회할 권한"(`managedClusters/read`)
+과 "그 리소스 스코프에 role assignment 레코드를 다룰 권한"은 완전히 별개 축이라는 걸
+이번에 처음 확인했다. `delete`도 함께 넣었다 - 이게 없으면 Terraform이 이 role
+assignment를 되돌리거나 다른 스코프로 옮길 때 스스로 감당하지 못해 사람이 수동
+개입해야 한다.
 
 ⚠️ **`Contributor` 안내는 이 시나리오의 근거가 아니다.** 검색에서 자주 나오는 "원격 VNet
 구독의 Contributor가 필요하다"는 문장은 크로스 **테넌트** 문서의 것이다. 이 설계는 동일
