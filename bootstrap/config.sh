@@ -140,15 +140,6 @@ readonly SPOKE_PEER_ROLE_NAME="aks-ref-bootstrap-spoke-peer-${ENV_TOKEN}"
 # 전엔 외부 principal이 hub SP 1건뿐이라 별도 분류가 필요 없었다).
 readonly WORKBENCH_ADMIN_LOGIN_ROLE_NAME="Virtual Machine Administrator Login"
 
-# dev-gitops-registration Step 8(2026-09-09). Azure 내장 역할 — 커스텀 역할
-# 정의가 필요 없다(spoke_peer_role_definition_json류와 달리 ensure_custom_role을
-# 거치지 않고 bootstrap.sh가 ensure_role_assignment에 역할 이름만 직접 넘긴다).
-# dev AKS의 private DNS zone(System 기본값, MC_ RG 안에 자동 생성) 스코프로 hub
-# SP에 부여 — `live/hub/vwan`이 Step 9에서 그 zone에 hub VNet을 resolution
-# link로 추가하려면 `privateDnsZones/virtualNetworkLinks/write`가 필요하고, 이
-# 내장 역할이 정확히 그 액션을 포함한다.
-readonly DNS_ZONE_CONTRIBUTOR_ROLE_NAME="Private DNS Zone Contributor"
-
 # ⚠️ AKS 클러스터용 identity·role assignment는 2026-09-04부로 이 스크립트가 더
 # 이상 만들지 않는다(config.sh AKS_IDENTITY_NAME 등 관련 상수·`aks_node_subnet_id()`
 # 전부 제거). CI 신원이 이제 구독 전체 Owner 등가라 그 제약(모듈이 identity/role

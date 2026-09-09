@@ -416,30 +416,6 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
     else
       mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 알 수 없는 외부 principal role assignment - ${other_count}건 존재(0건이어야 한다)"
     fi
-
-    # ── dev AKS private DNS zone에 대한 hub SP DNS 권한(dev-gitops-registration
-    #    Step 8, 2026-09-09) — bootstrap.sh 6-1b절이 만든다. zone은 System
-    #    기본값이라 이름이 결정적이지 않으므로 bootstrap.sh와 같은 기준(리전
-    #    접미사)으로 동적 조회한다. zone이 아직 없으면(live/dev/aks apply 전)
-    #    na로 판정한다 — 조회 실패가 아니라 아직 없는 선행 리소스이기 때문이다
-    #    (report()의 na 범주, 위 na 설명 참고).
-    dev_dns_zone_id="$(az_or_die "dev AKS private DNS zone 목록" -- \
-      az_ network private-dns zone list \
-        --query "[?ends_with(name, '.privatelink.${REGION}.azmk8s.io')].id | [0]" -o tsv)"
-    if [[ -z "$dev_dns_zone_id" || "$dev_dns_zone_id" == "None" ]]; then
-      report "[dns-zone-peer] dev AKS private DNS zone($DNS_ZONE_CONTRIBUTOR_ROLE_NAME) role assignment" na
-    else
-      check_dns_zone_peer_role() {
-        local role_id count
-        role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$DNS_ZONE_CONTRIBUTOR_ROLE_NAME")")"
-        [[ -n "$role_id" ]] || { echo absent; return; }
-        count="$(az_or_die "role assignment($DNS_ZONE_CONTRIBUTOR_ROLE_NAME @ $dev_dns_zone_id)" -- \
-          az_ role assignment list --assignee "$HUB_SP_ID_CHECK" --scope "$dev_dns_zone_id" \
-            --query "length([?roleDefinitionId=='$role_id'])" -o tsv)"
-        [[ "$count" -gt 0 ]] && echo ok || echo absent
-      }
-      report "[dns-zone-peer] dev AKS private DNS zone($DNS_ZONE_CONTRIBUTOR_ROLE_NAME) role assignment" "$(check_dns_zone_peer_role)"
-    fi
   fi
 fi
 

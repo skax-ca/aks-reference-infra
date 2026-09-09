@@ -272,29 +272,6 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
 
   ensure_custom_role "$SPOKE_PEER_ROLE_NAME" "$(spoke_peer_role_definition_json "$RG_SCOPE")" "spoke-peer"
   ensure_role_assignment "$SPOKE_PEER_ROLE_NAME" "$RG_SCOPE" "spoke-peer" "$HUB_SP_ID"
-
-  # ── 6-1b. dev AKS private DNS zone에 hub SP DNS 쓰기 권한 (dev-gitops-
-  #    registration Step 8, 2026-09-09). `live/hub/vwan`이 Step 9에서 이 zone에
-  #    hub VNet을 resolution link로 추가하려면(`azurerm_private_dns_zone_
-  #    virtual_network_link`) hub CI 신원이 이 zone 스코프에
-  #    `privateDnsZones/virtualNetworkLinks/write`가 필요하다 — 내장
-  #    "Private DNS Zone Contributor"가 정확히 이 액션을 포함한다(커스텀 역할
-  #    불필요). zone은 `live/dev/aks`가 System 기본값으로 자동 생성하므로
-  #    (`private_dns_zone_id` 미지정) 이름이 결정적이지 않다 — MC_ RG 이름을
-  #    조립하는 대신 리전별 접미사(`.privatelink.${REGION}.azmk8s.io`)로 이
-  #    구독 안의 AKS private zone을 동적 조회한다. dev AKS가 아직 없으면(이
-  #    스크립트는 항상 networking·aks apply보다 먼저 실행되는 게 원칙이지만,
-  #    이 grant만은 그 이후 재실행으로 채워지는 예외다) 0건이 정상이라 건너뛴다
-  #    — fail-closed 원칙 위반이 아니다: "아직 없는 선행 리소스"이지 "조회
-  #    실패"가 아니다(verify.sh report()의 na 상태와 같은 범주).
-  DEV_DNS_ZONE_ID="$(az_or_die "dev AKS private DNS zone 목록" -- \
-    az_ network private-dns zone list \
-      --query "[?ends_with(name, '.privatelink.${REGION}.azmk8s.io')].id | [0]" -o tsv)"
-  if [[ -z "$DEV_DNS_ZONE_ID" || "$DEV_DNS_ZONE_ID" == "None" ]]; then
-    warn "[dns-zone-peer] dev AKS private DNS zone이 아직 없다(live/dev/aks apply 전) - 건너뜀"
-  else
-    ensure_role_assignment "$DNS_ZONE_CONTRIBUTOR_ROLE_NAME" "$DEV_DNS_ZONE_ID" "dns-zone-peer" "$HUB_SP_ID"
-  fi
 fi
 
 # ── 6-2. RP 등록 (hub·spoke 공통) ────────────────────────────────────────────
