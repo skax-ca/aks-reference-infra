@@ -59,17 +59,23 @@ data "azurerm_resources" "dev_spoke_vnets" {
 
   type = "Microsoft.Network/virtualNetworks"
   required_tags = {
-    Workload    = var.workload
-    Environment = "dev"
+    Workload = var.workload
   }
 }
 
 locals {
-  # 오늘은 스포크가 dev 하나뿐이라 고정 키("dev")로 묶는다. 스포크가 늘어나면
-  # (qa 등) 이 local을 태그의 Environment 값으로 그룹핑하도록 넓힌다 — 지금은
-  # YAGNI로 미룬다.
+  # 2026-09-09 정정 — 이전에는 required_tags에 Environment="dev"까지 고정해 둬
+  # 이 data source 자체가 dev 외 스포크(같은 azurerm.dev 구독 안의 qa 등, 예:
+  # 비프로덕션 구독에 dev+qa 공존)를 애초에 조회하지 못했고, 그룹핑 키도 리터럴
+  # "dev"라 설사 조회되더라도 서로 다른 스포크가 한 키로 뭉개졌을 것이다.
+  # spoke_aks_ids(아래 190행대, 같은 provider.dev 스코프)는 이미 이 패턴이라
+  # 이 local만 뒤처져 있던 비대칭을 해소한다 — 태그만 맞으면 재적용만으로
+  # 두 번째 vHub 연결이 자동으로 생긴다. 여전히 provider alias(azurerm.dev)
+  # 자체는 구독 하나에 고정이라, 완전히 다른 구독의 새 스포크는 별도 provider
+  # alias+data source 블록 추가가 필요하다(raw OpenTofu 루트의 의도된
+  # 트레이드오프, spoke_aks_ids 위 주석과 동일 근거).
   spoke_connections = {
-    for r in data.azurerm_resources.dev_spoke_vnets.resources : "dev" => r.id
+    for r in data.azurerm_resources.dev_spoke_vnets.resources : r.tags["Environment"] => r.id
   }
 }
 
@@ -192,14 +198,15 @@ resource "azurerm_federated_identity_credential" "argocd" {
 # (bootstrap/config.sh의 spoke-peer 역할에 2026-09-09 managedClusters/read
 # 추가, dev 구독에 이미 적용·verify.sh로 drift 없음 확인 완료).
 #
-# ⚠️ spoke_connections와 달리 그룹핑 키를 리터럴 "dev"로 고정하지 않는다 —
-# r.tags["Environment"]로 뽑는다. provider(azurerm.dev)가 구독 단위로
-# 고정돼 있어 오늘은 결과가 dev 하나뿐이지만, 한 구독에 여러 환경이 같이
-# 있는 경우(예: 비프로덕션 구독에 dev+qa 공존)까지 대비한 것이다 — 리터럴
-# 키였다면 그 경우 서로 다른 스포크가 조용히 한 키로 뭉개진다. 비용은
-# 이 한 줄뿐이라 지금 반영한다(2026-09-09, "다중 스포크 확장성 검토" 요청
-# 대응). `spoke_connections` 자체의 리터럴 "dev" 키는 이 변경과 별개
-# open-item으로 계획 문서에 남겨두고 이번 스코프에서는 건드리지 않는다.
+# 그룹핑 키를 리터럴 "dev"로 고정하지 않고 r.tags["Environment"]로 뽑는다 —
+# provider(azurerm.dev)가 구독 단위로 고정돼 있어 오늘은 결과가 dev 하나뿐이지만,
+# 한 구독에 여러 환경이 같이 있는 경우(예: 비프로덕션 구독에 dev+qa 공존)까지
+# 대비한 것이다 — 리터럴 키였다면 그 경우 서로 다른 스포크가 조용히 한 키로
+# 뭉개진다(2026-09-09, "다중 스포크 확장성 검토" 요청 대응). `spoke_connections`
+# (위 45~74행)도 그때는 같은 이유로 리터럴 "dev" 키가 남아있었으나, 같은 날
+# 후속 세션에서 이 data source와 동일 패턴(required_tags에서 Environment
+# 필터 제거 + r.tags["Environment"] 동적 그룹핑)으로 맞췄다 — 이제 두 곳
+# 모두 대칭이다.
 data "azurerm_resources" "spoke_aks_clusters" {
   provider = azurerm.dev
 
