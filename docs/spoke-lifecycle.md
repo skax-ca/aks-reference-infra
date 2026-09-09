@@ -4,12 +4,8 @@
 
 > ⚠️ **hub가 먼저 구축되어 있어야 한다.** spoke의 vWAN 연결은 hub 쪽(`live/hub/vwan`)이
 > 태그 기반으로 자동 발견해 소유한다 - `hub-lifecycle.md`부터 본다.
-> **검증 상태**: hub-lifecycle.md와 같은 방식(먼저 쓰고 실제 배포·등록으로 검증)으로
-> 작성했다. 전 절이 이 저장소의 실제 배포 이력(아래 각 절 근거)에 기반한다.
-> **6절(GitOps 등록)은 2026-09-09 실제 dev 클러스터로 완주해 검증했다**
-> (`aks-platform-gitops` 커밋 `a2f4707`) - hub→dev Application 5개가 Synced/Healthy로
-> 수렴함을 실측 확인했다. 아직 실제 철거→재구축까지 거친 것은 아니라, 14절(재배포 시
-> 재등록)의 절차 자체는 여전히 미검증이다.
+> ⚠️ **14절(재배포 시 GitOps 재등록)은 실제 철거→재구축을 거쳐 검증된 절차가 아니다** -
+> 실행 전 단계별로 직접 확인하며 진행한다.
 
 레퍼런스 구현은 이 저장소의 `bootstrap/`·`live/dev/`에 있다.
 
@@ -108,8 +104,8 @@ gh workflow run deploy-dev-aks.yml --ref main -f action=apply
 > ForceNew라 첫 apply가 사실상 최종 선택이다.** hub와 동일 값을 그대로 쓰므로 1절에서
 > 이미 확정돼 있다.
 
-같은 방식으로 `live/dev/workbench`를 초기화한다(`key = "dev/workbench.tfstate"`,
-2026-09-08 신설). `live/hub/workbench`를 템플릿으로 그대로 복제한다 - 도구 핀(az·
+같은 방식으로 `live/dev/workbench`를 초기화한다(`key = "dev/workbench.tfstate"`).
+`live/hub/workbench`를 템플릿으로 그대로 복제한다 - 도구 핀(az·
 kubectl·helm·argocd·krew)은 hub와 동일하지만, 모듈 ref는 hub와 **다르다**
 (`aks-workbench-v0.7.0` - hub는 아직 `v0.5.0`). env=dev로 갈리는 축은 backend
 key(`dev/workbench.tfstate`)·tfstate RG(`rg-demo-dev-krc-tfstate-01`)·Storage
@@ -121,18 +117,14 @@ Account 참조(`DEV_TF_STATE_ACCOUNT`)·CI 신원(`AZURE_DEV_CLIENT_ID`·
 gh workflow run deploy-dev-workbench.yml --ref main -f action=apply
 ```
 
-✅ **첫 apply는 실패했으나(2026-09-08) 근본 원인 2건을 규명·수정해 완주했다**(2026-09-09).
-dev가 이 저장소에서 이 코드 경로(cloud-init의 kubelogin 변환 분기)를 처음 실행한
-케이스였다: (1) `apt-daily-upgrade.timer`가 부팅 15초 만에 자체 `apt-get update`로
-lists lock을 잡아 cloud-init의 azure-cli 설치용 `apt-get update`와 경합 - 타이머·서비스를
-stop→kill→mask해 경쟁자 자체를 제거(`aks-workbench-v0.6.0`). (2) cloud-init이 root로
-실행될 때 `$HOME`이 `/`로 잡혀(`/root` 아님) `kubelogin convert-kubeconfig`가 존재하지
-않는 `/.kube/config`를 대상으로 삼고 조용히 성공(exit 0)해버리는 버그 - `--kubeconfig
-/root/.kube/config` 명시로 해결(`aks-workbench-v0.7.0`). 두 버그 다 레이스 컨디션이라
-hub workbench(`v0.5.0`)에서는 우연히 안 터졌다 - **hub workbench를 다음에 재배포할 때는
-반드시 `v0.7.0`으로 올려야 한다**(잠재 버그 2건 그대로 남아있음, `live/hub/workbench/main.tf`
-갱신 미착수). `live/dev/aks/main.tf`의 기존 주석("dev에는 hub의 workbench 같은 운영
-VM이 없다")은 이 workbench 신설로 낡았다 - 아직 그 주석 자체를 정정하지 않았다.
+🔑 **cloud-init의 kubelogin 변환 분기에 레이스 컨디션 버그 2건이 있다 - `aks-workbench-
+v0.7.0`부터 고정됐다.** (1) `apt-daily-upgrade.timer`가 부팅 15초 만에 자체
+`apt-get update`로 lists lock을 잡아 cloud-init의 azure-cli 설치용 `apt-get update`와
+경합할 수 있다 - `v0.6.0`부터 타이머·서비스를 stop→kill→mask해 제거한다. (2) cloud-init이
+root로 실행될 때 `$HOME`이 `/`로 잡혀(`/root` 아님) `kubelogin convert-kubeconfig`가
+존재하지 않는 `/.kube/config`를 대상으로 삼고 조용히 성공(exit 0)해버릴 수 있다 -
+`v0.7.0`부터 `--kubeconfig /root/.kube/config`를 명시한다. ⛔ **hub workbench는 아직
+`v0.5.0`이라 이 버그 2건이 잠재해 있다** - 다음 재배포 때 반드시 `v0.7.0`으로 올린다.
 
 apply 후 접근을 확인한다(private key는 `~/.ssh/`에만 존재, `.pub`만 커밋):
 
@@ -364,4 +356,4 @@ Analytics workspace, prevent_destroy 코드 정정 필요 등). dev 고유 항�
 |------|------|------|
 | hub vwan plan에 dev 스포크 연결이 안 보인다 | dev networking이 아직 없거나 태그가 안 맞음 | `az resource list --tag Workload=demo --tag Environment=dev --resource-type Microsoft.Network/virtualNetworks`로 실물·태그 직접 확인 |
 | dev bootstrap.sh가 구독 불일치로 즉시 중단 | `az account show`가 hub를 가리킴 | `az account set --subscription <dev GUID>` 먼저 실행(3절) |
-| dev workbench SSH 타임아웃 | 서브넷 레벨 NSG에 인바운드 허용 규칙이 없음(hub workbench가 처음 겪은 함정 - `live/hub/workbench/main.tf`의 관련 주석 참고) | `az network nsg rule list`로 서브넷 NSG에 SSH 인바운드 규칙이 실제로 붙어 있는지 확인 |
+| dev workbench SSH 타임아웃 | 서브넷 레벨 NSG에 인바운드 허용 규칙이 없음(`live/hub/workbench/main.tf`의 관련 주석 참고 - NIC 레벨 NSG가 맞아도 서브넷 레벨에서 먼저 막힐 수 있다) | `az network nsg rule list`로 서브넷 NSG에 SSH 인바운드 규칙이 실제로 붙어 있는지 확인 |
