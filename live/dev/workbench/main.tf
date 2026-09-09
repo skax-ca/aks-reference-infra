@@ -92,16 +92,32 @@ resource "azurerm_role_assignment" "workbench_aks_cluster_user" {
   skip_service_principal_aad_check = true
 }
 
-# skip_service_principal_aad_check(위)는 role assignment "생성" 시점의 AAD 존재 확인만
-# 우회한다 — 생성된 role이 실제 인가 판단(authorization)에 반영되기까지의 캐시 전파
-# 지연은 별개다(이 repo가 이미 여러 차례 실측한 클래스, config.sh의
-# retry_on_replication_delay 관련 주석 참고 — "역할 정의 AssignableScopes 변경 직후
-# role assignment 생성이 거부" 등). VM의 custom_data는 provider 스키마상 ForceNew라
-# cloud-init이 최초 부팅 시 1회만 az aks get-credentials를 실행하고 재시도가 없다
-# (aks-workbench 모듈 README「부팅 후 확인」절) — 이 유예 없이 실패하면 VM 재생성이
-# 유일한 복구 경로가 된다. 첫 apply 한정 비용(60초)으로 그 리스크를 피한다.
+# 위 Cluster User Role은 "az aks get-credentials를 호출할 수 있다"(컨트롤 플레인
+# 자격증명 조회)는 것이지, live/dev/aks가 켠 Azure RBAC for Kubernetes Authorization이
+# 실제로 검사하는 "K8s API에서 뭘 할 수 있는가"(데이터플레인 인가)와는 별개 축이다 —
+# 이 role assignment 없이 kubelogin 변환만 끝내면 인증은 성공하고 인가에서 거부된다
+# (dev-gitops-registration 설계 RALPLAN-DR 5차 M-a가 사전에 지적한 결함).
+resource "azurerm_role_assignment" "workbench_aks_rbac_admin" {
+  scope                            = data.azurerm_kubernetes_cluster.this.id
+  role_definition_name             = "Azure Kubernetes Service RBAC Cluster Admin"
+  principal_id                     = azurerm_user_assigned_identity.workbench.principal_id
+  skip_service_principal_aad_check = true
+}
+
+# skip_service_principal_aad_check(위 두 role assignment)는 role assignment "생성"
+# 시점의 AAD 존재 확인만 우회한다 — 생성된 role이 실제 인가 판단(authorization)에
+# 반영되기까지의 캐시 전파 지연은 별개다(이 repo가 이미 여러 차례 실측한 클래스,
+# config.sh의 retry_on_replication_delay 관련 주석 참고 — "역할 정의 AssignableScopes
+# 변경 직후 role assignment 생성이 거부" 등). VM의 custom_data는 provider 스키마상
+# ForceNew라 cloud-init이 최초 부팅 시 1회만 az aks get-credentials·kubelogin 변환을
+# 실행하고 재시도가 없다(aks-workbench 모듈 README「부팅 후 확인」절) — 이 유예 없이
+# 실패하면 VM 재생성이 유일한 복구 경로가 된다. 첫 apply 한정 비용(60초)으로 그
+# 리스크를 피한다.
 resource "time_sleep" "role_propagation" {
-  depends_on      = [azurerm_role_assignment.workbench_aks_cluster_user]
+  depends_on = [
+    azurerm_role_assignment.workbench_aks_cluster_user,
+    azurerm_role_assignment.workbench_aks_rbac_admin,
+  ]
   create_duration = "60s"
 }
 
@@ -226,12 +242,29 @@ module "aks_workbench" {
     version   = "24.04.202608270"
   }
 
-  # ── AKS 연동 — kubeconfig 부트스트랩만, RBAC은 로컬 계정 경로 ────────────────────
-  # dev AKS(live/dev/aks)가 Entra RBAC를 켜지 않아(entra_admin_group_object_ids 미설정)
-  # kubelogin 변환 단계가 필요 없다 — hub와 동일하다.
+  # ── AKS 연동 — kubeconfig 부트스트랩 + kubelogin MSI 변환 ───────────────────────
+  #
+  # ⚠️ 여기서 hub와 갈라진다(live/dev/aks/main.tf의 entra_integration_enabled 갈림과
+  # 같은 이유). hub의 self-managed ArgoCD는 자기 자신이 도는 클러스터를 가리키는
+  # self-hosting 지름길(kubernetes.default.svc)만 쓰므로 Entra RBAC 노출이 필요
+  # 없어 hub workbench는 aks_entra_rbac_enabled = false로 남는다. dev AKS는
+  # live/dev/aks가 entra_integration_enabled = true로 전환(2026-09-09, 비가역)해
+  # Azure RBAC for Kubernetes Authorization이 유일한 K8s API 인가 경로가 됐다 —
+  # 이 workbench도 그 경로를 타야 kubectl이 동작한다(dev-gitops-registration 설계).
+  #
+  # az aks get-credentials가 --admin 없이 호출되므로(모듈 cloud-init 템플릿 확인)
+  # 발급되는 kubeconfig는 AAD 로그인이 필요한 형태다 — kubelogin convert-kubeconfig
+  # -l msi --client-id로 대화형 로그인 없이 workbench 자신의 UAMI로 인증하게
+  # 바꾼다. 이 인증을 실제 K8s API 요청에서 인가하는 건 위
+  # azurerm_role_assignment.workbench_aks_rbac_admin이다(인증과 인가는 별개 축).
   aks_cluster_name        = data.azurerm_kubernetes_cluster.this.name
   aks_resource_group_name = local.resource_group_name
-  aks_entra_rbac_enabled  = false
+  aks_entra_rbac_enabled  = true
+  identity_client_id      = azurerm_user_assigned_identity.workbench.client_id
+
+  # 추측하지 않고 실제 릴리스(Azure/kubelogin)를 조회해 확인한 최신 태그
+  # (2026-09-09, `gh api repos/Azure/kubelogin/releases/latest`).
+  kubelogin_version = "v0.2.19"
 
   # ── 도구 — hub와 동일한 핀(2026-09-04 실측 최신 안정 버전) ─────────────────────
   az_cli_version  = "2.88.0-1~noble"
