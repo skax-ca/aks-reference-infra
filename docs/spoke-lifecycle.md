@@ -127,7 +127,7 @@ root로 실행될 때 `$HOME`이 `/`로 잡혀(`/root` 아님) `kubelogin conver
 apply 후 접근을 확인한다(private key는 `~/.ssh/`에만 존재, `.pub`만 커밋):
 
 ```bash
-ssh -i ~/.ssh/workbench_ed25519 azureuser@<dev workbench 공인 IP>
+ssh -i ~/.ssh/workbench_dev_ed25519 azureuser@<dev workbench 공인 IP>
 kubectl get nodes            # sudo 없이 동작해야 한다
 ```
 
