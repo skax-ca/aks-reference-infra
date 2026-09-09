@@ -111,7 +111,7 @@ module "aks_cluster" {
   # 인한 perpetual diff → v0.5.0, KEDA 변수 신설 → v0.6.0, web_app_routing passthrough
   # 신설 → v0.7.0)는 live/hub/aks/main.tf 의 같은 자리 주석이 전부 기록하고 있다 — 여기서
   # 중복 서술하지 않는다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.8.0&depth=1"
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.9.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다(모듈 repo 규약).
   # {demo, dev, krc} → aks-demo-dev-krc-main-01
@@ -177,6 +177,19 @@ module "aks_cluster" {
   # `az aks command invoke`(ARM 경유)로 workbench 없이 가능하다 — dev 에는 hub 의
   # workbench 같은 운영 VM 이 없으므로 이 경로가 유일한 kubectl 접근 수단이다.
   private_cluster_enabled = true
+
+  # dev-gitops-registration 설계 8차(2026-09-09) — hub의 self-managed ArgoCD가 이
+  # 클러스터를 크로스 구독으로 관리하려면 API 서버 이름 해석이 돼야 한다. 당초 계획한
+  # private DNS zone VNet link(Step 9, hub VNet을 이 zone에 추가 링크)는 AWS EKS 조사
+  # 결과 근본적으로 불필요하다고 판단해 대체했다 — AWS 공식 문서(cluster-endpoint.html)
+  # 확인 결과 EKS의 private-only 엔드포인트는 "resolved by public DNS servers to a
+  # private IP address"로 동작해 zone 링크 자체가 없다. Azure도 이 필드로 같은 효과를
+  # 낸다 — 이름은 공개 DNS로 풀리지만 반환되는 IP는 여전히 private다(공식 문서: "A
+  # public FQDN doesn't create a public API endpoint or remove the requirement for
+  # network connectivity to the private endpoint"). ForceNew 아님(모듈 변수 설명·
+  # provider 소스 확인 완료, aks-cluster-v0.9.0에서 신설) — 이미 떠 있는 이 클러스터에도
+  # 재생성 없이 적용된다.
+  private_cluster_public_fqdn_enabled = true
 
   # ── 노드 프로비저닝 ──────────────────────────────────────────────────────────
   #
