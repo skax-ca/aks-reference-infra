@@ -4,8 +4,6 @@
 
 > ⚠️ **hub가 먼저 구축되어 있어야 한다.** spoke의 vWAN 연결은 hub 쪽(`live/hub/vwan`)이
 > 태그 기반으로 자동 발견해 소유한다 - `hub-lifecycle.md`부터 본다.
-> ⚠️ **14절(재배포 시 GitOps 재등록)은 실제 철거→재구축을 거쳐 검증된 절차가 아니다** -
-> 실행 전 단계별로 직접 확인하며 진행한다.
 
 레퍼런스 구현은 이 저장소의 `bootstrap/`·`live/dev/`에 있다.
 
@@ -270,21 +268,40 @@ AKS는 `deletion_protection`이 이미 `false`라 이 단계가 필요 없다(`h
 보는 한, dev 안의 LB·PVC·NodePool을 지워도 hub가 되살린다(대상만 원격일 뿐 hub와
 같은 메커니즘).
 
-🔴 **`cluster-secret.yaml`을 한 번에 통째로 지우지 않는다.** AWS 원본 `spoke-lifecycle.md`가
-이미 겪은 문제와 원리가 같다 - 이 Secret은 두 역할을 겸한다: ①ArgoCD가 이
-클러스터에 접속할 자격증명, ②ApplicationSet cluster generator가 fan-out 대상으로 판단하는
-라벨. 통째로 지우면 ArgoCD가 접속 방법 자체를 잃어 cascade delete가 불가능해지고, 실제
-Deployment·NodePool·ClusterPolicy는 dev 클러스터에 orphan으로 남는다. AWS 원본과 같은
-순서를 따른다: ① `metadata.labels`만 먼저 지운다(`stringData.server`·`config`는 그대로
-둔다) → ② hub의 `root-app`이 그 커밋을 반영했는지 확인(`kubectl -n argocd get application
-root-app -o jsonpath='{.status.sync.revisions}'`) → ③ dev 클러스터 자신에서 addon
-파드가 실제로 사라졌는지 확인(`az aks command invoke ... "kubectl get pods -A"`) →
-④ 그 다음에만 `cluster-secret.yaml`을 통째로 삭제한다. ⚠️ 이 순서 자체는 아직 이
-저장소에서 실제로 실행해 본 적이 없다(6절과 달리 미검증).
+🔴 **`cluster-secret.yaml`을 한 번에 통째로 지우지 않는다.** 이 Secret은 두 역할을
+겸한다: ①ArgoCD가 이 클러스터에 접속할 자격증명, ②ApplicationSet cluster generator가
+fan-out 대상으로 판단하는 라벨. 통째로 지우면 ArgoCD가 접속 방법 자체를 잃어 cascade
+delete가 불가능해지고, 실제 Deployment·NodePool·ClusterPolicy는 dev 클러스터에 orphan으로
+남는다.
 
-이후 `hub-lifecycle.md`와 같은 방식으로 workbench(5절에서 신설)에서 실행한다(①ArgoCD 컨트롤러
-정지는 hub 쪽 - 여기 해당 없음 ②Gateway/Ingress/LoadBalancer Service ③PVC ④NAP
-NodePool/AKSNodeClass).
+🔴 **`metadata.labels`를 지울 때 `argocd.argoproj.io/secret-type: cluster`까지 함께
+지우면 안 된다** - 이 라벨은 fan-out 매칭용이 아니라 ArgoCD 자신이 "등록된 클러스터"로
+인식하는 필수 키다. 이것까지 지우면 ApplicationSet이 Application을 정상적으로 prune해도
+그 Application에 붙은 `resources-finalizer.argocd.argoproj.io`가 대상 클러스터에
+접속할 방법 자체를 잃어 cascade delete가 조용히 실패한다 - Application 객체는 사라지지만
+실제 addon 파드·Gateway/LB·NAP NodePool은 dev 클러스터에 그대로 orphan으로 남는다
+(2026-09-09 실측 확인, `argoproj/argo-cd#5817`과 같은 원리 - `eks-platform-gitops`가
+같은 시행착오를 먼저 겪어 검증해 둔 패턴이다). **secret-type과 접속 정보
+(`stringData.server`·`config`)는 그대로 두고, fan-out 매칭 라벨(`environment`·
+`addon-*`)만 지운다.**
+
+순서: ① fan-out 매칭 라벨만 지운다 → ② hub의 `root-app`이 그 커밋을 반영했는지
+확인(`kubectl -n argocd get application root-app -o jsonpath='{.status.sync.revision}'` -
+이 클러스터는 multi-source가 아니라 `revision` 단수 필드다) → ③ ApplicationSet이
+실제로 재평가했는지 확인한다(`kubectl -n argocd get applications` - **라벨 update
+이벤트만으로는 재평가가 트리거되지 않을 수 있다**, 2026-09-09 실측: cluster generator의
+Secret 이벤트 핸들러가 생성 이벤트에는 즉시 반응하지만 라벨 제거 같은 update에는
+반응하지 않는 사례를 확인했다 - 수 분 기다려도 안 바뀌면
+`kubectl -n argocd rollout restart deployment argocd-applicationset-controller`로
+전체 재평가를 유도한다) → ④ dev 클러스터 자신에서 addon 파드·Gateway/LB Service·NAP
+NodePool/AKSNodeClass가 실제로 사라졌는지 확인한다(`az aks command invoke ...` 또는
+workbench에서 직접 kubectl) → ⑤ 그 다음에만 `cluster-secret.yaml`을 통째로 삭제한다.
+
+⚠️ **ArgoCD의 cascade delete(④)가 이미 실패한 상태에서 라벨을 정정해도 소급 적용되지
+않는다** - Application 객체 자체가 이미 삭제됐다면 finalizer도 함께 사라진 뒤라, 남은
+addon 파드·Gateway/LB·NAP NodePool은 hub-lifecycle.md 12절과 같은 방식으로 workbench에서
+직접 kubectl로 지워야 한다(①ArgoCD 컨트롤러 정지는 hub 쪽이라 여기 해당 없음 ②Gateway/
+Ingress/LoadBalancer Service ③PVC ④NAP NodePool/AKSNodeClass).
 
 ### 11. 2단계 · 3단계: destroy(workbench → aks → networking)
 
@@ -340,10 +357,25 @@ connection.spoke["dev"]`는 **살아있는 데이터소스**(`azurerm_resources`
 ### 14. 재배포 시 GitOps 재등록
 
 dev AKS를 destroy 후 재생성하면 클러스터 이름이 같아도 API endpoint·CA 인증서는 **반드시
-새로 발급**된다. 재배포 시 `cluster-secret.yaml`의 `server`·`caData`만 갱신하고
-`addon-*` 라벨은 그대로 유지해야 한다(AWS 원본 `spoke-lifecycle.md`와 동일 함정 -
-빠뜨리면 addon 구독이 조용히 빠진 채 재배포된다). ⚠️ 이 저장소는 아직 실제
-철거→재구축까지 거친 적이 없다 - 이 절 자체는 6절과 달리 미검증이다.
+새로 발급**된다(2026-09-09 실측: FQDN 접미사가 `1amwkeg8` → `9z9xsbiw`로 바뀜). 재배포
+시 `cluster-secret.yaml`의 `server`·`caData`만 갱신하고 `argocd.argoproj.io/secret-type`·
+fan-out 매칭 라벨(`environment`·`addon-*`)은 그대로 유지해야 한다(빠뜨리면 addon
+구독이 조용히 빠진 채 재배포된다).
+
+🔴 **hub ArgoCD의 dev 클러스터 RBAC 권한(`Azure Kubernetes Service RBAC Cluster
+Admin`)도 새 AKS 리소스 ID로 다시 만들어야 한다** - `live/hub/vwan`의
+`azurerm_role_assignment.argocd_spoke_aks_access["dev"]`는 살아있는 AKS를 태그로
+발견해 그 리소스 ID에 role assignment를 스코프하므로, dev AKS가 destroy→재생성되면
+리소스 ID 자체가 바뀌어 이전 role assignment는 무의미해진다. **dev AKS 재생성 이후에
+`deploy-hub-vwan.yml`을 (다시) apply**해야 새 리소스 ID로 role assignment가 생긴다 -
+이 순서(networking → hub vwan → aks → workbench)에서 hub vwan을 aks보다 먼저
+적용했다면 반드시 aks apply 이후 한 번 더 적용한다. 빠뜨리면 재등록한 Application이
+`ComparisonError`(`... is forbidden: User ... cannot list resource ... Update role
+assignment to allow access.`)로 멈춘 채 `Unknown`에 머문다(2026-09-09 실측 확인).
+
+이 절은 2026-09-09 실제 철거→재구축으로 검증됐다(workbench→aks→networking 순
+destroy → networking→hub vwan→aks→workbench 순 재구축 → GitOps 재등록 →
+Application 5개 Synced/Healthy 수렴 확인).
 
 ### 15. 되돌릴 수 없는 것 / 자주 막히는 지점
 
