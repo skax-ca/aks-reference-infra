@@ -31,6 +31,25 @@ provider "azurerm" {
   features {}
 }
 
+# 2026-09-10 신설 — hub 구독을 향한 두 번째 provider(별칭). hub-argocd-rbac-direction-flip
+# plan(.omc/plans/hub-argocd-rbac-direction-flip.md) 2.1절: 이 root가 hub ArgoCD UAMI를
+# 태그 기반으로 스스로 발견해, 자기 자신의 AKS 리소스에 role assignment를 직접 만들기
+# 위함이다(live/hub/vwan이 스포크를 발견해 hub state 안에 role assignment를 만들던 기존
+# 방향의 반전이자 대체, live/hub/vwan/main.tf의 argocd_spoke_aks_access 참고). ARM_CLIENT_ID·
+# ARM_TENANT_ID·ARM_USE_OIDC는 env에서 그대로 물려받고(위 기본 provider와 같은 dev CI
+# 신원), subscription_id만 hub로 바꾼다. 이 신원은 bootstrap.sh(BOOTSTRAP_TARGET=spoke)가
+# hub 워크로드 리소스 그룹 스코프로 줄 hub-peer 역할(UAMI read + RG read, plan 5절)을
+# 가정한다 — 같은 테넌트의 다른 구독이라 별도 federated credential·assume 체인이 필요
+# 없다(live/hub/vwan/providers.tf의 alias="dev" 블록과 동일 근거, 대칭 패턴).
+provider "azurerm" {
+  alias = "hub"
+
+  subscription_id                 = var.hub_subscription_id
+  resource_provider_registrations = "none"
+
+  features {}
+}
+
 # ── CI 전용 인증 가드 ─────────────────────────────────────────────────────────
 #
 # AWS 원본은 실행 Role의 신뢰 정책이 GitHub Actions OIDC 하나만 허용해 로컬 plan/apply가

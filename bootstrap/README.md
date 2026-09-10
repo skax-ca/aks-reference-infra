@@ -28,11 +28,17 @@ spoke(dev) 인스턴스는 대상과 환경 토큰을 명시한다.
 
 ```bash
 BOOTSTRAP_TARGET=spoke SPOKE_ENV=dev \
-  EXPECTED_SUBSCRIPTION=<dev 구독 GUID> EXPECTED_TENANT=<GUID> ./bootstrap.sh
+  EXPECTED_SUBSCRIPTION=<dev 구독 GUID> EXPECTED_TENANT=<GUID> \
+  HUB_SUBSCRIPTION=<hub 구독 GUID> ./bootstrap.sh
 
 BOOTSTRAP_TARGET=spoke SPOKE_ENV=dev \
-  EXPECTED_SUBSCRIPTION=<dev 구독 GUID> EXPECTED_TENANT=<GUID> ./verify.sh
+  EXPECTED_SUBSCRIPTION=<dev 구독 GUID> EXPECTED_TENANT=<GUID> \
+  HUB_SUBSCRIPTION=<hub 구독 GUID> ./verify.sh
 ```
+
+`HUB_SUBSCRIPTION`은 `BOOTSTRAP_TARGET=spoke`일 때만 필수다(기본값 없음, GUID 형식 검증).
+spoke 실행의 `az` 컨텍스트는 spoke 자신의 구독이라, hub 구독에 `hub-peer` 역할(아래
+「크로스 구독 연결 (반대 방향)」절)을 만들려면 대상 구독을 별도로 알려줘야 한다.
 
 ⛔ **`EXPECTED_SUBSCRIPTION`·`EXPECTED_TENANT`에 기본값을 두지 않는다.** 구독/테넌트
 ID는 git에 남기지 않는다. 값은 Azure 구독 관리자에게 확인한다. 미설정이면 스크립트가
@@ -229,6 +235,20 @@ assignment를 되돌리거나 다른 스코프로 옮길 때 스스로 감당하
 ⛔ `verify.sh`는 스포크 워크로드 RG 스코프에서 "이 대상 자신의 SP를 제외한" role
 assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일치하는지 검사한다
 (`BOOTSTRAP_TARGET=spoke`일 때만). 설계 근거 전문은 `config.sh`의 관련 주석 참고.
+
+### 크로스 구독 연결 (반대 방향, 2026-09-10)
+
+hub ArgoCD RBAC role assignment 방향 전환(`.omc/plans/hub-argocd-rbac-direction-flip.md`)으로 spoke가 hub 구독의 ArgoCD UAMI를 직접 발견해야 해서, spoke-peer와 정반대 방향의 역할이 필요하다.
+
+| 항목 | 값 |
+|------|-----|
+| 역할 | `aks-ref-bootstrap-hub-peer`(env 접미사 없음, hub 구독에 1회만 존재. UAMI/RG read 3액션) |
+| 할당 스코프 | **hub 워크로드 RG**(`rg-<workload>-hub-krc-workload-01`) |
+| 할당 대상 | 각 spoke App Registration의 SP(외부 신원 조회 없이 spoke 자기 자신의 CI 신원) |
+| 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때 `HUB_SUBSCRIPTION`(신규 필수 env, 1절)으로 hub 구독에 만든다 |
+
+spoke-peer(hub SP가 스포크 RG에 쓰기까지 가짐)보다 훨씬 좁다 - hub-peer는 read 전용이다.
+역할 정의는 멱등 재사용, spoke가 늘 때마다 할당만 그 spoke SP에 새로 추가된다.
 
 ### AKS 클러스터용 identity·권한 (bootstrap이 아니라 Terraform이 만든다)
 

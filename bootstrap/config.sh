@@ -74,6 +74,24 @@ esac
 readonly SPOKE_ENV="${SPOKE_ENV:-dev}"
 readonly ENV_TOKEN="$([[ "$BOOTSTRAP_TARGET" == hub ]] && echo hub || echo "$SPOKE_ENV")"
 
+# hub-peer 역할(아래 「커스텀 역할 이름」절)은 hub 구독의 워크로드 RG에 만들어지는데,
+# spoke 부트스트랩 실행 중에는 az 컨텍스트가 spoke 구독(EXPECTED_SUBSCRIPTION)이라
+# hub 구독 ID를 별도로 받아야 한다. hub 대상 실행에는 무관하므로 spoke 대상일 때만
+# 필수로 가둔다(EXPECTED_SUBSCRIPTION과 같은 가드 스타일 — 기본값 없이 GUID 형식만
+# 검증한다).
+if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
+  [[ -n "${HUB_SUBSCRIPTION:-}" ]] || {
+    echo "ERROR: HUB_SUBSCRIPTION이 설정되지 않았다 — hub-peer 역할(hub 구독에 생성)의 스코프를 구성하려면 hub 구독 ID가 필요하다." >&2
+    echo "       예: BOOTSTRAP_TARGET=spoke HUB_SUBSCRIPTION=<hub 구독 GUID> EXPECTED_SUBSCRIPTION=<dev 구독 GUID> EXPECTED_TENANT=<GUID> bash bootstrap.sh" >&2
+    exit 2
+  }
+  [[ "$HUB_SUBSCRIPTION" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || {
+    echo "ERROR: HUB_SUBSCRIPTION은 GUID 형식이어야 한다 (받은 값: $HUB_SUBSCRIPTION)" >&2
+    exit 2
+  }
+  readonly HUB_SUBSCRIPTION
+fi
+
 # ── 네이밍 ───────────────────────────────────────────────────────────────────
 # iac-module-library의 docs/naming/abbreviations/azure.md에 resource group(`rg`)·
 # storage account(`st`)·앱 등록(`entapp`)을 등재했다(2026-08-27, 실제 Azure 검증
@@ -93,6 +111,10 @@ readonly SUBSCRIPTION_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}"
 # "hub" 토큰으로 고정 계산한다. bootstrap.sh의 크로스 구독 스포크 연결 절이 dev 구독
 # 컨텍스트에서 hub SP를 조회할 때 쓴다.
 readonly HUB_APP_NAME="entapp-${WORKLOAD}-hub-${REGION_CODE}-gha-01"
+
+# hub-peer 역할(아래 「커스텀 역할 이름」절)의 스코프 계산에 쓰는 hub 워크로드 RG
+# 이름 — HUB_APP_NAME과 같은 이유로 대상과 무관하게 "hub" 토큰 고정.
+readonly HUB_RG_NAME="rg-${WORKLOAD}-hub-${REGION_CODE}-workload-01"
 
 # Storage Account 이름: 3~24자, 소문자+숫자만, 하이픈 불가(Azure 물리 제약) — 등재된
 # `st` 약어에서 하이픈만 뺀 접두사를 쓴다(azure.md A.3의 캐비어트 참고). 원본의
@@ -130,6 +152,12 @@ readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
 # 스포크(dev)에서만 의미가 있다 — hub CI 신원에게 이 스포크 VNet을 vWAN 허브에
 # 연결할 권한(peer/action 단일 액션)을 주는 역할이다.
 readonly SPOKE_PEER_ROLE_NAME="aks-ref-bootstrap-spoke-peer-${ENV_TOKEN}"
+# hub 구독의 워크로드 RG에 정의되는 역할이라(스코프가 대상마다 갈리지 않는다)
+# ENV_TOKEN 접미사를 붙이지 않는다 — spoke-peer(대상마다 자기 RG를 스코프로
+# 갖는 것)와 반대로, hub-peer는 hub 구독 안에 한 번만 존재하고 여러 spoke의
+# role assignment가 이를 공유한다(hub-argocd-rbac-direction-flip 계획 5절
+# "역할 정의는 1회 생성").
+readonly HUB_PEER_ROLE_NAME="aks-ref-bootstrap-hub-peer"
 
 # bootstrap.sh는 이 role assignment를 만들지 않는다 — `live/<env>/workbench`가
 # Terraform으로 직접 만든다(사람이 SSH로 workbench VM에 sudo 로그인하기 위한
@@ -435,6 +463,43 @@ spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignab
     }'
 }
 
+# ── hub-peer 역할: spoke-peer와 정반대 방향(hub-argocd-rbac-direction-flip
+#    계획 5절) ────────────────────────────────────────────────────────────────
+# spoke-peer는 hub CI 신원에게 "이 스포크" 구독의 권한을 주지만, hub-peer는
+# spoke CI 신원에게 "hub" 구독의 권한을 준다. 역할 정의·할당 둘 다 hub 구독
+# 안에서 이뤄지므로, 이 역할을 다루는 호출은(BOOTSTRAP_TARGET=spoke 실행 중이라
+# az 컨텍스트가 spoke 구독인데도) --subscription "$HUB_SUBSCRIPTION"으로 명시
+# 라우팅한다 — verify.sh의 check_subscription_scope_assignments가 여러 구독을
+# 순회할 때 이미 쓰는 것과 같은 패턴이다.
+#
+# 스코프는 리소스 단일이 아니라 hub 워크로드 RG다 — azurerm_resources data
+# source 자체가 태그 기반 리스트 조회라 RG(또는 구독) 스코프가 필요하고, 2단계
+# azurerm_user_assigned_identity 명명 조회도 같은 RG 스코프 권한으로 충분하다
+# (계획 5절, Architect+Critic이 공통으로 확인). required_tags 필터
+# (Role=argocd-hub)로 실제 노출 범위를 좁힌다 — read 권한 자체는 RG 전체지만,
+# 이 태그가 없는 hub 리소스는 spoke 쪽 코드가 존재를 알 수 없다.
+hub_peer_role_definition_json() {  # hub_peer_role_definition_json <assignable-scope>
+  local scope="$1"
+  jq -n \
+    --arg name "$HUB_PEER_ROLE_NAME" \
+    --arg scope "$scope" \
+    '{
+      Name: $name,
+      # RoleName 중복 이유는 workload_role_definition_json 주석 참고(az CLI update 경로 버그).
+      RoleName: $name,
+      Description: "Grant for a spoke CI identity to discover(read) the hub ArgoCD UAMI in the hub workload resource group, so the spoke can create its own role assignment granting hub ArgoCD access to its AKS cluster (aks-reference-infra hub-argocd-rbac-direction-flip plan 5절, spoke-peer의 정반대 방향).",
+      Actions: [
+        "Microsoft.ManagedIdentity/userAssignedIdentities/read",
+        "Microsoft.Resources/subscriptions/resourceGroups/read",
+        "Microsoft.Resources/subscriptions/resourceGroups/resources/read"
+      ],
+      NotActions: [],
+      DataActions: [],
+      NotDataActions: [],
+      AssignableScopes: [$scope]
+    }'
+}
+
 # ── FIC 기대 정의 (subject/issuer/audience 전 필드, 계획 3절 시나리오 1(f)) ──
 fic_expected_json() {  # fic_expected_json <name> <subject>
   jq -n --arg name "$1" --arg subject "$2" --arg issuer "$FIC_ISSUER" --arg aud "$FIC_AUDIENCE" \
@@ -456,10 +521,19 @@ array_set_eq() {  # array_set_eq <json-array-1> <json-array-2>
 # 서로 다른 결과를 냈다. Azure RBAC 조회 경로 간 캐시 전파 지연으로 보인다).
 # bootstrap.sh·verify.sh 양쪽에서 같은 재시도로 흡수한다 — 각자 따로 재시도를
 # 구현하면 한쪽만 고쳐지고 다른 쪽은 계속 소음을 낸다.
-role_definition_list_retry() {  # role_definition_list_retry <role-name>
-  local role_name="$1" current attempt=0
+role_definition_list_retry() {  # role_definition_list_retry <role-name> [subscription]
+  # [subscription]이 주어지면 이 대상 자신의 구독이 아닌 다른 구독(hub-peer 전용,
+  # spoke 부트스트랩이 hub 구독에 있는 역할을 조회할 때)을 겨냥한다. 빈 배열
+  # 전개("${arr[@]}")로 선택적 인자를 흉내내지 않는다 — macOS 시스템 bash(3.2)는
+  # `set -u` 아래에서 원소 0개인 배열의 `${arr[@]}` 참조 자체를 unbound
+  # variable로 죽인다(실측 확인). 그래서 두 분기를 완전히 분리해서 쓴다.
+  local role_name="$1" sub="${2:-}" current attempt=0
   while :; do
-    current="$(az_or_die "역할 정의 조회($role_name)" -- az_ role definition list --name "$role_name" -o json)"
+    if [[ -n "$sub" ]]; then
+      current="$(az_or_die "역할 정의 조회($role_name)" -- az_ role definition list --name "$role_name" --subscription "$sub" -o json)"
+    else
+      current="$(az_or_die "역할 정의 조회($role_name)" -- az_ role definition list --name "$role_name" -o json)"
+    fi
     [[ "$(jq 'length' <<<"$current")" -gt 0 ]] && { echo "$current"; return 0; }
     attempt=$((attempt + 1))
     (( attempt < 5 )) && printf '            … 역할 정의 조회 캐시 지연 대기 (%d/5)\n' "$attempt" >&2

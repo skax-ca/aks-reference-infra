@@ -417,6 +417,32 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
       mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 알 수 없는 외부 principal role assignment - ${other_count}건 존재(0건이어야 한다)"
     fi
   fi
+
+  # ── hub-peer(spoke-peer와 정반대 방향, hub-argocd-rbac-direction-flip 계획
+  #    5절) drift 검사 — 역할 정의·role assignment 둘 다 hub 구독에 있으므로
+  #    --subscription "$HUB_SUBSCRIPTION"으로 명시 라우팅한다(bootstrap.sh와
+  #    같은 패턴). 할당 대상은 이 spoke 자신의 SP_ID다(spoke-peer와 달리 외부
+  #    principal을 찾을 필요가 없다 — hub-peer는 "이 spoke가 hub를 읽을 권한"
+  #    이라 assignee가 항상 자기 자신이다). ─────────────────────────────────
+  HUB_RG_SCOPE="/subscriptions/${HUB_SUBSCRIPTION}/resourceGroups/${HUB_RG_NAME}"
+
+  check_hub_peer_role() {
+    local current
+    current="$(role_definition_list_retry "$HUB_PEER_ROLE_NAME" "$HUB_SUBSCRIPTION")"
+    role_definition_matches "$(hub_peer_role_definition_json "$HUB_RG_SCOPE")" "$current" && echo ok || echo drift
+  }
+  report "[hub-peer] 커스텀 역할 Actions 완전 일치" "$(check_hub_peer_role)"
+
+  check_hub_peer_assignment_exists() {
+    local role_id count
+    role_id="$(jq -r '.[0].id // empty' <<<"$(role_definition_list_retry "$HUB_PEER_ROLE_NAME" "$HUB_SUBSCRIPTION")")"
+    [[ -n "$role_id" ]] || { echo absent; return; }
+    count="$(az_or_die "role assignment($HUB_PEER_ROLE_NAME @ $HUB_RG_SCOPE)" -- \
+      az_ role assignment list --assignee "$SP_ID" --scope "$HUB_RG_SCOPE" --subscription "$HUB_SUBSCRIPTION" \
+        --query "length([?roleDefinitionId=='$role_id'])" -o tsv)"
+    [[ "$count" -gt 0 ]] && echo ok || echo absent
+  }
+  report "[hub-peer] role assignment 존재" "$(check_hub_peer_assignment_exists)"
 fi
 
 # ── RP 등록 (hub·spoke 공통) ─────────────────────────────────────────────────

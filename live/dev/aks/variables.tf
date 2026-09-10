@@ -75,3 +75,17 @@ variable "ci_run" {
 # 구독 전체 Owner 등가 역할을 가지므로, "CI가 roleAssignments/write를 가지면 자기 자신에게
 # 상위 역할을 부여할 수 있다"는 옛 금지 항목이 사라졌다 — 이 root가 자기 identity를
 # azurerm_user_assigned_identity로 직접 만든다(main.tf 참고).
+
+variable "hub_subscription_id" {
+  description = <<-EOT
+    hub 구독 ID. 이 root가 hub ArgoCD UAMI를 태그 기반으로 자동 발견할 때 쓰는
+    두 번째 provider(azurerm.hub, providers.tf)의 subscription_id다
+    (hub-argocd-rbac-direction-flip plan 2.1·6.5절, 2026-09-10 신설).
+
+    ⛔ 기본값을 두지 않는다 — 구독 식별 정보라 git 에 두지 않는다. 주입 경로:
+       CI   : GitHub repo 변수 AZURE_HUB_SUBSCRIPTION_ID → TF_VAR_hub_subscription_id
+              (live/hub/vwan이 이미 쓰는 것과 같은 값, 재사용이다)
+       로컬 : export TF_VAR_hub_subscription_id=...
+  EOT
+  type        = string
+}

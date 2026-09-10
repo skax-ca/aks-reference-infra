@@ -191,7 +191,7 @@ ensure_fic "$FIC_NAME_ENV" "$SUB_ENV"
 # 않는다). 이 함수를 verify.sh도 그대로 쓴다 — 수렴 판단과 drift 감지가 각자
 # 다른 기준을 쓰면 "bootstrap은 ok인데 verify는 실패"가 생겨 verify.sh가
 # 소음이 된다.
-ensure_custom_role() {  # ensure_custom_role <role-name> <definition-json> <label>
+ensure_custom_role() {  # ensure_custom_role <role-name> <definition-json> <label> [subscription]
   # ⚠️ 존재 여부를 판단하는 "첫" 조회도 role_definition_list_retry를 거친다.
   # 예전엔 이 최초 조회만 재시도 없이 단발이었는데, 2026-08-27 hub 재생성 세션
   # 2차 실행에서 실제 캐시 지연에 걸렸다 — role이 실제로 존재하고 verify.sh도
@@ -199,11 +199,21 @@ ensure_custom_role() {  # ensure_custom_role <role-name> <definition-json> <labe
   # definition create`가 `RoleDefinitionWithSameNameExists`로 죽었다. 진짜
   # 부재(최초 부트스트랩)라면 재시도 5회 후에도 빈 배열이라 정상적으로 create
   # 경로를 탄다 — 그 경우의 비용은 최대 15초뿐이다.
-  local role_name="$1" definition="$2" label="$3" current existing_id
-  current="$(role_definition_list_retry "$role_name")"
+  #
+  # [subscription]이 주어지면(hub-peer 전용) 이 대상 자신의 구독이 아닌 다른
+  # 구독에 역할을 만든다/갱신한다 — az 전역 --subscription로 현재 컨텍스트와
+  # 무관하게 라우팅한다. 빈 배열 전개 대신 두 분기를 완전히 분리한다(macOS
+  # bash 3.2가 `set -u` 아래에서 빈 배열 참조를 unbound variable로 죽인다,
+  # config.sh의 role_definition_list_retry 주석 참고).
+  local role_name="$1" definition="$2" label="$3" sub="${4:-}" current existing_id
+  current="$(role_definition_list_retry "$role_name" "$sub")"
   existing_id="$(jq -r '.[0].id // empty' <<<"$current")"
   if [[ -z "$existing_id" ]]; then
-    az_ role definition create --role-definition "$definition" >/dev/null
+    if [[ -n "$sub" ]]; then
+      az_ role definition create --role-definition "$definition" --subscription "$sub" >/dev/null
+    else
+      az_ role definition create --role-definition "$definition" >/dev/null
+    fi
     changed "[$label] 커스텀 역할 생성: $role_name"
   else
     if role_definition_matches "$definition" "$current"; then
@@ -212,8 +222,14 @@ ensure_custom_role() {  # ensure_custom_role <role-name> <definition-json> <labe
       # id를 명시해야 이름 기반의 애매한 검색 없이 정확히 이 객체를 갱신한다
       # (id 없이 update하면 CLI가 'Role "id" is missing' 경고를 내며 이름으로
       # 다시 찾는다 — 실측 확인, 2026-08-27).
-      az_ role definition update \
-        --role-definition "$(jq --arg id "$existing_id" '. + {id: $id}' <<<"$definition")" >/dev/null
+      if [[ -n "$sub" ]]; then
+        az_ role definition update \
+          --role-definition "$(jq --arg id "$existing_id" '. + {id: $id}' <<<"$definition")" \
+          --subscription "$sub" >/dev/null
+      else
+        az_ role definition update \
+          --role-definition "$(jq --arg id "$existing_id" '. + {id: $id}' <<<"$definition")" >/dev/null
+      fi
       changed "[$label] 커스텀 역할 갱신: $role_name (Actions/NotActions/DataActions 불일치)"
     fi
   fi
@@ -226,7 +242,7 @@ ensure_custom_role "$WORKLOAD_ROLE_NAME" "$(workload_role_definition_json "$SUBS
 ensure_custom_role "$STATE_DATA_ROLE_NAME" "$(state_data_role_definition_json "$STATE_RG_SCOPE")" "state-data"
 
 # ── 6. role assignment (기본 assignee = 이 대상 자신의 CI 신원 SP_ID) ────────
-ensure_role_assignment() {  # ensure_role_assignment <role-name> <scope> <label> <assignee-object-id>
+ensure_role_assignment() {  # ensure_role_assignment <role-name> <scope> <label> <assignee-object-id> [subscription]
   # ⚠️ roleDefinitionName이 아니라 roleDefinitionId로 필터링한다. roleDefinitionName은
   # role assignment 객체가 조회 시점에 역할 정의 쪽과 조인해서 채우는 값이라, 방금
   # role assignment를 만들거나 역할 정의를 갱신한 직후엔 한동안 null로 보일 수 있다
@@ -238,14 +254,29 @@ ensure_role_assignment() {  # ensure_role_assignment <role-name> <scope> <label>
   # 크로스 구독 스포크 연결 권한을 추가하며 리팩터링 — 이전엔 전역 $SP_ID에
   # 암묵 의존했으나, 그 assignee가 이 대상 자신이 아니라 hub SP인 호출이 생겨
   # 암묵 의존이 더 이상 성립하지 않는다).
-  local role_name="$1" scope="$2" label="$3" assignee="$4"
+  #
+  # [subscription]이 주어지면(hub-peer 전용) 역할 정의·role assignment 둘 다
+  # 이 대상 자신의 구독이 아닌 다른 구독(hub)에 있다는 뜻이다 — az 전역
+  # --subscription로 라우팅한다. ensure_custom_role과 동일한 이유로 빈 배열
+  # 전개 대신 두 분기를 분리한다.
+  local role_name="$1" scope="$2" label="$3" assignee="$4" sub="${5:-}"
   local role_id existing
-  role_id="$(jq -r '.[0].id' <<<"$(role_definition_list_retry "$role_name")")"
-  existing="$(az_ role assignment list --assignee "$assignee" --scope "$scope" \
-    --query "[?roleDefinitionId=='$role_id']" -o json)"
+  role_id="$(jq -r '.[0].id' <<<"$(role_definition_list_retry "$role_name" "$sub")")"
+  if [[ -n "$sub" ]]; then
+    existing="$(az_ role assignment list --assignee "$assignee" --scope "$scope" --subscription "$sub" \
+      --query "[?roleDefinitionId=='$role_id']" -o json)"
+  else
+    existing="$(az_ role assignment list --assignee "$assignee" --scope "$scope" \
+      --query "[?roleDefinitionId=='$role_id']" -o json)"
+  fi
   if [[ "$(jq 'length' <<<"$existing")" -eq 0 ]]; then
-    retry_on_replication_delay az_ role assignment create --assignee "$assignee" \
-      --role "$role_name" --scope "$scope"
+    if [[ -n "$sub" ]]; then
+      retry_on_replication_delay az_ role assignment create --assignee "$assignee" \
+        --role "$role_name" --scope "$scope" --subscription "$sub"
+    else
+      retry_on_replication_delay az_ role assignment create --assignee "$assignee" \
+        --role "$role_name" --scope "$scope"
+    fi
     changed "[$label] role assignment 생성: $role_name @ $scope"
   else
     ok "[$label] role assignment 존재: $role_name"
@@ -272,6 +303,18 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
 
   ensure_custom_role "$SPOKE_PEER_ROLE_NAME" "$(spoke_peer_role_definition_json "$RG_SCOPE")" "spoke-peer"
   ensure_role_assignment "$SPOKE_PEER_ROLE_NAME" "$RG_SCOPE" "spoke-peer" "$HUB_SP_ID"
+
+  # ── 6-1-b. hub-peer(spoke-peer와 정반대 방향, hub-argocd-rbac-direction-flip
+  #    계획 5절) — 이 spoke의 CI 신원(자기 자신, $SP_ID)이 hub 구독의 hub
+  #    워크로드 RG에서 ArgoCD UAMI를 읽을 수 있게 한다. 역할 정의·할당 둘 다
+  #    hub 구독 안에서 이뤄지므로(스코프가 spoke가 아니라 hub RG) az 컨텍스트가
+  #    이미 spoke 구독인 이 실행 중에도 --subscription "$HUB_SUBSCRIPTION"으로
+  #    명시 라우팅한다. spoke-peer는 이 RG_SCOPE(spoke 자기 RG)에 만들지만,
+  #    hub-peer는 HUB_RG_SCOPE(hub RG, 다른 구독)에 만든다 — 스코프 변수를
+  #    혼동하지 않는다. ──────────────────────────────────────────────────────
+  HUB_RG_SCOPE="/subscriptions/${HUB_SUBSCRIPTION}/resourceGroups/${HUB_RG_NAME}"
+  ensure_custom_role "$HUB_PEER_ROLE_NAME" "$(hub_peer_role_definition_json "$HUB_RG_SCOPE")" "hub-peer" "$HUB_SUBSCRIPTION"
+  ensure_role_assignment "$HUB_PEER_ROLE_NAME" "$HUB_RG_SCOPE" "hub-peer" "$SP_ID" "$HUB_SUBSCRIPTION"
 fi
 
 # ── 6-2. RP 등록 (hub·spoke 공통) ────────────────────────────────────────────
