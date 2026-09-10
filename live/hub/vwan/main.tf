@@ -68,12 +68,13 @@ locals {
   # 이 data source 자체가 dev 외 스포크(같은 azurerm.dev 구독 안의 qa 등, 예:
   # 비프로덕션 구독에 dev+qa 공존)를 애초에 조회하지 못했고, 그룹핑 키도 리터럴
   # "dev"라 설사 조회되더라도 서로 다른 스포크가 한 키로 뭉개졌을 것이다.
-  # spoke_aks_ids(아래 190행대, 같은 provider.dev 스코프)는 이미 이 패턴이라
-  # 이 local만 뒤처져 있던 비대칭을 해소한다 — 태그만 맞으면 재적용만으로
-  # 두 번째 vHub 연결이 자동으로 생긴다. 여전히 provider alias(azurerm.dev)
-  # 자체는 구독 하나에 고정이라, 완전히 다른 구독의 새 스포크는 별도 provider
-  # alias+data source 블록 추가가 필요하다(raw OpenTofu 루트의 의도된
-  # 트레이드오프, spoke_aks_ids 위 주석과 동일 근거).
+  # 태그만 맞으면 재적용만으로 두 번째 vHub 연결이 자동으로 생긴다. 여전히
+  # provider alias(azurerm.dev) 자체는 구독 하나에 고정이라, 완전히 다른
+  # 구독의 새 스포크는 별도 provider alias+data source 블록 추가가 필요하다
+  # (raw OpenTofu 루트의 의도된 트레이드오프). 2026-09-10 — 이 패턴을 공유하던
+  # spoke_aks_ids(hub ArgoCD role assignment 발견용)는 방향 전환으로 제거됐다
+  # (아래 removed 블록 참고) — spoke_connections(이 local)는 vHub 연결 자체가
+  # hub 소유 리소스라 방향 전환 대상이 아니므로 그대로 남는다.
   spoke_connections = {
     for r in data.azurerm_resources.dev_spoke_vnets.resources : r.tags["Environment"] => r.id
   }
@@ -193,44 +194,23 @@ resource "azurerm_federated_identity_credential" "argocd" {
 # 대상 클러스터 리소스 ID 스코프의 role assignment가 별도로 필요하다(인증·
 # 인가는 별개 축, Step 2 실측이 이미 확인한 잔존 리스크와 같은 구분).
 #
-# spoke_connections(위 45~74행, VNet 자동 발견)과 같은 이유로 dev AKS 리소스
-# ID를 CI 변수 주입이 아니라 태그 기반 azurerm_resources로 직접 조회한다
-# (bootstrap/config.sh의 spoke-peer 역할에 2026-09-09 managedClusters/read
-# 추가, dev 구독에 이미 적용·verify.sh로 drift 없음 확인 완료).
-#
-# 그룹핑 키를 리터럴 "dev"로 고정하지 않고 r.tags["Environment"]로 뽑는다 —
-# provider(azurerm.dev)가 구독 단위로 고정돼 있어 오늘은 결과가 dev 하나뿐이지만,
-# 한 구독에 여러 환경이 같이 있는 경우(예: 비프로덕션 구독에 dev+qa 공존)까지
-# 대비한 것이다 — 리터럴 키였다면 그 경우 서로 다른 스포크가 조용히 한 키로
-# 뭉개진다(2026-09-09, "다중 스포크 확장성 검토" 요청 대응). `spoke_connections`
-# (위 45~74행)도 그때는 같은 이유로 리터럴 "dev" 키가 남아있었으나, 같은 날
-# 후속 세션에서 이 data source와 동일 패턴(required_tags에서 Environment
-# 필터 제거 + r.tags["Environment"] 동적 그룹핑)으로 맞췄다 — 이제 두 곳
-# 모두 대칭이다.
-data "azurerm_resources" "spoke_aks_clusters" {
-  provider = azurerm.dev
+# 2026-09-10 — hub ArgoCD RBAC role assignment 방향 전환
+# (.omc/plans/hub-argocd-rbac-direction-flip.md). 이 스코프에서 spoke AKS를
+# 발견해 hub 자신의 state 안에 role assignment를 만들던 축(data
+# "azurerm_resources" "spoke_aks_clusters" · local.spoke_aks_ids · resource
+# "azurerm_role_assignment" "argocd_spoke_aks_access")을 통째로 제거했다 —
+# OpenTofu의 `removed` 블록은 for_each 인스턴스 키 단위 주소를 지원하지
+# 않아("dev"만 골라 이전 불가, 리소스 전체 주소만 가능) plan 4절이 원래
+# "5단계"로 미뤘던 코드 삭제를 여기서 함께 해야 했다 — 결과적으로 3.1절이
+# 결정한 발견 로직 완전 제거도 이 시점에 동시 달성된다. 소유권은
+# live/dev/aks의 azurerm_role_assignment.argocd_hub_access로 이전한다
+# (그쪽에 대응하는 import 블록으로 같은 실제 Azure 객체를 인수한다).
+# destroy=false — 실제 Azure 객체는 그대로 두고 이 root의 state 추적만
+# 중단한다(장부만 옮긴다, 실물은 안 건드린다).
+removed {
+  from = azurerm_role_assignment.argocd_spoke_aks_access
 
-  type = "Microsoft.ContainerService/managedClusters"
-  required_tags = {
-    Workload = var.workload
+  lifecycle {
+    destroy = false
   }
-}
-
-locals {
-  spoke_aks_ids = {
-    for r in data.azurerm_resources.spoke_aks_clusters.resources : r.tags["Environment"] => r.id
-  }
-}
-
-# hub ArgoCD UAMI에 각 스포크 AKS의 K8s API 인가 권한 부여 — Step 2에서
-# 검증한 토큰 교환 경로(argocd-k8s-auth azure)가 실제로 인가받는 지점이
-# 여기다. principal이 다른 구독 소속이라 skip_service_principal_aad_check가
-# 필요하다(live/dev/aks/main.tf의 같은 패턴과 동일 근거).
-resource "azurerm_role_assignment" "argocd_spoke_aks_access" {
-  for_each = local.spoke_aks_ids
-
-  scope                            = each.value
-  role_definition_name             = "Azure Kubernetes Service RBAC Cluster Admin"
-  principal_id                     = azurerm_user_assigned_identity.argocd.principal_id
-  skip_service_principal_aad_check = true
 }

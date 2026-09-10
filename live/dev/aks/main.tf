@@ -380,6 +380,18 @@ resource "azurerm_role_assignment" "argocd_hub_access" {
   skip_service_principal_aad_check = true
 }
 
+# 2026-09-10 — hub ArgoCD RBAC role assignment 방향 전환 마이그레이션
+# (.omc/plans/hub-argocd-rbac-direction-flip.md 4절). live/hub/vwan이
+# 24차 세션에 만든 기존 role assignment(실제 Azure 객체, GUID
+# 3712c975-21e2-8030-daab-873296942472)를 이 root의 state로 인수한다 —
+# hub 쪽엔 대응하는 removed 블록(destroy=false)이 있어 같은 실제 객체를
+# 새로 만들거나 지우지 않고 장부만 옮긴다. apply 후 이 import 블록은
+# 1회성이라 제거한다(plan 4절 5단계).
+import {
+  to = azurerm_role_assignment.argocd_hub_access[0]
+  id = "/subscriptions/af8171fb-678c-401e-80bc-7be4d0cb6c56/resourceGroups/rg-demo-dev-krc-workload-01/providers/Microsoft.ContainerService/managedClusters/aks-demo-dev-krc-main-01/providers/Microsoft.Authorization/roleAssignments/3712c975-21e2-8030-daab-873296942472"
+}
+
 # count=0 경로가 "정상"(hub 재구축 윈도우)과 "설정 실수"(태그 누락 등)를 구분 못
 # 하면 조용한 무동작이 재발한다 — plan/apply 로그에 경고를 남긴다(Architect 지적,
 # plan 2.1절).
