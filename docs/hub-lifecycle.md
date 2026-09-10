@@ -111,6 +111,8 @@ networking → spoke eks → **hub networking 재적용**"과 정확히 같은 �
 
 identity·role assignment는 **이 root가 Terraform으로 직접 만든다**(bootstrap이 아니다. CI가 구독 전체 Owner 등가라 그 구조적 제약이 없다). `aks-cluster` 모듈 자체는 identity도 role assignment도 만들지 않는 경계 원칙을 유지한다.
 
+2026-09-10부터 hub ArgoCD의 Workload Identity(GitOps 크로스 클러스터 인증용 UAMI+FIC)도 이 root가 만든다 - FIC의 issuer가 *이 클러스터 자신의* OIDC issuer URL에 묶여야 해서다. 한때 `live/hub/vwan`에 있었으나, 전체 철거→재구축 e2e 검증 중 그 root가 이 클러스터를 크로스 root `data` 조회하는 숨은 의존성이 드러나(networking→vwan→aks 순서로 from-scratch 구축하면 AKS가 아직 없어 실패) 이 root로 옮겼다.
+
 ```bash
 gh workflow run deploy-hub-aks.yml --ref main -f action=apply
 ```
@@ -163,13 +165,23 @@ hub만 자기 `argocd-seed.sh`를 돈다.
 gh repo create <org>/<project>-platform-gitops --private
 ```
 
-`eks-platform-gitops`의 레이아웃을 그대로 본뜬다(self-managed ArgoCD + App-of-Apps). **이 저장소에 `.tf`를 두지 않는다.** Terraform은 identity·federated credential·role assignment까지만 만들고(위 5절의 ALB Controller workload identity), helm 설치·CR은 전부 GitOps 소관이다.
+`eks-platform-gitops`의 레이아웃을 그대로 본뜬다(self-managed ArgoCD + App-of-Apps). **이 저장소에 `.tf`를 두지 않는다.** Terraform은 identity·federated credential·role assignment까지만 만들고(위 5절의 hub ArgoCD workload identity), helm 설치·CR은 전부 GitOps 소관이다.
+
+`argocd-seed.sh`는 `<project>-platform-gitops`의 `bootstrap/`에 있다(이 저장소의 `bootstrap/`과는 다른 디렉토리 - 혼동 주의). workbench에 이 저장소를 **클론할 자격증명이 미리 심어져 있지 않다**(cloud-init이 credential을 VM 상태에 남기지 않는 설계) - private repo라 `git clone https://github.com/...`는 인증 없이 실패한다. `gh api orgs/<org>/installations --jq '.installations[] | {app_slug, id, app_id}'`로 `GH_APP_ID`·`GH_APP_INSTALLATION_ID`를 조회하고, private key(`.pem`, 로컬에 이미 있어야 한다 - 발급 경로는 `bootstrap/README.md`의 GitHub App 절 참고)를 `scp`로 workbench에 올려 쓴다:
 
 ```bash
-# workbench에서 실행한다
-./bootstrap/argocd-seed.sh --dry-run
-./bootstrap/argocd-seed.sh --to 4
-argocd app diff argocd --core   # diff 실측 확인 후에만 automated 블록 최종 확정
+# workbench에서 실행한다(저장소는 로컬에서 scp로 복사, 자격증명이 없어 클론 불가)
+export GITOPS_REPO_DIR=$HOME/<project>-platform-gitops
+export CLUSTER_DIR=clusters/hub/<cluster-name>
+export GITOPS_REPO_URL=https://github.com/<org>/<project>-platform-gitops.git
+export GH_APP_ID=<위에서 조회한 app_id>
+export GH_APP_INSTALLATION_ID=<위에서 조회한 id>
+export GH_APP_PRIVATE_KEY=$HOME/<app>.pem
+cd "$GITOPS_REPO_DIR/bootstrap"
+./argocd-seed.sh --dry-run
+./argocd-seed.sh --to 5        # root Application까지 - argocd-app.yaml은 root-app의
+                                # 재귀 스캔으로 자동 흡수되어 별도 단계가 없다
+argocd app diff argocd --core  # 출력 없음·exit 0이 기대값(무해한 diff도 없어야 한다)
 ```
 
 스크립트는 매니페스트를 **생성하지 않는다.** GitOps 저장소에 커밋된 파일을 그대로 apply한다.
@@ -378,7 +390,8 @@ az vm deallocate --ids <workbench-vm-id>
 | vwan destroy가 "연결 리소스 참조" 오류로 실패 | networking을 vwan보다 먼저 지웠다 | 13절 순서(vwan 먼저)를 지킨다 |
 | `prevent_destroy`로 plan이 실패한다 | 삭제 보호 | 11절: 코드를 고쳐 apply한다 |
 | destroy 후에도 노드가 살아 있다 | NAP 고아 | NodePool/AKSNodeClass를 먼저 지웠어야 한다(12절) |
-| 클러스터를 지웠는데 `MC_*` RG가 남았다 | AGFC ALB Controller 리소스가 먼저 안 죽었다 | 태그로 특정해 수동 삭제 |
+| 클러스터를 지웠는데 `MC_*` RG가 남았다 | IaC 밖 자원이 먼저 안 죽었다(12절) | 태그로 특정해 수동 삭제 |
+| workbench SSH 접속 직후 `kubectl`이 `localhost:8080` 연결 거부 | cloud-init의 `az login --identity`가 부팅 초기 IMDS 타임아웃으로 실패(apt-daily·kubelogin $HOME과 같은 부팅 레이스 계열) | `cloud-init status`로 `done` 확인 후 `sudo az login --identity --resource-id <workbench UAMI ID>` 재시도(보통 즉시 성공) → `sudo az aks get-credentials ...` → `admin_username` 홈에 `/root/.kube/config` 복사 |
 | state lock이 풀리지 않는다 | apply가 중단됐다 | Storage Account의 blob lease를 확인 후 `az storage blob lease break`로 해제 |
 | 로컬 destroy가 `var.ci_run` 가드로 막힌다 | `require_oidc` 조건 | 로컬 경로는 없다: 워크플로로 파기한다 |
 | 지운 리소스가 되살아난다 | ArgoCD 컨트롤러가 살아 있다 | 12절: `patch`가 아니라 컨트롤러를 `scale 0` |

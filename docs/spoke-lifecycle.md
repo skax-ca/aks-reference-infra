@@ -158,13 +158,12 @@ endpoint·인증 수단이 필요하다. AWS 원본처럼 spoke 쪽에 `cross-ac
 
 **선행 조건(hub 쪽, spoke가 몇 개든 한 번만)** - `live/hub/aks`가 이미 만들어 둔 것
 (2026-09-10 `live/hub/vwan`에서 이전): hub 전용 User-assigned Identity
-(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그) +
-ArgoCD SA 2개(`argocd-application-controller`·`argocd-server`)의 Federated
+(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그) + ArgoCD SA 2개의 Federated
 Identity Credential. role assignment는 더 이상 hub 쪽 로직이 아니다(2026-09-10
 방향 전환) - **5절의 `deploy-dev-aks.yml apply`가 이미 만들어 놓은 상태**다. 이
 절에서 새로 할 일은 없다. spoke 온보딩 시 hub 쪽에 한 번 필요한 건 `bootstrap.sh`
-(`BOOTSTRAP_TARGET=spoke`)가 자동 부여하는 `hub-peer` 커스텀 역할(spoke CI 신원이
-hub UAMI를 read할 권한, RG 스코프) 뿐이며 이미 완료돼 있다(1절 부트스트랩 단계).
+(`BOOTSTRAP_TARGET=spoke`)가 자동 부여하는 `hub-peer` 커스텀 역할뿐이며 이미
+완료돼 있다(1절 부트스트랩 단계).
 
 ```bash
 # spoke 쪽 값 수집
@@ -368,25 +367,26 @@ connection.spoke["dev"]`는 **살아있는 데이터소스**(`azurerm_resources`
 ### 14. 재배포 시 GitOps 재등록
 
 dev AKS를 destroy 후 재생성하면 클러스터 이름이 같아도 API endpoint·CA 인증서는 **반드시
-새로 발급**된다(2026-09-09 실측: FQDN 접미사가 `1amwkeg8` → `9z9xsbiw`로 바뀜). 재배포
-시 `cluster-secret.yaml`의 `server`·`caData`만 갱신하고 `argocd.argoproj.io/secret-type`·
-fan-out 매칭 라벨(`environment`·`addon-*`)은 그대로 유지해야 한다(빠뜨리면 addon
-구독이 조용히 빠진 채 재배포된다).
+새로 발급**된다(FQDN 접미사 실측 이력: `1amwkeg8` → `9z9xsbiw` → `vsj5lmr3`, 매
+재구축마다 바뀐다). 재배포 시 `cluster-secret.yaml`의 `server`·`caData`만 갱신하고
+`argocd.argoproj.io/secret-type`·fan-out 매칭 라벨(`environment`·`addon-*`)은 그대로
+유지해야 한다(빠뜨리면 addon 구독이 조용히 빠진 채 재배포된다).
 
 ✅ **hub ArgoCD의 dev 클러스터 RBAC 권한은 새 AKS 리소스 ID로 자동 재생성된다
 (2026-09-10부터).** 5절의 `deploy-dev-aks.yml apply`가 role assignment 생성까지
-포함하므로(방향 전환, `.omc/plans/hub-argocd-rbac-direction-flip.md`) `live/hub/vwan`을
-추가로 만질 필요가 없다 - hub 쪽은 dev AKS 리소스 ID를 몰라도 되는 구조로 바뀌었다.
-⚠️ 다만 hub 자신이 재구축되면 hub ArgoCD UAMI(`live/hub/aks`와 같은 root, 2026-09-10
-이전)가 새 `clientId`로 바뀐다 - `cluster-secret.yaml`의 `AZURE_CLIENT_ID`는 리터럴
-값이라 자동 갱신되지 않으므로 `az identity show`로 재조회해 server·caData와 함께
-갱신한다.
+포함하므로(방향 전환) `live/hub/vwan`을 추가로 만질 필요가 없다. ⚠️ 다만 hub 자신이
+재구축되면 hub ArgoCD UAMI(`live/hub/aks`와 같은 root)가 새 `clientId`로 바뀐다 -
+`cluster-secret.yaml`의 `AZURE_CLIENT_ID`는 리터럴 값이라 `az identity show`로
+재조회해 server·caData·platform.yaml과 함께 갱신한다.
 
-이 절은 2026-09-09 실제 철거→재구축(옛 hub 발견 구조 기준)과 2026-09-10 방향 전환
-apply(hub `forget`+dev `import`)로 검증됐다. **다만 새 구조로 dev 전체를 처음부터
-철거→재구축하는 e2e 검증은 아직 실행 전이다** - 다음 실행 시 5절의 role assignment
-자동 생성이 실제로 동작하는지, hub를 단 한 번도 재apply하지 않고도 6~13절이 그대로
-성립하는지 확인이 이 절의 다음 갱신 대상이다.
+✅ **dev뿐 아니라 hub까지 포함한 전체 철거→재구축 e2e 검증 완료(2026-09-10).** 5절의
+role assignment 자동 생성이 실제로 동작함을 principalId 일치로 실측 확인했고, hub를
+재apply하지 않고도 6~13절이 그대로 성립함을 확인했다. 이 검증 중 `projects/platform.yaml`의
+dev destination이 여러 재구축을 거치며 갱신되지 않고 가장 오래된 FQDN을 그대로 가리키고
+있던 걸 발견했다 - **이 절의 `server`·`caData` 갱신에 `projects/platform.yaml`의
+해당 destination도 포함한다**(6절의 최초 등록 때만 필요한 게 아니라 매 재배포마다
+같이 간다). 빠뜨려도 즉시 에러는 안 나지만(기존 destination 항목이 여전히 유효한
+패턴으로 남아있는 동안은), 다음 재구축 때 문제가 드러난다.
 
 ### 15. 되돌릴 수 없는 것 / 자주 막히는 지점
 
