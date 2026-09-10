@@ -10,7 +10,7 @@ hub-spoke AKS GitOps 패턴의 **레퍼런스 배포 루트**다(`eks-reference-
 
 | repo | 역할 | SSOT |
 |------|------|------|
-| **이 repo (`aks-reference-infra`)** | hub-spoke 패턴을 **소비해 배포**하는 루트 | 이 배포 코드. 설계 근거는 해당 `.tf`/`.sh` 파일의 인라인 주석이 SSOT다. 운영 절차는 `docs/hub-lifecycle.md`(✅)·`docs/spoke-lifecycle.md`·`docs/runbooks.md`(⏳, 6절) |
+| **이 repo (`aks-reference-infra`)** | hub-spoke 패턴을 **소비해 배포**하는 루트 | 이 배포 코드. 설계 근거는 해당 `.tf`/`.sh` 파일의 인라인 주석이 SSOT다. 운영 절차는 `docs/hub-lifecycle.md`(✅)·`docs/spoke-lifecycle.md`(✅)·`docs/runbooks.md`(⏳) |
 | `iac-module-library` | Terraform/OpenTofu 모듈·설계 | 모듈 계약(`docs/module-catalog.md`), 네이밍 약어(`docs/naming/abbreviations/azure.md`), 아키텍처 결정(`docs/decisions.md`), 문서 문체 규칙(`docs/conventions.md`) |
 | `aks-platform-gitops` | ArgoCD Application·AppProject·cluster-secret (계층 2) | ✅ hub·dev 양쪽 등록 완료(self-managed ArgoCD·AKS App Routing·Karpenter·Kyverno, `eks-platform-gitops` 대응. dev는 2026-09-09 Entra Workload Identity 기반으로 등록). 설계 근거는 그 저장소 자신의 `README.md` |
 
@@ -23,8 +23,9 @@ hub-spoke AKS GitOps 패턴의 **레퍼런스 배포 루트**다(`eks-reference-
 
 **운영 절차 SSOT는 이 repo다.** 원본(`eks-reference-infra`)은 `docs/hub-lifecycle.md`·
 `docs/spoke-lifecycle.md`·`docs/runbooks.md` 세 문서가 그 역할을 한다. 이 repo는
-`docs/hub-lifecycle.md`를 포팅했다(✅). `docs/spoke-lifecycle.md`·`docs/runbooks.md`는
-아직이다(⏳). `docs/decisions/`(ADR류 설계 문서 8개)는 한 차례 만들었다가 삭제했다.
+`docs/hub-lifecycle.md`·`docs/spoke-lifecycle.md`를 포팅했다(✅, 둘 다 전체
+철거→재구축 e2e 검증까지 완료). `docs/runbooks.md`는 아직이다(⏳).
+`docs/decisions/`(ADR류 설계 문서 8개)는 한 차례 만들었다가 삭제했다.
 대상 `.tf`/`.sh` 주석과 내용이 대부분 겹쳤고, 코드가 바뀐 뒤에도 갱신되지 않아
 실물과 어긋난 채 방치되는 것으로 확인됐다(git 이력에 남아 있다). 원본에 없는
 계층이라 다시 만들지 않는다.
@@ -35,13 +36,13 @@ hub-spoke AKS GitOps 패턴의 **레퍼런스 배포 루트**다(`eks-reference-
 bootstrap/              ✅ state Storage Account · App Registration · 커스텀 역할(IaC 밖, 사람이 스크립트로 실행)
 live/hub/networking/    ✅ VNet(hub)
 live/hub/vwan/          ✅ Virtual WAN(hub, networking과 분리된 state)
-live/hub/aks/           ✅ AKS 클러스터(hub, Karpenter/NAP·KEDA·AGFC workload identity 포함)
+live/hub/aks/           ✅ AKS 클러스터(hub, Karpenter/NAP·KEDA·App Routing·hub ArgoCD workload identity 포함)
 live/hub/workbench/     ✅ CLI 전용 운영 VM(hub, private 클러스터의 유일한 일상 접근 지점)
 live/dev/networking/    ✅ VNet(spoke 첫 인스턴스), vWAN 스포크 연결 완료
 live/dev/aks/           ✅ AKS 클러스터(dev, hub와 풀 패리티. Karpenter/NAP·KEDA·App Routing 포함, 노드 2대 Ready 실측)
 live/dev/workbench/     ✅ CLI 전용 운영 VM(dev, hub와 풀 패리티. vm_size만 Standard_B2s_v2로 오버라이드 - 이 구독의 Standard_B2s 용량 제약 때문)
 .github/workflows/      배포 루트마다 워크플로 하나(plan은 push, apply/destroy는 workflow_dispatch)
-docs/                   hub-lifecycle.md ✅ · spoke-lifecycle.md·runbooks.md ⏳(6절)
+docs/                   ✅ hub-lifecycle.md·spoke-lifecycle.md · ⏳ runbooks.md
 scripts/                ⏳ 아직 없음(원본의 `validate-doc-conventions.py` 등 포팅 예정, 4절)
 ```
 
@@ -93,8 +94,9 @@ Pod Subnet을 택한 이유도 그 주석에 있다.
 
 원본(`eks-reference-infra`)은 `scripts/validate-doc-conventions.py` +
 `tofu fmt`/`tflint`/`trivy`를 `.githooks/`(pre-commit/pre-push)로 강제한다. 이 repo는
-`scripts/`·`.githooks/`를 아직 포팅하지 않아 이 게이트가 없다. `docs/` 포팅(6절)과
-함께 진행할 후속 작업이다. 그때까지는 사람이 직접 `tofu fmt`·문서 규칙을 지킨다.
+`scripts/`·`.githooks/`를 아직 포팅하지 않아 이 게이트가 없다. `docs/runbooks.md`
+포팅(0절 표 참고)과 함께 진행할 후속 작업이다. 그때까지는 사람이 직접 `tofu fmt`·
+문서 규칙을 지킨다.
 
 ## 5. 브랜치·PR 규칙
 
