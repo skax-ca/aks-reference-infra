@@ -85,7 +85,8 @@ module "vnet" {
   # destroy(hub와 동일 2단계 절차).
   #
   # 2026-09-09: spoke-lifecycle.md 철거→재구축 실측 검증 완료(9~14절) — 재구축 후 true로 복원.
-  deletion_protection = true
+  # 2026-09-10: hub까지 포함한 전체 철거→재구축 e2e 검증(US-009) 착수 — destroy 전 해제.
+  deletion_protection = false
 
   tags = {
     Environment = var.env
