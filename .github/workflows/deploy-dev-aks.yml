@@ -49,6 +49,11 @@ env:
   ARM_USE_OIDC: "true"
   TF_VAR_subscription_id: ${{ vars.AZURE_DEV_SUBSCRIPTION_ID }}
   TF_VAR_ci_run: "true"
+  # hub ArgoCD UAMI를 태그 기반 data source로 자동 발견하는 두 번째 provider
+  # (azurerm.hub, providers.tf)의 subscription_id. live/hub/vwan이 이미 쓰는 것과
+  # 같은 repo variable을 재사용한다(hub-argocd-rbac-direction-flip plan 6.5절,
+  # 2026-09-10 신설, live/hub/vwan/main.tf의 TF_VAR_dev_subscription_id와 대칭).
+  TF_VAR_hub_subscription_id: ${{ vars.AZURE_HUB_SUBSCRIPTION_ID }}
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────

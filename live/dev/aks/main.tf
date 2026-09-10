@@ -327,3 +327,65 @@ resource "azapi_update_resource" "aks_app_routing_gateway_api" {
     }
   }
 }
+
+# ── hub ArgoCD UAMI 발견 + 자기 자신에 대한 role assignment ────────────────────
+#
+# hub-argocd-rbac-direction-flip plan(.omc/plans/hub-argocd-rbac-direction-flip.md)
+# 2.1절 — 권한 이동은 항상 "발견하는 쪽"이 아니라 "리소스를 소유하는 쪽"이 만든다는
+# 원칙에 따라, live/hub/vwan이 스포크를 발견해 hub state 안에 role assignment를
+# 만들던 기존 방향(argocd_spoke_aks_access)을 이 root로 반전시킨다 — dev 자신의
+# apply 안에서, dev 자신의 이미 보유한 구독 전체 Owner 권한으로 끝낸다.
+#
+# live/hub/vwan의 spoke_aks_clusters(210~217행)와 대칭 패턴이되 2단 조회다.
+# Architect+Critic이 azurerm 5.x 스키마를 실측 확인(`tofu providers schema -json`):
+# azurerm_resources.resources는 {id,location,name,resource_group_name,tags,type}만
+# 반환하고 identity/principal_id가 없다(1단만으로는 이 설계 전체가 "0 to add"로
+# 조용히 무동작한다 — 실제로 발견된 블로커). 그래서 1단(리스트, soft-fail)으로
+# 이름만 얻고, 2단(명명 조회)에서 principal_id를 얻는다 — data
+# "azurerm_user_assigned_identity"는 principal_id를 노출함을 같은 스키마 덤프로 확인.
+data "azurerm_resources" "hub_argocd_uami" {
+  provider = azurerm.hub
+
+  resource_group_name = "rg-${var.workload}-hub-${var.region_code}-workload-01"
+  type                = "Microsoft.ManagedIdentity/userAssignedIdentities"
+  required_tags = {
+    Workload = var.workload
+    Role     = "argocd-hub" # live/hub/vwan의 UAMI에 이 태그가 붙어 있어야 한다(plan 4절 0단계)
+  }
+}
+
+# for_each가 0건이면 이 data source 자체가 호출되지 않는다 — 1단에서 이미 존재를
+# 확인한 이름만 조회하므로 "존재 확인 없는 하드 실패"가 아니다(soft-fail 유지,
+# CLAUDE.md 5절 userDirective와 동일 원칙).
+data "azurerm_user_assigned_identity" "hub_argocd" {
+  for_each = { for r in data.azurerm_resources.hub_argocd_uami.resources : r.name => r }
+
+  provider            = azurerm.hub
+  name                = each.value.name
+  resource_group_name = each.value.resource_group_name
+}
+
+locals {
+  hub_argocd_principal_id = try(values(data.azurerm_user_assigned_identity.hub_argocd)[0].principal_id, null)
+}
+
+# principal이 다른 구독(hub) 소속이라 skip_service_principal_aad_check가 필요하다
+# (live/hub/vwan/main.tf의 argocd_spoke_aks_access와 동일 근거).
+resource "azurerm_role_assignment" "argocd_hub_access" {
+  count = local.hub_argocd_principal_id != null ? 1 : 0
+
+  scope                            = module.aks_cluster.cluster_id # 자기 자신의 리소스
+  role_definition_name             = "Azure Kubernetes Service RBAC Cluster Admin"
+  principal_id                     = local.hub_argocd_principal_id
+  skip_service_principal_aad_check = true
+}
+
+# count=0 경로가 "정상"(hub 재구축 윈도우)과 "설정 실수"(태그 누락 등)를 구분 못
+# 하면 조용한 무동작이 재발한다 — plan/apply 로그에 경고를 남긴다(Architect 지적,
+# plan 2.1절).
+check "hub_argocd_uami_discovered" {
+  assert {
+    condition     = local.hub_argocd_principal_id != null
+    error_message = "hub ArgoCD UAMI를 발견하지 못했다 — hub가 재구축 중이거나(정상, 재apply로 해소) Role=argocd-hub 태그가 빠졌을 수 있다(비정상, plan 4절 0단계 확인)."
+  }
+}

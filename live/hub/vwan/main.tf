@@ -160,7 +160,7 @@ resource "azurerm_user_assigned_identity" "argocd" {
   name                = "id-${var.workload}-${var.env}-${var.region_code}-argocd-01"
   resource_group_name = data.azurerm_resource_group.workload.name
   location            = var.location
-  tags                = local.tags
+  tags                = merge(local.tags, { Role = "argocd-hub" })
 }
 
 # hub AKS 클러스터의 OIDC issuer URL 조회. 결정적 네이밍 → data 조회(CLAUDE.md 1절) —
