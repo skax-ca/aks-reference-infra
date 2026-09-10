@@ -29,3 +29,19 @@ output "node_resource_group" {
   EOT
   value       = module.aks_cluster.node_resource_group
 }
+
+# 2026-09-10 live/hub/vwan에서 이전(main.tf "hub ArgoCD의 Entra Workload Identity" 절 참고).
+output "argocd_identity_client_id" {
+  description = <<-EOT
+    hub ArgoCD Workload Identity의 client ID. `aks-platform-gitops`의
+    `bootstrap/argocd-values.yaml`(controller·server ServiceAccount의
+    `azure.workload.identity/client-id` 애노테이션)에 수동으로 옮겨 적는다 —
+    이 값은 이 root의 state 밖(다른 저장소)이라 자동 배선하지 않는다.
+  EOT
+  value       = azurerm_user_assigned_identity.argocd.client_id
+}
+
+output "argocd_identity_principal_id" {
+  description = "hub ArgoCD Workload Identity의 principal ID. dev(spoke) AKS role assignment의 principal_id로 쓴다."
+  value       = azurerm_user_assigned_identity.argocd.principal_id
+}

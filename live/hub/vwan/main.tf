@@ -146,73 +146,42 @@ resource "azurerm_virtual_hub_connection" "spoke" {
 
 # ── dev(spoke) GitOps 등록 — hub ArgoCD의 Entra Workload Identity ──────────────
 #
-# .omc/plans/dev-gitops-registration.md(6.5차 패치) 결정: 이 UAMI+FIC는 이 root에
-# 둔다(live/hub/aks가 아니라) — DNS Link(아래)와 같은 "hub↔dev 크로스 구독 배선"
-# 역할의 연장이고, 새 root를 만들면 워크플로·backend key 신설 비용이 든다.
+# 2026-09-10 — 이 root에서 live/hub/aks로 이전했다. 원래 이유(.omc/plans/
+# dev-gitops-registration.md 6.5차 패치 - "새 root를 만들면 워크플로·backend key
+# 신설 비용이 든다")는 그대로 맞지만, 애초에 live/hub/aks가 *이미 있는* root라는
+# 점을 놓쳤다 - FIC의 issuer가 hub AKS의 OIDC issuer URL에 묶이는데, 그 값을 여기서는
+# `data "azurerm_kubernetes_cluster" "hub"`로 **이름 기반 재조회**해야 했다(CLAUDE.md
+# 1절의 일반 원칙을 그대로 따른 선택이었으나, 이 경우엔 함정이었다). 전체
+# 철거→재구축 e2e 검증(US-009) 중 hub AKS를 먼저 destroy한 뒤 이 root를 destroy하려다
+# 바로 이 data source가 "클러스터를 찾을 수 없음"으로 하드 실패하는 걸 실측
+# 확인했다 - hub-lifecycle.md가 문서화한 구축 순서(networking→vwan→aks)로 이 root를
+# *처음* apply했다면 AKS가 아직 없어 **생성 시점에도** 똑같이 실패했을 것이다(한 번도
+# from-scratch로 실행된 적이 없어 지금까지 드러나지 않았을 뿐). live/hub/aks는
+# outputs.tf에 이미 `oidc_issuer_url`을 노출해 두고 있었다("Workload Identity
+# Federation 배선의 원시 재료") - 데이터 재조회가 아니라 **같은 root의 리소스
+# 참조**(`module.aks_cluster.oidc_issuer_url`)로 직접 쓸 수 있는 자리였다. 옮긴
+# 뒤에는 aks 생성 순서 안에서 자동으로 올바르게 해결되고, vwan은 networking에만
+# 의존하는 원래의 단순한 역할로 돌아간다. live/dev/aks의 발견 로직(아래 참고)은
+# 리소스 그룹+태그 기반이라 이 root 이동에 영향받지 않는다.
 #
-# ⛔ AWS의 cross-account-trust-role과 대칭되는 "신뢰 전용" 리소스를 dev 쪽에 만들지
-# 않는다 — Azure RBAC 역할 할당은 tenant 전역 ARM 오퍼레이션이라 그런 게 필요 없다
-# (entra-id-authorization 공식 문서: role assignment의 assignee는 어느 구독
-# 소속이든 상관없다. 단 assignment 자체는 대상 구독 ARM에 저장된다 — "0개"가 아니라
-# "AWS 대비 1개 적다"가 정확한 표현).
+# "영속 리소스, scratch 리허설에도 파기 대상에서 제외"(5차 Architect 검토)라는 이전
+# 결정도 함께 재검토했다 - FIC의 값 자체가 특정 AKS 인스턴스의 OIDC issuer에 묶여
+# 있어 hub AKS가 재생성되면 issuer도 바뀐다(영속시켜도 다음 apply에서 갱신이
+# 필요하긴 마찬가지다). live/dev/aks의 발견 로직이 이름+태그 기반이라 UAMI가 매번
+# 재생성돼도(새 clientId) 다음 apply에서 자동으로 다시 찾으므로, "영속" 예외를 두는
+# 것보다 aks 클러스터 자체와 생애주기를 맞추는(같은 root에서 함께 생성·파기되는)
+# 쪽이 더 단순하고 이 repo의 "disposable reference infra" 기조와도 맞다. 다만
+# spoke-lifecycle.md 14절(재배포 시 GitOps 재등록)에 "AZURE_CLIENT_ID도 hub AKS
+# 재구축 시 갱신 대상"이라는 내용을 추가해야 한다(아직 미반영, 다음 정리 대상).
 #
-# 이 identity는 접속 *대상*(scratch든 실 dev든)과 무관하게 hub 자신의 OIDC issuer +
-# K8s ServiceAccount subject에만 묶인다 — 영속 리소스이고 scratch 리허설 때도
-# 파기 대상에서 제외한다(5차 Architect 검토, FIC는 hub 쪽 issuer 종속).
-resource "azurerm_user_assigned_identity" "argocd" {
-  name                = "id-${var.workload}-${var.env}-${var.region_code}-argocd-01"
-  resource_group_name = data.azurerm_resource_group.workload.name
-  location            = var.location
-  tags                = merge(local.tags, { Role = "argocd-hub" })
-}
-
-# hub AKS 클러스터의 OIDC issuer URL 조회. 결정적 네이밍 → data 조회(CLAUDE.md 1절) —
-# live/hub/aks가 이미 이 이름으로 클러스터를 만들었다(module.aks_cluster 네이밍 규약과
-# 동일 합성식).
-data "azurerm_kubernetes_cluster" "hub" {
-  name                = "aks-${var.workload}-${var.env}-${var.region_code}-main-01"
-  resource_group_name = data.azurerm_resource_group.workload.name
-}
-
-# ArgoCD SA 2개(argo-cd 10.3.0 chart, release명 "argocd")를 federate한다. 두 이름
-# 모두 release명으로 템플릿되지 않는 chart values의 리터럴 기본값이다(controller.
-# serviceAccount.name·server.serviceAccount.name) — application-controller가
-# 실제로 스포크 API 서버와 통신해 reconcile하고, server는 UI·CLI·`argocd app diff`
-# 경로에서 같은 API를 호출한다(둘 다 필요, Architect 검토 M-4).
-resource "azurerm_federated_identity_credential" "argocd" {
-  for_each = toset(["argocd-application-controller", "argocd-server"])
-
-  name                      = "fic-argocd-${each.value}"
-  audience                  = ["api://AzureADTokenExchange"]
-  issuer                    = data.azurerm_kubernetes_cluster.hub.oidc_issuer_url
-  user_assigned_identity_id = azurerm_user_assigned_identity.argocd.id
-  subject                   = "system:serviceaccount:argocd:${each.value}"
-}
-
+# (UAMI·FIC 정의는 live/hub/aks/main.tf "hub ArgoCD의 Entra Workload Identity" 절
+# 참고.)
+#
 # ── 스포크 AKS 자동 발견 — hub ArgoCD의 인가(role assignment) 스코프용 ─────────
-#
-# dev-gitops-registration Step 7: 위 UAMI+FIC는 인증(hub ArgoCD가 자기 신원을
-# 증명하는 것)만 담당한다 — 그 신원으로 실제 K8s API 요청이 인가받으려면
-# 대상 클러스터 리소스 ID 스코프의 role assignment가 별도로 필요하다(인증·
-# 인가는 별개 축, Step 2 실측이 이미 확인한 잔존 리스크와 같은 구분).
-#
-# 2026-09-10 — hub ArgoCD RBAC role assignment 방향 전환
-# (.omc/plans/hub-argocd-rbac-direction-flip.md). 이 스코프에서 spoke AKS를
-# 발견해 hub 자신의 state 안에 role assignment를 만들던 축(data
-# "azurerm_resources" "spoke_aks_clusters" · local.spoke_aks_ids · resource
-# "azurerm_role_assignment" "argocd_spoke_aks_access")을 통째로 제거했다 —
-# OpenTofu의 `removed` 블록은 for_each 인스턴스 키 단위 주소를 지원하지
-# 않아("dev"만 골라 이전 불가, 리소스 전체 주소만 가능) plan 4절이 원래
-# "5단계"로 미뤘던 코드 삭제를 여기서 함께 해야 했다 — 결과적으로 3.1절이
-# 결정한 발견 로직 완전 제거도 이 시점에 동시 달성된다. 소유권은
-# live/dev/aks의 azurerm_role_assignment.argocd_hub_access로 이전한다
-# (그쪽에 대응하는 import 블록으로 같은 실제 Azure 객체를 인수한다).
-# destroy=false — 실제 Azure 객체는 그대로 두고 이 root의 state 추적만
-# 중단한다(장부만 옮긴다, 실물은 안 건드린다).
-removed {
-  from = azurerm_role_assignment.argocd_spoke_aks_access
-
-  lifecycle {
-    destroy = false
-  }
-}
+# 2026-09-10 방향 전환(.omc/plans/hub-argocd-rbac-direction-flip.md)으로 이미
+# 제거된 발견 로직(data "azurerm_resources" "spoke_aks_clusters" ·
+# local.spoke_aks_ids · resource "azurerm_role_assignment"
+# "argocd_spoke_aks_access")의 `removed` 블록은 마이그레이션(PR #36~38)이 실제
+# apply로 적용 완료됐다 - plan 5단계가 지시한 코드 삭제(26차 이월 항목)를 이제
+# 실행한다. 소유권은 live/dev/aks의 azurerm_role_assignment.argocd_hub_access에
+# 있다.
