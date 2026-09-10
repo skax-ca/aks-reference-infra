@@ -155,7 +155,8 @@ module "vnet" {
   # ⚠️ 파기는 2단계다: deletion_protection = false 로 먼저 apply 한 뒤 destroy.
   # 2026-09-08 hub 철거→재구축 실검증(docs/hub-lifecycle.md 11절)을 위해 일시 해제했다가,
   # 재구축 완료 후 이 커밋으로 복원했다(⛔ 11절 원칙대로).
-  deletion_protection = true
+  # 2026-09-10 dev까지 포함한 전체 철거→재구축 e2e 검증(US-009) 착수 — destroy 전 재해제.
+  deletion_protection = false
 
   # azurerm 은 provider 레벨 default_tags 인자가 없어(vnet 모듈 README 확인) 여기서 명시
   # 배선한다. 태그 키 이름은 AWS 원본과 맞춘다.
