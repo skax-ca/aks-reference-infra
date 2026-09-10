@@ -102,19 +102,14 @@ gh workflow run deploy-dev-aks.yml --ref main -f action=apply
 > ForceNew라 첫 apply가 사실상 최종 선택이다.** hub와 동일 값을 그대로 쓰므로 1절에서
 > 이미 확정돼 있다.
 
-🔴 **이 apply 직후 `live/hub/vwan`을 한 번 더 적용한다.** hub ArgoCD의 dev 클러스터
-RBAC 권한(`Azure Kubernetes Service RBAC Cluster Admin`)은 `live/hub/vwan`이 태그로
-살아있는 AKS를 발견해 그 리소스 ID에 role assignment를 만드는 구조라, 이 AKS가 방금
-막 생겼다는 사실을 hub 쪽이 스스로 알지 못한다. 빠뜨리면 6절의 GitOps 등록이
-`ComparisonError`(`... is forbidden ... Update role assignment to allow access.`)로
-막힌다(14절 - 재배포 시에도 동일하게 필요). 이 발견 재조회 방식 자체를 없애는 대안
-(dev가 자기 AKS 생성 apply 안에서 직접 role assignment를 만드는 구조 - AWS 원본
-`eks-reference-infra`의 `live/dev/eks`가 `access_entries`를 정확히 이렇게 자기
-apply 안에 포함시킨다)은 별도 plan 세션에서 검토한다.
-
-```bash
-gh workflow run deploy-hub-vwan.yml --ref main -f action=apply
-```
+✅ **`live/hub/vwan`을 다시 적용할 필요가 없다(2026-09-10부터).** hub ArgoCD의 dev
+클러스터 RBAC 권한(`Azure Kubernetes Service RBAC Cluster Admin`)은 더 이상 hub가
+태그로 spoke AKS를 발견해 만드는 구조가 아니다 - `live/dev/aks` 자신이 hub ArgoCD
+UAMI(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그로 발견)를 조회해 자기
+apply 안에서 직접 role assignment를 만든다(AWS 원본 `eks-reference-infra`의
+`live/dev/eks`가 `access_entries`를 자기 apply 안에 포함시키는 것과 같은 원리 -
+`.omc/plans/hub-argocd-rbac-direction-flip.md` 참고). 위 `deploy-dev-aks.yml apply`
+한 번으로 role assignment까지 함께 생긴다 - hub 쪽을 추가로 건드릴 필요가 없다.
 
 같은 방식으로 `live/dev/workbench`를 초기화한다(`key = "dev/workbench.tfstate"`).
 `live/hub/workbench`를 템플릿으로 그대로 복제한다 - 도구 핀(az·kubectl·helm·argocd·
@@ -162,12 +157,13 @@ endpoint·인증 수단이 필요하다. AWS 원본처럼 spoke 쪽에 `cross-ac
 절차만 다룬다.
 
 **선행 조건(hub 쪽, spoke가 몇 개든 한 번만)** - `live/hub/vwan`이 이미 만들어 둔 것:
-hub 전용 User-assigned Identity(`id-demo-hub-krc-argocd-01`) + ArgoCD SA 2개
-(`argocd-application-controller`·`argocd-server`)의 Federated Identity Credential,
-그리고 태그 기반으로 spoke AKS를 자동 발견해 그 UAMI에 `Azure Kubernetes Service
-RBAC Cluster Admin` role assignment를 부여하는 로직. 새 spoke가 `Workload` 태그만
-달고 있으면 `live/hub/vwan` 재적용만으로 role assignment가 자동 생긴다 - 이 root를
-다시 만질 필요는 없다.
+hub 전용 User-assigned Identity(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그)
++ ArgoCD SA 2개(`argocd-application-controller`·`argocd-server`)의 Federated
+Identity Credential. role assignment는 더 이상 hub 쪽 로직이 아니다(2026-09-10
+방향 전환) - **5절의 `deploy-dev-aks.yml apply`가 이미 만들어 놓은 상태**다. 이
+절에서 새로 할 일은 없다. spoke 온보딩 시 hub 쪽에 한 번 필요한 건 `bootstrap.sh`
+(`BOOTSTRAP_TARGET=spoke`)가 자동 부여하는 `hub-peer` 커스텀 역할(spoke CI 신원이
+hub UAMI를 read할 권한, RG 스코프) 뿐이며 이미 완료돼 있다(1절 부트스트랩 단계).
 
 ```bash
 # spoke 쪽 값 수집
@@ -376,12 +372,16 @@ dev AKS를 destroy 후 재생성하면 클러스터 이름이 같아도 API endp
 fan-out 매칭 라벨(`environment`·`addon-*`)은 그대로 유지해야 한다(빠뜨리면 addon
 구독이 조용히 빠진 채 재배포된다).
 
-🔴 **hub ArgoCD의 dev 클러스터 RBAC 권한도 새 AKS 리소스 ID로 다시 만들어야 한다** -
-근거·조치는 5절 참고(재생성 후 `live/hub/vwan` 재적용 필수, 빠뜨리면 재등록한
-Application이 `ComparisonError`로 `Unknown`에 머문다).
+✅ **hub ArgoCD의 dev 클러스터 RBAC 권한은 새 AKS 리소스 ID로 자동 재생성된다
+(2026-09-10부터).** 5절의 `deploy-dev-aks.yml apply`가 role assignment 생성까지
+포함하므로(방향 전환, `.omc/plans/hub-argocd-rbac-direction-flip.md`) `live/hub/vwan`을
+추가로 만질 필요가 없다 - hub 쪽은 dev AKS 리소스 ID를 몰라도 되는 구조로 바뀌었다.
 
-이 절은 2026-09-09 실제 철거→재구축으로 검증됐다(destroy → 재구축 → GitOps 재등록 →
-Application 5개 Synced/Healthy 수렴 확인).
+이 절은 2026-09-09 실제 철거→재구축(옛 hub 발견 구조 기준)과 2026-09-10 방향 전환
+apply(hub `forget`+dev `import`)로 검증됐다. **다만 새 구조로 dev 전체를 처음부터
+철거→재구축하는 e2e 검증은 아직 실행 전이다** - 다음 실행 시 5절의 role assignment
+자동 생성이 실제로 동작하는지, hub를 단 한 번도 재apply하지 않고도 6~13절이 그대로
+성립하는지 확인이 이 절의 다음 갱신 대상이다.
 
 ### 15. 되돌릴 수 없는 것 / 자주 막히는 지점
 
