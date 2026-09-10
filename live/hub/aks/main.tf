@@ -297,3 +297,44 @@ resource "azapi_update_resource" "aks_app_routing_gateway_api" {
     }
   }
 }
+
+# ── hub ArgoCD의 Entra Workload Identity ─────────────────────────────────────
+#
+# 2026-09-10 — live/hub/vwan에서 이 root로 이전했다(live/hub/vwan/main.tf의 관련
+# 주석 참고). FIC의 issuer는 *이* 클러스터의 OIDC issuer URL에 묶이므로, 이름으로
+# 재조회하는 data source가 아니라 같은 root의 모듈 출력(`module.aks_cluster.
+# oidc_issuer_url`, outputs.tf가 이미 "Workload Identity Federation 배선의 원시
+# 재료"로 명시해 둔 값)을 직접 참조한다 — 클러스터가 생성된 뒤에만 이 리소스들이
+# 만들어지는 순서가 Terraform 자신의 의존 그래프로 보장된다(cross-root data 조회가
+# 강제하던 수동 순서·ordering 문서화가 더 이상 필요 없다).
+#
+# live/dev/aks가 이 UAMI를 리소스 그룹+태그(Role=argocd-hub)로 발견한다(이름 기반
+# Terraform 참조가 아니다) — 이 root가 hub AKS와 함께 파기·재생성돼도(전체
+# 철거→재구축 시 매번 새 clientId) dev 쪽은 다음 apply에서 자동으로 다시 찾는다
+# (live/dev/aks/main.tf의 `check "hub_argocd_uami_discovered"`가 "hub 재구축 중"을
+# 이미 정상 케이스로 처리하도록 설계돼 있음을 실측 확인). "영속 리소스로 파기 대상
+# 제외"(이전 5차 Architect 검토) 결정은 폐기한다 — FIC 값 자체가 특정 AKS 인스턴스의
+# issuer에 묶여 영속시켜도 재구축 시 갱신이 필요한 건 같고, aks와 생애주기를 맞추는
+# 쪽이 단순하다.
+resource "azurerm_user_assigned_identity" "argocd" {
+  name                = "id-${var.workload}-${var.env}-${var.region_code}-argocd-01"
+  resource_group_name = local.resource_group_name
+  location            = var.location
+  tags                = merge(local.tags, { Role = "argocd-hub" })
+}
+
+# ArgoCD SA 2개(argo-cd 10.3.0 chart, release명 "argocd")를 federate한다. 두 이름
+# 모두 release명으로 템플릿되지 않는 chart values의 리터럴 기본값이다(controller.
+# serviceAccount.name·server.serviceAccount.name) — application-controller가
+# 실제로 스포크 API 서버와 통신해 reconcile하고, server는 UI·CLI·`argocd app diff`
+# 경로에서 같은 API를 호출한다(둘 다 필요, Architect 검토 M-4, live/hub/vwan에서
+# 이전).
+resource "azurerm_federated_identity_credential" "argocd" {
+  for_each = toset(["argocd-application-controller", "argocd-server"])
+
+  name                      = "fic-argocd-${each.value}"
+  audience                  = ["api://AzureADTokenExchange"]
+  issuer                    = module.aks_cluster.oidc_issuer_url
+  user_assigned_identity_id = azurerm_user_assigned_identity.argocd.id
+  subject                   = "system:serviceaccount:argocd:${each.value}"
+}

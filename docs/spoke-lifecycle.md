@@ -156,9 +156,10 @@ endpoint·인증 수단이 필요하다. AWS 원본처럼 spoke 쪽에 `cross-ac
 검토 경위는 `.omc/plans/dev-gitops-registration.md`(로컬 전용) 참고, 여기는 실행
 절차만 다룬다.
 
-**선행 조건(hub 쪽, spoke가 몇 개든 한 번만)** - `live/hub/vwan`이 이미 만들어 둔 것:
-hub 전용 User-assigned Identity(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그)
-+ ArgoCD SA 2개(`argocd-application-controller`·`argocd-server`)의 Federated
+**선행 조건(hub 쪽, spoke가 몇 개든 한 번만)** - `live/hub/aks`가 이미 만들어 둔 것
+(2026-09-10 `live/hub/vwan`에서 이전): hub 전용 User-assigned Identity
+(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그) +
+ArgoCD SA 2개(`argocd-application-controller`·`argocd-server`)의 Federated
 Identity Credential. role assignment는 더 이상 hub 쪽 로직이 아니다(2026-09-10
 방향 전환) - **5절의 `deploy-dev-aks.yml apply`가 이미 만들어 놓은 상태**다. 이
 절에서 새로 할 일은 없다. spoke 온보딩 시 hub 쪽에 한 번 필요한 건 `bootstrap.sh`
@@ -376,6 +377,10 @@ fan-out 매칭 라벨(`environment`·`addon-*`)은 그대로 유지해야 한다
 (2026-09-10부터).** 5절의 `deploy-dev-aks.yml apply`가 role assignment 생성까지
 포함하므로(방향 전환, `.omc/plans/hub-argocd-rbac-direction-flip.md`) `live/hub/vwan`을
 추가로 만질 필요가 없다 - hub 쪽은 dev AKS 리소스 ID를 몰라도 되는 구조로 바뀌었다.
+⚠️ 다만 hub 자신이 재구축되면 hub ArgoCD UAMI(`live/hub/aks`와 같은 root, 2026-09-10
+이전)가 새 `clientId`로 바뀐다 - `cluster-secret.yaml`의 `AZURE_CLIENT_ID`는 리터럴
+값이라 자동 갱신되지 않으므로 `az identity show`로 재조회해 server·caData와 함께
+갱신한다.
 
 이 절은 2026-09-09 실제 철거→재구축(옛 hub 발견 구조 기준)과 2026-09-10 방향 전환
 apply(hub `forget`+dev `import`)로 검증됐다. **다만 새 구조로 dev 전체를 처음부터
