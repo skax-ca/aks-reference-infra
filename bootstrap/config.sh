@@ -149,8 +149,8 @@ readonly WORKLOAD_ROLE_NAME="aks-ref-bootstrap-workload-ci-${ENV_TOKEN}"
 # 유지한다(위 「state 데이터 커스텀 역할」절 — 2026-09-04에 한 번 제거했다가 같은
 # 날 재도입).
 readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
-# 스포크(dev)에서만 의미가 있다 — hub CI 신원에게 이 스포크 VNet을 vWAN 허브에
-# 연결할 권한(peer/action 단일 액션)을 주는 역할이다.
+# 스포크에서만 의미가 있다. hub CI 신원에게 이 스포크 VNet을 찾아 vWAN 허브에
+# 연결할 권한을 주는 역할이다(spoke_peer_role_definition_json 참고).
 readonly SPOKE_PEER_ROLE_NAME="aks-ref-bootstrap-spoke-peer-${ENV_TOKEN}"
 # hub 구독의 워크로드 RG에 정의되는 역할이라(스코프가 대상마다 갈리지 않는다)
 # ENV_TOKEN 접미사를 붙이지 않는다 — spoke-peer(대상마다 자기 RG를 스코프로
@@ -402,42 +402,20 @@ state_data_role_definition_json() {  # state_data_role_definition_json <assignab
     }'
 }
 
-# ── 스포크 연결 역할: peer/action + read 2액션 ──────────────────────────────
-# hub CI 신원이 이 역할을 dev 워크로드 RG 스코프로 받아 live/hub/vwan의
-# azurerm_virtual_hub_connection.spoke를 성립시킨다. assignable scope와 실제 할당
-# 스코프가 **둘 다 스포크 워크로드 RG**다(bootstrap.sh의 크로스 구독 스포크 연결
-# 절이 $RG_SCOPE를 그대로 양쪽에 넘긴다). VNet 리소스 단위로 좁히는 최초안은
-# 2026-09-03에 기각됐다 — bootstrap.sh는 항상 networking apply보다 먼저 실행돼
-# 그 시점엔 VNet이 아직 없다(bootstrap/README.md 「크로스 구독 연결」절).
+# ── 스포크 연결 역할: peer/action + virtualNetworks/read ─────────────────────
+# hub CI 신원이 이 역할을 스포크 워크로드 RG 스코프로 받아 live/hub/vwan의
+# azurerm_virtual_hub_connection.spoke를 만든다. 연결 리소스는 hub 구독에 생기지만
+# ARM이 원격 VNet의 peer/action을 호출자에게 요구한다. virtualNetworks/read는 hub가
+# 스포크 VNet ID를 CI 변수가 아니라 태그 조회(azurerm_resources)로 찾는 데 쓴다.
 #
-# 2026-09-08 `virtualNetworks/read`를 추가(peer/action 단일 액션에서 확장).
-# 이전엔 dev VNet ID를 CI 변수로 직접 주입해 read 없이 버텼으나, 그 값이
-# workflow_dispatch input이라 push-triggered plan·재적용마다 매번 비어(spoke
-# 연결이 "destroy 대상"으로 잘못 잡히는) 사고 재현 위험이 있었다(hub 철거→재구축
-# 실검증 착수 중 실측). live/hub/vwan이 `azurerm_resources`(태그 기반)로 dev
-# VNet을 직접 조회하도록 바꿔 이 위험을 구조적으로 없앤다 — Terraform CI 신원에
-# 이미 구독 전체 Owner 등가를 준 것(0절)과 같은 실용적 판단으로, peer/action
-# 하나를 아끼려고 CI 변수 재주입 실수 위험을 감수할 값어치가 없다고 판단했다.
+# assignable scope와 할당 스코프가 둘 다 스포크 워크로드 RG다. bootstrap.sh는
+# networking apply보다 먼저 실행되므로 좁힐 VNet이 아직 없다.
 #
-# 2026-09-09 `managedClusters/read`를 추가(dev-gitops-registration Step 7) —
-# hub ArgoCD UAMI에 dev AKS 접근 role assignment를 주려면 그 리소스 ID가
-# 필요한데, 위와 같은 이유(휘발성 CI 변수 주입 금지)로 dev AKS도
-# `azurerm_resources`(태그 기반)로 hub 쪽에서 직접 조회한다. 이 역할 이름이
-# 이제 "spoke-peer"(VNet 피어링 전용)보다 넓어졌지만, 새 역할을 또 만들지
-# 않는다 — 이미 "hub가 스포크를 발견하고 배선하기 위한 권한 모음"이라는
-# 성격이 같고, 역할이 늘어날수록 verify.sh의 "RG 스코프 외부 principal
-# 허용 목록" 검사도 늘려야 해 관리 비용만 커진다(YAGNI).
-#
-# 2026-09-09(같은 날 2차) `Microsoft.Authorization/roleAssignments/*` 3종
-# 추가 — 위 managedClusters/read만으로 CI plan은 통과했지만 apply가 403
-# AuthorizationFailed로 실패하는 걸 실측했다: azurerm_role_assignment
-# 리소스는 생성 전 "이미 존재하는지" 확인하는 존재 여부 조회(read) 자체가
-# 대상 스코프(dev AKS)의 `roleAssignments/read`를 요구하고, 생성은 당연히
-# `roleAssignments/write`를 요구한다 - "이 리소스를 조회할 권한"과 "role
-# assignment 레코드 자체를 다룰 권한"은 완전히 별개 축이라는 걸 이번에
-# 처음 확인했다. delete도 함께 넣는다 - Terraform이 이 리소스의 전체
-# CRUD(교체·파기 포함)를 스스로 감당하지 못하면 나중에 이 role assignment
-# 자체를 되돌리거나 다른 스포크로 옮길 때 사람이 수동 개입해야 한다.
+# ⛔ 이 역할에 roleAssignments/* 를 넣지 않는다. hub CI가 스포크 RG에서
+#    roleAssignments/write를 가지면 그 RG 안에서 자신에게 어떤 역할이든 부여할 수
+#    있고, verify.sh의 RG 스코프 불변식은 RG 스코프 할당만 보므로 하위 리소스
+#    스코프에 만든 할당을 잡지 못한다. hub ArgoCD의 스포크 클러스터 권한은 스포크
+#    자신의 live/<env>/aks가 만들고, 그 조회는 hub-peer 역할이 받친다.
 spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignable-scope>
   local scope="$1"
   jq -n \
@@ -447,14 +425,10 @@ spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignab
       Name: $name,
       # RoleName 중복 이유는 workload_role_definition_json 주석 참고(az CLI update 경로 버그).
       RoleName: $name,
-      Description: "Grant for the hub CI identity to discover(read) this spoke VNet/AKS, peer(peer/action) the VNet into the hub Virtual WAN hub, and manage the role assignment that grants hub ArgoCD access to this spoke AKS (aks-reference-infra live/hub/vwan spoke connection + dev-gitops-registration).",
+      Description: "Grant for the hub CI identity to discover(read) this spoke VNet and peer(peer/action) it into the hub Virtual WAN hub (aks-reference-infra live/hub/vwan spoke connection).",
       Actions: [
         "Microsoft.Network/virtualNetworks/peer/action",
-        "Microsoft.Network/virtualNetworks/read",
-        "Microsoft.ContainerService/managedClusters/read",
-        "Microsoft.Authorization/roleAssignments/read",
-        "Microsoft.Authorization/roleAssignments/write",
-        "Microsoft.Authorization/roleAssignments/delete"
+        "Microsoft.Network/virtualNetworks/read"
       ],
       NotActions: [],
       DataActions: [],

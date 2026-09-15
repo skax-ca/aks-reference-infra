@@ -169,7 +169,7 @@ audience 전 필드 완전 일치를 검사해 이를 잡는다.
 ⛔ App Registration/Service Principal에 정적 자격증명(client secret·certificate)을
 절대 만들지 않는다. GitHub OIDC(FIC)만이 유일한 인증 경로다.
 
-### 크로스 구독 연결 (확정, 2026-09-03)
+### 크로스 구독 연결
 
 hub CI 신원이 스포크 구독의 VNet을 hub Virtual WAN 허브에 연결(`live/hub/vwan`의
 `azurerm_virtual_hub_connection.spoke`)하려면, 연결 리소스 자체는 hub 구독에 생기더라도
@@ -179,46 +179,25 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 
 | 항목 | 값 |
 |------|-----|
-| 역할 | `aks-ref-bootstrap-spoke-peer-<env>`(`peer/action`+`virtualNetworks/read`+`managedClusters/read`+`roleAssignments/read,write,delete` 6액션, 2026-09-08 read 추가·2026-09-09 managedClusters/read + roleAssignments 3종 추가 - 아래 참고) |
+| 역할 | `aks-ref-bootstrap-spoke-peer-<env>`(`virtualNetworks/peer/action`·`virtualNetworks/read` 2액션) |
 | assignable scope / 할당 스코프 | 스포크 **워크로드 RG**(`rg-<workload>-<env>-krc-workload-01`) |
 | 할당 대상 | hub App Registration(`entapp-<workload>-hub-krc-gha-01`)의 SP |
 | 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때만 자동 포함(「크로스 구독 스포크 연결 권한」절). CI가 아니라 `bootstrap.sh`를 실행하는 사람이 만든다 |
 
+`virtualNetworks/read`는 `live/hub/vwan`이 스포크 VNet을 태그 조회(`azurerm_resources`)로
+찾는 데 쓴다. VNet ID를 CI 변수(workflow_dispatch input)로 주입하면 push로 도는 plan이나
+입력을 빠뜨린 dispatch에서 값이 비어 스포크 연결이 destroy로 계획된다.
+
 ⚠️ **스코프는 특정 VNet 리소스가 아니라 워크로드 RG 전체다.** `bootstrap.sh`는 항상
-`live/*/networking`의 VNet apply보다 먼저 실행되므로, 그 시점엔 VNet이 아직 없어 리소스
-단위로 좁힐 수 없다(닭과 달걀 문제). VNet 리소스 단위로 좁히는 대안도 검토했으나,
-그러면 스포크마다 별도 스크립트를 한 번 더 실행해야 해 `bootstrap.sh` 1회로 끝나지
-않는다. RG 스코프로 완화하고 `bootstrap.sh`에 통합하는 쪽을 택했다. 대가는 hub SP가
-이 RG에 나중에 생길 다른 리소스에도 이 액션들을 갖는다는 것이다(2026-09-09
-`roleAssignments/*` 추가 이후로는 "쓰기 범위가 좁다"는 이전 서술이 더 이상 정확하지
-않다 - 아래 참고).
+`live/*/networking`의 VNet apply보다 먼저 실행되므로 그 시점엔 좁힐 VNet이 없다. VNet
+단위로 좁히려면 스포크마다 스크립트를 한 번 더 실행해야 한다. 대가는 hub SP가 이 RG에
+나중에 생길 다른 VNet에도 두 액션을 갖는다는 것이다.
 
-⚠️ **2026-09-08 `virtualNetworks/read` 추가.** 원래는 `peer/action` 하나였다 - dev VNet
-ID를 CI 변수(workflow_dispatch input)로 직접 주입해 read 없이 버텼는데, 그 값이
-push-triggered plan이나 입력을 깜빡한 dispatch마다 비어(spoke 연결이 destroy로 잘못
-잡히는) 사고 위험이 있었다(hub 철거→재구축 실검증 중 실측). `live/hub/vwan`이
-`azurerm_resources`(태그 기반)로 dev VNet을 직접 조회하도록 바꿔 이 위험을 구조적으로
-없앴다 - CI 신원에 이미 구독 전체 Owner 등가를 준 것(위)과 같은 실용적 판단이다.
-
-⚠️ **2026-09-09 `managedClusters/read` 추가.** dev-gitops-registration 설계(hub
-self-managed ArgoCD를 dev AKS에 등록) Step 7 - hub ArgoCD UAMI에 dev AKS 접근 role
-assignment를 주려면 그 리소스 ID가 필요한데, 위 VNet과 같은 이유로 CI 변수 주입 대신
-`live/hub/vwan`이 `azurerm_resources`(태그 기반)로 dev AKS도 직접 조회하도록 했다.
-이름은 여전히 `spoke-peer`이지만("VNet 피어링 전용" 딱지가 이제 정확하지 않다) - 새
-역할을 또 만들면 `verify.sh`의 "RG 스코프 외부 principal 허용 목록" 검사 항목이
-늘어나 관리 비용만 커져(YAGNI), 이미 있는 "hub가 스포크를 발견하고 배선하기 위한
-권한 모음"에 추가하는 쪽을 택했다.
-
-⚠️ **2026-09-09(같은 날 2차) `Microsoft.Authorization/roleAssignments/read,write,delete`
-3종 추가.** 위 `managedClusters/read`만으로 CI plan은 통과했지만 실제 apply가 403
-`AuthorizationFailed`로 실패하는 걸 실측했다 - `azurerm_role_assignment` 리소스는
-생성 전 존재 여부 확인(read) 자체가 대상 스코프(dev AKS)의
-`Microsoft.Authorization/roleAssignments/read`를 요구하고, 생성은
-`roleAssignments/write`를 요구한다. "이 리소스를 조회할 권한"(`managedClusters/read`)
-과 "그 리소스 스코프에 role assignment 레코드를 다룰 권한"은 완전히 별개 축이라는 걸
-이번에 처음 확인했다. `delete`도 함께 넣었다 - 이게 없으면 Terraform이 이 role
-assignment를 되돌리거나 다른 스코프로 옮길 때 스스로 감당하지 못해 사람이 수동
-개입해야 한다.
+⛔ **이 역할에 `roleAssignments/*`를 넣지 않는다.** hub SP가 스포크 RG에서
+`roleAssignments/write`를 가지면 그 RG 안에서 자신에게 어떤 역할이든 부여할 수 있다.
+`verify.sh`는 RG 스코프에 직접 걸린 할당만 검사하므로 하위 리소스 스코프에 만든 할당은
+잡지 못한다. hub ArgoCD의 스포크 클러스터 권한은 스포크 자신의 `live/<env>/aks`가
+만든다(아래 hub-peer).
 
 ⚠️ **`Contributor` 안내는 이 시나리오의 근거가 아니다.** 검색에서 자주 나오는 "원격 VNet
 구독의 Contributor가 필요하다"는 문장은 크로스 **테넌트** 문서의 것이다. 이 설계는 동일
@@ -234,7 +213,7 @@ assignment를 되돌리거나 다른 스코프로 옮길 때 스스로 감당하
 
 ⛔ `verify.sh`는 스포크 워크로드 RG 스코프에서 "이 대상 자신의 SP를 제외한" role
 assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일치하는지 검사한다
-(`BOOTSTRAP_TARGET=spoke`일 때만). 설계 근거 전문은 `config.sh`의 관련 주석 참고.
+(`BOOTSTRAP_TARGET=spoke`일 때만).
 
 ### 크로스 구독 연결 (반대 방향, 2026-09-10)
 
@@ -247,7 +226,7 @@ hub ArgoCD RBAC role assignment 방향 전환(`.omc/plans/hub-argocd-rbac-direct
 | 할당 대상 | 각 spoke App Registration의 SP(외부 신원 조회 없이 spoke 자기 자신의 CI 신원) |
 | 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때 `HUB_SUBSCRIPTION`(신규 필수 env, 1절)으로 hub 구독에 만든다 |
 
-spoke-peer(hub SP가 스포크 RG에 쓰기까지 가짐)보다 훨씬 좁다 - hub-peer는 read 전용이다.
+hub-peer는 read 전용이다. spoke-peer가 hub SP에게 스포크 VNet의 `peer/action`을 주는 것과 달리 쓰기 액션이 없다.
 역할 정의는 멱등 재사용, spoke가 늘 때마다 할당만 그 spoke SP에 새로 추가된다.
 
 ### AKS 클러스터용 identity·권한 (bootstrap이 아니라 Terraform이 만든다)
