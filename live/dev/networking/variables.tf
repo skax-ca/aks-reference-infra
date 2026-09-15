@@ -1,7 +1,7 @@
 # 이 루트의 변수는 두 종류다. 섞어 두면 "왜 이건 코드에 있고 저건 없나"가 흐려진다.
 #
-#   ① 코드에 기본값이 있는 것  — 노출돼도 무해하고, 고객사가 바꿀 토큰이다(workload·env·region)
-#   ② 기본값이 **없는** 것      — 구독 식별 정보라 git 에 두지 않는다. CI 는 repo 변수
+#   ① 코드에 기본값이 있는 것: 노출돼도 무해하고, 고객사가 바꿀 토큰이다(workload·env·region)
+#   ② 기본값이 **없는** 것: 구독 식별 정보라 git 에 두지 않는다. CI 는 repo 변수
 #                                (AZURE_DEV_SUBSCRIPTION_ID), 로컬은 TF_VAR_* 환경변수로 주입한다
 #
 # live/hub/networking/variables.tf와 동일 구조다(dev 구독 대응 인스턴스).
@@ -18,7 +18,7 @@ variable "workload" {
 variable "env" {
   description = <<-EOT
     환경 코드. 이 루트는 env="dev"로 논리적 환경을 가른다.
-    ⚠️ dev는 hub와 별도 구독 — 계정도 분리돼 있다(CLAUDE.md 2절).
+    ⚠️ dev는 hub와 별도 구독이다. 계정도 분리돼 있다.
   EOT
   type        = string
   default     = "dev"
@@ -46,7 +46,7 @@ variable "subscription_id" {
   description = <<-EOT
     apply 대상 Azure 구독 ID(dev). hub와 다른 구독이다.
 
-    ⛔ 기본값을 두지 않는다 — 구독 식별 정보라 git 에 두지 않는다. 주입 경로는 둘 다 git 밖이다:
+    ⛔ 기본값을 두지 않는다. 구독 식별 정보라 git 에 두지 않는다. 주입 경로는 둘 다 git 밖이다:
        CI   : GitHub repo 변수 AZURE_DEV_SUBSCRIPTION_ID → ARM_SUBSCRIPTION_ID
        로컬 : export TF_VAR_subscription_id=...
   EOT

@@ -1,7 +1,7 @@
 # 이 루트의 변수는 두 종류다. 섞어 두면 "왜 이건 코드에 있고 저건 없나"가 흐려진다.
 #
-#   ① 코드에 기본값이 있는 것  — 노출돼도 무해하고, 고객사가 바꿀 토큰이다(workload·env·region)
-#   ② 기본값이 **없는** 것      — 구독 식별 정보·개인 식별자·유동적인 값이라 git 에 두지 않는다.
+#   ① 코드에 기본값이 있는 것: 노출돼도 무해하고, 고객사가 바꿀 토큰이다(workload·env·region)
+#   ② 기본값이 **없는** 것: 구독 식별 정보·개인 식별자·유동적인 값이라 git 에 두지 않는다.
 #                                CI 는 repo 변수, 로컬은 TF_VAR_* 환경변수로 주입한다
 #
 # live/dev/aks/variables.tf와 동일 구조다(같은 dev 구독의 다른 state root).
@@ -18,7 +18,7 @@ variable "workload" {
 variable "env" {
   description = <<-EOT
     환경 코드. 이 루트는 env="dev"로 논리적 환경을 가른다(live/dev/aks·networking과 동일).
-    ⚠️ dev는 hub와 별도 구독 — 계정도 분리돼 있다(CLAUDE.md 2절).
+    ⚠️ dev는 hub와 별도 구독이다. 계정도 분리돼 있다.
   EOT
   type        = string
   default     = "dev"
@@ -47,7 +47,7 @@ variable "subscription_id" {
     apply 대상 Azure 구독 ID(dev). hub와 다른 구독이고, live/dev/networking·live/dev/aks와
     같은 구독이다.
 
-    ⛔ 기본값을 두지 않는다 — 구독 식별 정보라 git 에 두지 않는다. 주입 경로는 둘 다 git 밖이다:
+    ⛔ 기본값을 두지 않는다. 구독 식별 정보라 git 에 두지 않는다. 주입 경로는 둘 다 git 밖이다:
        CI   : GitHub repo 변수 AZURE_DEV_SUBSCRIPTION_ID → ARM_SUBSCRIPTION_ID
        로컬 : export TF_VAR_subscription_id=...
   EOT
@@ -84,7 +84,7 @@ variable "ssh_ingress_cidrs" {
   type        = list(string)
 
   validation {
-    # 형식만 검증한다(진짜 CIDR인지, 즉 호스트 비트가 0인지는 안 본다) — plan 단계에서
+    # 형식만 검증한다(진짜 CIDR인지, 즉 호스트 비트가 0인지는 안 본다). plan 단계에서
     # 잡아야 할 것은 "AllowSsh NSG 규칙이 명백히 깨진 문자열로 만들어지는 사고"이지, 유효한
     # 축소 표기(예: 1.2.3.4/24, 호스트 비트 켜짐)까지 막을 이유는 없다(Azure NSG가 그 값을
     # 그대로 받아들인다).

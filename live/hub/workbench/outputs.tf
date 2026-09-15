@@ -1,6 +1,6 @@
 # 운영자가 SSH 접속에 바로 쓸 앵커를 노출한다.
 #
-# ⚠️ 모듈의 출력은 null-safe 다 — workbench_enabled=false로 파기하면 스칼라는 null이 된다.
+# ⚠️ 모듈의 출력은 null-safe 다. workbench_enabled=false로 파기하면 스칼라는 null이 된다.
 
 output "workbench_private_ip" {
   description = "workbench VM의 사설 IP."
