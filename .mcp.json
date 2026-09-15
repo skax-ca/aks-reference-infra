@@ -1,0 +1,36 @@
+{
+  "mcpServers": {
+    "opentofu": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@opentofu/opentofu-mcp-server"
+      ],
+      "env": {}
+    },
+    "aws-docs": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "awslabs.aws-documentation-mcp-server@latest"
+      ],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_DOCUMENTATION_PARTITION": "aws"
+      }
+    },
+    "aws-well-architected": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "awslabs.well-architected-security-mcp-server",
+        "awslabs.well-architected-security-mcp-server"
+      ],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    }
+  }
+}
