@@ -1,16 +1,16 @@
-# live/dev/aks — plan → (사람이 dispatch) → plan → apply
+# live/dev/aks: plan → (사람이 dispatch) → plan → apply
 #
-# deploy-hub-aks.yml과 같은 구조(plan은 push에서 자동, apply는 workflow_dispatch로만)
-# — dev 구독, dev CI 신원(environment: dev)을 쓴다. FIC subject 패턴은 bootstrap이 이미
-# gha-dev-main(ref:refs/heads/main)·gha-dev-environment(environment:dev)로 심어뒀다.
+# deploy-hub-aks.yml과 같은 구조(plan은 push에서 자동, apply는 workflow_dispatch로만)다.
+# dev 구독, dev CI 신원(environment: dev)을 쓴다. FIC subject 패턴은 bootstrap이
+# gha-dev-main(ref:refs/heads/main)·gha-dev-environment(environment:dev)로 만든다.
 #
-# ⛔ plan job에 `environment:`를 추가하지 않는다(deploy-dev-network.yml과 동일 근거 —
-#    FIC subject의 ref:refs/heads/main / environment:dev 대응을 어긋나게 하지 않는다).
+# ⛔ plan job에 `environment:`를 추가하지 않는다. FIC subject의 ref:refs/heads/main /
+#    environment:dev 대응이 어긋난다(근거는 deploy-hub-network.yml).
 # ⛔ apply를 `tofu apply`(재-plan)로 바꾸지 않는다.
 #
 # ⚠️ 이 root는 apply 전에 사람이 끝내야 하는 사전조건이 하나 있다:
 #    dev 구독에 Microsoft.ContainerService 리소스 프로바이더가 등록돼 있을 것
-#    (bootstrap.sh가 처리 — 2026-09-08부로 hub·spoke 공통으로 무조건 실행된다).
+#    (bootstrap.sh가 hub·spoke 공통으로 등록한다).
 #    AKS 컨트롤 플레인 identity·role assignment는 이 root가 Terraform으로 직접 만든다.
 
 name: deploy · live/dev/aks
@@ -49,15 +49,14 @@ env:
   ARM_USE_OIDC: "true"
   TF_VAR_subscription_id: ${{ vars.AZURE_DEV_SUBSCRIPTION_ID }}
   TF_VAR_ci_run: "true"
-  # hub ArgoCD UAMI를 태그 기반 data source로 자동 발견하는 두 번째 provider
-  # (azurerm.hub, providers.tf)의 subscription_id. live/hub/vwan이 이미 쓰는 것과
-  # 같은 repo variable을 재사용한다(hub-argocd-rbac-direction-flip plan 6.5절,
-  # 2026-09-10 신설, live/hub/vwan/main.tf의 TF_VAR_dev_subscription_id와 대칭).
+  # hub ArgoCD UAMI를 태그 기반 data source로 발견하는 두 번째 provider(azurerm.hub,
+  # providers.tf)의 subscription_id. live/hub/*가 쓰는 repo variable을 재사용한다.
+  # deploy-hub-vwan.yml의 TF_VAR_dev_subscription_id와 방향만 반대인 같은 배선이다.
   TF_VAR_hub_subscription_id: ${{ vars.AZURE_HUB_SUBSCRIPTION_ID }}
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
-  # plan — main push와 dispatch 양쪽에서 돈다. environment를 선언하지 않는다.
+  # plan: main push와 dispatch 양쪽에서 돈다. environment를 선언하지 않는다.
   # ──────────────────────────────────────────────────────────────────────────
   plan:
     name: plan
@@ -74,7 +73,7 @@ jobs:
             echo "::error::destroy 하려면 confirm에 정확히 'destroy live/dev/aks'를 입력한다."
             exit 1
           fi
-          echo "::warning::destroy 계획을 세운다 — live/dev/aks"
+          echo "::warning::destroy 계획을 세운다: live/dev/aks"
 
       - uses: actions/checkout@v7.0.1
 
@@ -113,7 +112,7 @@ jobs:
         run: |
           for i in 1 2 3; do
             tofu init -backend-config=backend.hcl && exit 0
-            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3) — 10초 후 재시도"; sleep 10; }
+            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3). 10초 후 재시도"; sleep 10; }
           done
           echo "::error::tofu init 3회 재시도 후에도 실패"
           exit 1
@@ -147,11 +146,11 @@ jobs:
           tofu show -no-color tfplan > plan.txt
           {
             if [ "${{ steps.plan.outputs.destroy }}" = "true" ]; then
-              echo "### 🔴 \`tofu plan -destroy\` — live/dev/aks"
+              echo "### 🔴 \`tofu plan -destroy\`: live/dev/aks"
               echo
               echo "> **파기 계획이다.** 이 run의 apply를 승인하면 아래 목록이 전부 사라진다."
             else
-              echo "### \`tofu plan\` — live/dev/aks"
+              echo "### \`tofu plan\`: live/dev/aks"
             fi
             echo
             echo "변경 있음: **${{ steps.plan.outputs.changes }}**"
@@ -182,7 +181,7 @@ jobs:
           if-no-files-found: error
 
   # ──────────────────────────────────────────────────────────────────────────
-  # apply — workflow_dispatch에서만. main push에서는 skip된다.
+  # apply: workflow_dispatch에서만. main push에서는 skip된다.
   # ──────────────────────────────────────────────────────────────────────────
   apply:
     name: apply
@@ -234,7 +233,7 @@ jobs:
         run: |
           for i in 1 2 3; do
             tofu init -backend-config=backend.hcl && exit 0
-            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3) — 10초 후 재시도"; sleep 10; }
+            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3). 10초 후 재시도"; sleep 10; }
           done
           echo "::error::tofu init 3회 재시도 후에도 실패"
           exit 1
@@ -260,7 +259,7 @@ jobs:
           code=$?
           set -e
           if [ "$code" = 2 ]; then
-            echo "::error::apply 직후인데 재-plan이 여전히 변경사항을 보고한다 — 일부 리소스가 반영되지 않았을 가능성이 높다. Azure 포털/CLI로 실물을 직접 대조할 것."
+            echo "::error::apply 직후인데 재-plan이 여전히 변경사항을 보고한다. 일부 리소스가 반영되지 않았을 가능성이 높다. Azure 포털/CLI로 실물을 직접 대조할 것."
             exit 1
           elif [ "$code" != 0 ]; then
             exit "$code"
@@ -271,7 +270,7 @@ jobs:
         working-directory: ${{ env.TF_ROOT }}
         run: |
           {
-            echo "### \`tofu apply\` — live/dev/aks"
+            echo "### \`tofu apply\`: live/dev/aks"
             echo
             echo "적용한 계획: run \`${{ github.run_id }}\`의 artifact \`tfplan-${{ github.run_id }}\`"
             echo "커밋: \`${{ github.sha }}\`"

@@ -1,10 +1,10 @@
-# live/dev/networking — plan → (사람이 dispatch) → plan → apply
+# live/dev/networking: plan → (사람이 dispatch) → plan → apply
 #
-# deploy-hub-network.yml과 같은 구조(plan은 push에서 자동, apply는 workflow_dispatch로만)
-# — dev 구독, dev CI 신원(environment: dev)을 쓴다. FIC subject 패턴은 bootstrap이 이미
-# gha-dev-main(ref:refs/heads/main)·gha-dev-environment(environment:dev)로 심어뒀다.
+# deploy-hub-network.yml과 같은 구조(plan은 push에서 자동, apply는 workflow_dispatch로만)다.
+# dev 구독, dev CI 신원(environment: dev)을 쓴다. FIC subject 패턴은 bootstrap이
+# gha-dev-main(ref:refs/heads/main)·gha-dev-environment(environment:dev)로 만든다.
 #
-# ⛔ plan job에 `environment:`를 추가하지 않는다(hub와 동일 근거).
+# ⛔ plan job에 `environment:`를 추가하지 않는다(근거는 deploy-hub-network.yml).
 # ⛔ apply를 `tofu apply`(재-plan)로 바꾸지 않는다.
 
 name: deploy · live/dev/networking
@@ -59,7 +59,7 @@ jobs:
             echo "::error::destroy 하려면 confirm에 정확히 'destroy live/dev/networking'를 입력한다."
             exit 1
           fi
-          echo "::warning::destroy 계획을 세운다 — live/dev/networking"
+          echo "::warning::destroy 계획을 세운다: live/dev/networking"
 
       - uses: actions/checkout@v7.0.1
 
@@ -98,7 +98,7 @@ jobs:
         run: |
           for i in 1 2 3; do
             tofu init -backend-config=backend.hcl && exit 0
-            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3) — 10초 후 재시도"; sleep 10; }
+            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3). 10초 후 재시도"; sleep 10; }
           done
           echo "::error::tofu init 3회 재시도 후에도 실패"
           exit 1
@@ -132,11 +132,11 @@ jobs:
           tofu show -no-color tfplan > plan.txt
           {
             if [ "${{ steps.plan.outputs.destroy }}" = "true" ]; then
-              echo "### 🔴 \`tofu plan -destroy\` — live/dev/networking"
+              echo "### 🔴 \`tofu plan -destroy\`: live/dev/networking"
               echo
               echo "> **파기 계획이다.** 이 run의 apply를 승인하면 아래 목록이 전부 사라진다."
             else
-              echo "### \`tofu plan\` — live/dev/networking"
+              echo "### \`tofu plan\`: live/dev/networking"
             fi
             echo
             echo "변경 있음: **${{ steps.plan.outputs.changes }}**"
@@ -216,7 +216,7 @@ jobs:
         run: |
           for i in 1 2 3; do
             tofu init -backend-config=backend.hcl && exit 0
-            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3) — 10초 후 재시도"; sleep 10; }
+            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3). 10초 후 재시도"; sleep 10; }
           done
           echo "::error::tofu init 3회 재시도 후에도 실패"
           exit 1
@@ -242,7 +242,7 @@ jobs:
           code=$?
           set -e
           if [ "$code" = 2 ]; then
-            echo "::error::apply 직후인데 재-plan이 여전히 변경사항을 보고한다 — 일부 리소스가 반영되지 않았을 가능성이 높다. Azure 포털/CLI로 실물을 직접 대조할 것."
+            echo "::error::apply 직후인데 재-plan이 여전히 변경사항을 보고한다. 일부 리소스가 반영되지 않았을 가능성이 높다. Azure 포털/CLI로 실물을 직접 대조할 것."
             exit 1
           elif [ "$code" != 0 ]; then
             exit "$code"
@@ -253,7 +253,7 @@ jobs:
         working-directory: ${{ env.TF_ROOT }}
         run: |
           {
-            echo "### \`tofu apply\` — live/dev/networking"
+            echo "### \`tofu apply\`: live/dev/networking"
             echo
             echo "적용한 계획: run \`${{ github.run_id }}\`의 artifact \`tfplan-${{ github.run_id }}\`"
             echo "커밋: \`${{ github.sha }}\`"
