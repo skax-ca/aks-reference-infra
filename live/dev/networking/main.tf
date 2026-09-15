@@ -86,7 +86,8 @@ module "vnet" {
   #
   # 2026-09-09: spoke-lifecycle.md 철거→재구축 실측 검증 완료(9~14절) — 재구축 후 true로 복원.
   # 2026-09-10: hub까지 포함한 전체 철거→재구축 e2e 검증(US-009) 완료 — 재구축 후 복원.
-  deletion_protection = true
+  # 2026-09-15: dev 단독 철거(spoke-lifecycle.md 9절) 진행 중 — 재구축 후 true로 복원.
+  deletion_protection = false
 
   tags = {
     Environment = var.env
