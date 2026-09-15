@@ -10,8 +10,8 @@ provider "azurerm" {
 
   # azurerm v5의 기본값은 계정에 없는 "핵심" 프로바이더 집합(Microsoft.Cache·
   # Microsoft.ServiceBus 등, 이 배포와 무관한 것 포함)을 plan 시작 시 자동 등록하려
-  # 시도하고, 그 등록이 끝날 때까지 plan이 몇 분씩 멈춘다. "none"으로 꺼서 이 배포가
-  # 실제로 쓰는 RP만 조회하게 한다. 이 루트가 요구하는 RP는 bootstrap.sh가 미리 등록한다.
+  # 시도하고, 그 등록이 끝날 때까지 plan이 몇 분씩 멈춘다. "none"으로 꺼서 그 지연을
+  # 없앤다. 이 루트가 쓰는 Microsoft.Network는 구독에 기본 등록돼 있다.
   resource_provider_registrations = "none"
 
   features {}
