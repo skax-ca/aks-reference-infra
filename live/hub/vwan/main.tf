@@ -92,8 +92,9 @@ resource "azurerm_virtual_wan" "this" {
   # 2026-09-08 hub 철거→재구축 실검증(docs/hub-lifecycle.md 11절)을 위해 일시 해제했다가,
   # 재구축 완료 후 이 커밋으로 복원했다(⛔ 11절 원칙대로).
   # 2026-09-10 dev까지 포함한 전체 철거→재구축 e2e 검증(US-009) 완료 — 재구축 후 복원.
+  # 2026-09-15 hub 철거(hub-lifecycle.md 11절) 진행 중 — 재구축 후 true로 복원.
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 
   tags = local.tags
@@ -113,8 +114,9 @@ resource "azurerm_virtual_hub" "this" {
   # 2026-09-08 hub 철거→재구축 실검증(docs/hub-lifecycle.md 11절)을 위해 일시 해제했다가,
   # 재구축 완료 후 이 커밋으로 복원했다(⛔ 11절 원칙대로).
   # 2026-09-10 dev까지 포함한 전체 철거→재구축 e2e 검증(US-009) 완료 — 재구축 후 복원.
+  # 2026-09-15 hub 철거(hub-lifecycle.md 11절) 진행 중 — 재구축 후 true로 복원.
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 
   tags = local.tags
