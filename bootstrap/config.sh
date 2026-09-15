@@ -1,17 +1,11 @@
 #!/usr/bin/env bash
-# 부트스트랩 기대 상태 — bootstrap.sh 와 verify.sh 가 공유한다.
+# 부트스트랩 기대 상태. bootstrap.sh 와 verify.sh 가 공유한다.
 #
 # ⚠️ 이 파일이 "기대 상태"의 코드 측면이고, README.md 의 표가 문서 측면이다.
-#    둘이 어긋나면 README를 고친다 — 사람이 읽는 쪽이 SSOT다(원본 eks-reference-infra와
+#    둘이 어긋나면 README를 고친다. 사람이 읽는 쪽이 SSOT다(원본 eks-reference-infra와
 #    동일 원칙).
 #
 # CI 신원은 구독 전체 Owner 등가다(AWS 원본 AdministratorAccess와 스코프 축 대칭).
-#
-# ⚠️ 2026-09-04 이전에는 워크로드 커스텀 역할의 notActions를 built-in Contributor
-#    에서 매 실행 런타임 조회했다(v4/v5가 이 값을 문서에 옮겨 적다 두 번 연속
-#    틀렸던 것의 대체). 이제 워크로드 역할은 Owner 기반(NotActions는 고정값 1개,
-#    resourceGroups/delete)이라 그 조회 로직 자체가 불필요해졌다 — Owner는 애초에
-#    NotActions가 비어 있어 조회할 대상이 없다.
 
 set -euo pipefail
 
@@ -23,21 +17,19 @@ set -euo pipefail
 # ── 대상 ─────────────────────────────────────────────────────────────────────
 readonly REGION="koreacentral"
 readonly REGION_CODE="krc"
-# TODO: 이 저장소의 workload 코드는 아직 CLAUDE.md 확정 결정 표에 없다. 원본
-# eks-reference-infra와 동일한 관례(workload=demo)를 임시로 따르되, 확정되면
-# 이 기본값을 갱신한다.
+# live/hub·live/dev의 workload 값과 반드시 같아야 한다(CLAUDE.md 「네이밍·태깅」).
 readonly WORKLOAD="${WORKLOAD:-demo}"
 
 # ⛔ 구독/테넌트 ID는 git에 두지 않는다(계정 식별 정보 일반). 기본값을 두지 않는
-#    것이 핵심이다 — 실행자가 매번 명시하게 해 공용 테넌트에서 조용히 다른
-#    구독/테넌트를 건드리지 않도록 한다. 원본의 EXPECTED_ACCOUNT와 동일한 논리를
-#    Azure의 구독·테넌트 두 축에 적용한 것이다(계획 1절 Option A, 3절 시나리오 3).
+#    것이 핵심이다. 실행자가 매번 명시하게 해 공용 테넌트에서 조용히 다른
+#    구독/테넌트를 건드리지 않도록 한다. 원본의 EXPECTED_ACCOUNT와 같은 논리를
+#    Azure의 구독·테넌트 두 축에 적용한 것이다.
 #
-# ⚠️ `: "${VAR:?msg}"`를 쓰지 않는다 — bash 기본 exit 1을 내는데, verify.sh의
+# ⚠️ `: "${VAR:?msg}"`를 쓰지 않는다. bash 기본 exit 1을 내는데, verify.sh의
 #    계약은 0=일치/1=drift/2=실행 불가다. 미설정은 drift가 아니라 실행 불가이므로
 #    반드시 exit 2로 끝나야 한다(원본과 동일한 이유).
 [[ -n "${EXPECTED_SUBSCRIPTION:-}" ]] || {
-  echo "ERROR: EXPECTED_SUBSCRIPTION이 설정되지 않았다 — 어느 구독에 부트스트랩할지 명시할 것." >&2
+  echo "ERROR: EXPECTED_SUBSCRIPTION이 설정되지 않았다. 어느 구독에 부트스트랩할지 명시할 것." >&2
   echo "       예: EXPECTED_SUBSCRIPTION=<GUID> EXPECTED_TENANT=<GUID> bash bootstrap.sh" >&2
   echo "       값은 Azure 구독 관리자에게 확인한다." >&2
   exit 2
@@ -49,9 +41,9 @@ readonly WORKLOAD="${WORKLOAD:-demo}"
 readonly EXPECTED_SUBSCRIPTION
 
 [[ -n "${EXPECTED_TENANT:-}" ]] || {
-  echo "ERROR: EXPECTED_TENANT가 설정되지 않았다 — 어느 테넌트에서 실행할지 명시할 것." >&2
+  echo "ERROR: EXPECTED_TENANT가 설정되지 않았다. 어느 테넌트에서 실행할지 명시할 것." >&2
   echo "       App Registration·FIC·Entra 역할은 테넌트 스코프 객체라 구독 대조만으로는" >&2
-  echo "       부족하다(계획 1절 Option A 구독·테넌트 대조 가드)." >&2
+  echo "       부족하다." >&2
   exit 2
 }
 [[ "$EXPECTED_TENANT" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || {
@@ -62,7 +54,7 @@ readonly EXPECTED_TENANT
 
 # ── hub-spoke 토폴로지 (원본과 동일한 역할 분리) ────────────────────────────
 # hub는 구독마다 단일 고정 거처, spoke는 여러 인스턴스가 가능한 역할이며 dev가
-# 첫 인스턴스다(계획 6-0-a: hub/dev 별도 구독으로 확정).
+# 첫 인스턴스다. hub와 dev는 별도 구독이다.
 readonly BOOTSTRAP_TARGET="${BOOTSTRAP_TARGET:-hub}"
 case "$BOOTSTRAP_TARGET" in
   hub|spoke) ;;
@@ -77,11 +69,11 @@ readonly ENV_TOKEN="$([[ "$BOOTSTRAP_TARGET" == hub ]] && echo hub || echo "$SPO
 # hub-peer 역할(아래 「커스텀 역할 이름」절)은 hub 구독의 워크로드 RG에 만들어지는데,
 # spoke 부트스트랩 실행 중에는 az 컨텍스트가 spoke 구독(EXPECTED_SUBSCRIPTION)이라
 # hub 구독 ID를 별도로 받아야 한다. hub 대상 실행에는 무관하므로 spoke 대상일 때만
-# 필수로 가둔다(EXPECTED_SUBSCRIPTION과 같은 가드 스타일 — 기본값 없이 GUID 형식만
+# 필수로 가둔다(EXPECTED_SUBSCRIPTION과 같은 가드 스타일. 기본값 없이 GUID 형식만
 # 검증한다).
 if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
   [[ -n "${HUB_SUBSCRIPTION:-}" ]] || {
-    echo "ERROR: HUB_SUBSCRIPTION이 설정되지 않았다 — hub-peer 역할(hub 구독에 생성)의 스코프를 구성하려면 hub 구독 ID가 필요하다." >&2
+    echo "ERROR: HUB_SUBSCRIPTION이 설정되지 않았다. hub-peer 역할(hub 구독에 생성)의 스코프를 구성하려면 hub 구독 ID가 필요하다." >&2
     echo "       예: BOOTSTRAP_TARGET=spoke HUB_SUBSCRIPTION=<hub 구독 GUID> EXPECTED_SUBSCRIPTION=<dev 구독 GUID> EXPECTED_TENANT=<GUID> bash bootstrap.sh" >&2
     exit 2
   }
@@ -93,31 +85,27 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
 fi
 
 # ── 네이밍 ───────────────────────────────────────────────────────────────────
-# iac-module-library의 docs/naming/abbreviations/azure.md에 resource group(`rg`)·
-# storage account(`st`)·앱 등록(`entapp`)을 등재했다(2026-08-27, 실제 Azure 검증
-# 세션). "todo" placeholder는 이 등재로 해소됐다 — 등재 전까지는 이 네이밍 함수만
-# 교체하면 되도록 설계했었고, 실제로 사용처(RG_NAME 등을 참조하는 bootstrap.sh·
-# verify.sh)는 하나도 안 건드렸다.
+# 약어(`rg`·`st`·`entapp`)는 iac-module-library의 docs/naming/abbreviations/azure.md가
+# SSOT다. bootstrap.sh·verify.sh는 아래 상수만 참조하므로 포맷을 바꿀 때 이 절만 고친다.
 readonly RG_NAME="rg-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-workload-01"
 readonly STATE_RG_NAME="rg-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-tfstate-01"
 readonly APP_NAME="entapp-${WORKLOAD}-${ENV_TOKEN}-${REGION_CODE}-gha-01"
 
-# 워크로드 커스텀 역할의 스코프(2026-09-04부터 구독 전체 — 이전에는 RG_NAME 하나).
-# bootstrap.sh·verify.sh 둘 다 이 값을 쓴다(각자 계산하면 갈릴 위험이 있어 공유
-# 계층으로 올렸다).
+# 워크로드 커스텀 역할의 스코프(구독 전체). bootstrap.sh·verify.sh가 각자 계산하면
+# 갈릴 위험이 있어 공유 계층에 둔다.
 readonly SUBSCRIPTION_SCOPE="/subscriptions/${EXPECTED_SUBSCRIPTION}"
 
-# hub App Registration 이름 — 대상과 무관하게(hub·spoke 어느 쪽에서 소싱하든) 항상
+# hub App Registration 이름. 대상과 무관하게(hub·spoke 어느 쪽에서 소싱하든) 항상
 # "hub" 토큰으로 고정 계산한다. bootstrap.sh의 크로스 구독 스포크 연결 절이 dev 구독
 # 컨텍스트에서 hub SP를 조회할 때 쓴다.
 readonly HUB_APP_NAME="entapp-${WORKLOAD}-hub-${REGION_CODE}-gha-01"
 
 # hub-peer 역할(아래 「커스텀 역할 이름」절)의 스코프 계산에 쓰는 hub 워크로드 RG
-# 이름 — HUB_APP_NAME과 같은 이유로 대상과 무관하게 "hub" 토큰 고정.
+# 이름. HUB_APP_NAME과 같은 이유로 대상과 무관하게 "hub" 토큰 고정.
 readonly HUB_RG_NAME="rg-${WORKLOAD}-hub-${REGION_CODE}-workload-01"
 
-# Storage Account 이름: 3~24자, 소문자+숫자만, 하이픈 불가(Azure 물리 제약) — 등재된
-# `st` 약어에서 하이픈만 뺀 접두사를 쓴다(azure.md A.3의 캐비어트 참고). 원본의
+# Storage Account 이름: 3~24자, 소문자+숫자만, 하이픈 불가(Azure 물리 제약). 등재된
+# `st` 약어에서 하이픈만 뺀 접두사를 쓴다(azure.md의 Storage Account 캐비어트). 원본의
 # "이름을 git에 남기지 않는다" 요건(임의 접미사)을 지키려고 8자리 hex 접미사를 더한다.
 readonly SA_PREFIX="st${WORKLOAD}${ENV_TOKEN}"
 readonly CONTAINER_NAME="tfstate"
@@ -146,45 +134,40 @@ new_storage_account_name() {
 # ── 커스텀 역할 이름 ─────────────────────────────────────────────────────────
 readonly WORKLOAD_ROLE_NAME="aks-ref-bootstrap-workload-ci-${ENV_TOKEN}"
 # control-plane과 storage blob data-plane이 분리된 축이라 워크로드 역할과 별개로
-# 유지한다(위 「state 데이터 커스텀 역할」절 — 2026-09-04에 한 번 제거했다가 같은
-# 날 재도입).
+# 유지한다(아래 「state 데이터 커스텀 역할」절).
 readonly STATE_DATA_ROLE_NAME="aks-ref-bootstrap-state-data-${ENV_TOKEN}"
 # 스포크에서만 의미가 있다. hub CI 신원에게 이 스포크 VNet을 찾아 vWAN 허브에
 # 연결할 권한을 주는 역할이다(spoke_peer_role_definition_json 참고).
 readonly SPOKE_PEER_ROLE_NAME="aks-ref-bootstrap-spoke-peer-${ENV_TOKEN}"
 # hub 구독의 워크로드 RG에 정의되는 역할이라(스코프가 대상마다 갈리지 않는다)
-# ENV_TOKEN 접미사를 붙이지 않는다 — spoke-peer(대상마다 자기 RG를 스코프로
-# 갖는 것)와 반대로, hub-peer는 hub 구독 안에 한 번만 존재하고 여러 spoke의
-# role assignment가 이를 공유한다(hub-argocd-rbac-direction-flip 계획 5절
-# "역할 정의는 1회 생성").
+# ENV_TOKEN 접미사를 붙이지 않는다. spoke-peer(대상마다 자기 RG를 스코프로
+# 갖는 것)와 반대로, hub-peer 정의는 hub 구독 안에 한 번만 존재하고 여러 spoke의
+# role assignment가 이를 공유한다.
 readonly HUB_PEER_ROLE_NAME="aks-ref-bootstrap-hub-peer"
 
-# bootstrap.sh는 이 role assignment를 만들지 않는다 — `live/<env>/workbench`가
+# bootstrap.sh는 이 role assignment를 만들지 않는다. `live/<env>/workbench`가
 # Terraform으로 직접 만든다(사람이 SSH로 workbench VM에 sudo 로그인하기 위한
 # 워크로드 RG 스코프 role assignment, `azurerm_role_assignment.workbench_admin_login`).
 # Azure 내장 역할이라 ENV_TOKEN으로 이름이 갈리지 않는다. verify.sh의 스포크 RG
 # 스코프 불변식이 이 존재를 "알려진 것"으로 인식해 hub SP의 spoke-peer 항목과
-# 구분하는 데 쓴다(2026-09-09, MAJOR M4 정정 — workbench_admin_login이 생기기
-# 전엔 외부 principal이 hub SP 1건뿐이라 별도 분류가 필요 없었다).
+# 구분하는 데 쓴다.
 readonly WORKBENCH_ADMIN_LOGIN_ROLE_NAME="Virtual Machine Administrator Login"
 
-# ⚠️ AKS 클러스터용 identity·role assignment는 2026-09-04부로 이 스크립트가 더
-# 이상 만들지 않는다(config.sh AKS_IDENTITY_NAME 등 관련 상수·`aks_node_subnet_id()`
-# 전부 제거). CI 신원이 이제 구독 전체 Owner 등가라 그 제약(모듈이 identity/role
-# assignment를 안 만든다는 aks-cluster 경계 원칙 + CI가 roleAssignments/write를
-# 못 갖는다는 옛 제약)의 두 번째 축이 사라졌다 — `live/hub/aks`가 자기 identity를
-# Terraform으로 직접 만든다.
-# `Microsoft.ContainerService` RP 등록은 그대로 남긴다(아래) —
-# 저빈도 1회성 작업이라 옮길 실익이 낮다는 별개 판단.
+# ⚠️ AKS 클러스터용 identity·role assignment는 이 스크립트가 만들지 않는다.
+# `live/hub/aks`가 Terraform으로 직접 만든다. aks-cluster 모듈은 identity·role
+# assignment를 만들지 않지만(모듈 경계), CI 신원이 구독 전체 Owner 등가라 소비자
+# 루트가 만들 수 있다.
+# `Microsoft.ContainerService` RP 등록은 이 스크립트에 남긴다(아래). 저빈도 1회성
+# 작업이라 옮길 실익이 낮다.
 
-# ── FIC subject (계획 6-0-d 확정: 배포 브랜치 정책만, 필수 리뷰어 없음) ─────
+# ── FIC subject (배포 브랜치 정책만, 필수 리뷰어 없음) ─────────────────────────
 #
 # ⚠️ 이름만으로 조합한 subject(`repo:org/repo:...`)는 실제 GitHub OIDC 토큰과 맞지 않는다.
 # 이 조직/계정에서는 GitHub가 org·repo 이름 뒤에 불변 숫자 ID를 붙인
-# `repo:org@org_id/repo@repo_id:...` 형태로 sub 클레임을 발급한다(2026-08-27 hub CI 최초
-# 실행에서 AADSTS700213으로 실측 확인 — 이름 기반 FIC는 항상 인증 실패한다). 원인은
-# GitHub 쪽의 sub 클레임 정책이지 이 스크립트가 결정할 수 있는 값이 아니므로, `gh api`로
-# 실제 ID를 조회해 조합한다. 이름 기반으로 되돌리지 않는다.
+# `repo:org@org_id/repo@repo_id:...` 형태로 sub 클레임을 발급한다. 이름 기반 FIC는
+# 항상 AADSTS700213으로 인증에 실패한다. 원인은 GitHub 쪽의 sub 클레임 정책이지 이
+# 스크립트가 결정할 수 있는 값이 아니므로, `gh api`로 실제 ID를 조회해 조합한다.
+# 이름 기반으로 되돌리지 않는다.
 command -v gh >/dev/null || {
   echo "ERROR: gh CLI가 필요하다 (FIC subject의 org/repo 불변 ID 조회용)." >&2
   exit 1
@@ -207,25 +190,25 @@ readonly TAG_WORKLOAD="$WORKLOAD"
 readonly TAG_MANAGED_BY="bootstrap.sh"
 readonly TAG_ENVIRONMENT="$ENV_TOKEN"
 
-# ── 출력 헬퍼 (원본과 동일 패턴, stderr로 통일 — stdout은 함수 반환값 전용) ──
+# ── 출력 헬퍼 (원본과 동일 패턴, stderr로 통일. stdout은 함수 반환값 전용) ────
 readonly C_OK=$'\033[32m'; readonly C_CHG=$'\033[33m'
 readonly C_ERR=$'\033[31m'; readonly C_OFF=$'\033[0m'
 ok()      { printf '%s  ok%s      %s\n' "$C_OK" "$C_OFF" "$*" >&2; }
 changed() { printf '%s changed%s  %s\n' "$C_CHG" "$C_OFF" "$*" >&2; CHANGES=$((CHANGES + 1)); }
 mismatch(){ printf '%s  DRIFT%s   %s\n' "$C_ERR" "$C_OFF" "$*" >&2; DRIFTS=$((DRIFTS + 1)); }
 # ⚠️ warn()은 **어떤 카운터도 올리지 않는다**. "지금은 판정할 수 없다"(선행 리소스가
-# 아직 없다)를 drift와 구분해 알리는 용도다. 조회가 실패한 경우에 쓰면 안 된다 —
+# 아직 없다)를 drift와 구분해 알리는 용도다. 조회가 실패한 경우에 쓰면 안 된다.
 # 그건 fail-closed 대상이라 die()로 exit 2여야 한다.
 warn()    { printf '%s   warn%s   %s\n' "$C_CHG" "$C_OFF" "$*" >&2; }
 
 # ⚠️ TOP_PID + kill 패턴: macOS 시스템 bash(3.2, GPLv3 문제로 이 버전에 고정)는
-# `$( )` 명령 치환 안에서 `errexit`를 전혀 적용하지 않는다 —
+# `$( )` 명령 치환 안에서 `errexit`를 전혀 적용하지 않는다.
 # `x="$(false; echo survived)"`가 `set -euo pipefail` 아래에서도 죽지 않고
-# 계속 실행된다(실측 확인). `die()`가 그냥 `exit 2`만 하면, check_* 함수
-# 안에서 실패해도 그 exit은 가장 안쪽 서브셸만 죽이고 바깥 스크립트는 빈
-# 문자열을 받아 계속 진행한다(그리고 `[[ "" -eq 0 ]]`가 bash에서 참이라 "0건
-# 통과"로 둔갑한다). TOP_PID에 SIGTERM을 보내고 최상위 스크립트가 그 신호를
-# trap해 exit하면, 서브셸이 몇 겹이든 bash 버전이 무엇이든 결과가 같아진다.
+# 계속 실행된다. `die()`가 그냥 `exit 2`만 하면, check_* 함수 안에서 실패해도
+# 그 exit은 가장 안쪽 서브셸만 죽이고 바깥 스크립트는 빈 문자열을 받아 계속
+# 진행한다(그리고 `[[ "" -eq 0 ]]`가 bash에서 참이라 "0건 통과"로 둔갑한다).
+# TOP_PID에 SIGTERM을 보내고 최상위 스크립트가 그 신호를 trap해 exit하면,
+# 서브셸이 몇 겹이든 bash 버전이 무엇이든 결과가 같아진다.
 readonly TOP_PID=$$
 trap 'exit 2' TERM
 die() {
@@ -235,7 +218,7 @@ die() {
 }
 
 # 조회 결과가 정수인지 검증한다. 조회 실패로 count 변수가 빈 문자열이 되면
-# `[[ "" -eq 0 ]]`가 bash에서 참으로 평가되어 "0건이라 통과"로 둔갑한다 —
+# `[[ "" -eq 0 ]]`가 bash에서 참으로 평가되어 "0건이라 통과"로 둔갑한다.
 # 이 함수가 그 함정을 여기서 차단한다. die()가 TOP_PID로 신호를 보내지만,
 # 이 함수를 호출한 지점 자체가 이미 서브셸을 벗어난 위치(카운트 변수 대입
 # 다음 줄)이므로 이 가드만으로도 즉시 멈춘다.
@@ -246,10 +229,10 @@ require_int() {  # require_int <value> <label>
 # ── 공통 확인 ────────────────────────────────────────────────────────────────
 az_() { az "$@"; }
 
-# 일반 az 호출 — 실패하면 즉시 exit 2 한다(fail-closed). 호출자는 항상
-# `"$(az_or_die '설명' -- az 서브커맨드...)"` 형태로 쓴다. 원래 verify.sh에만
-# 있었으나, role_definition_list_retry가 bootstrap.sh·verify.sh 양쪽에서
-# 같은 fail-closed 기준으로 조회 실패를 판정해야 해서 공유 계층으로 옮겼다.
+# 일반 az 호출. 실패하면 즉시 exit 2 한다(fail-closed). 호출자는 항상
+# `"$(az_or_die '설명' -- az 서브커맨드...)"` 형태로 쓴다. role_definition_list_retry가
+# bootstrap.sh·verify.sh 양쪽에서 같은 fail-closed 기준으로 조회 실패를 판정해야 해서
+# 공유 계층에 둔다.
 az_or_die() {  # az_or_die <error-context> -- <command...>
   local ctx="$1"; shift
   [[ "$1" == "--" ]] && shift
@@ -265,29 +248,23 @@ assert_subscription_tenant() {
   actual_sub="$(az_ account show --query id -o tsv 2>/dev/null)" \
     || die "az 로그인 없음. 'az login' 먼저 실행할 것"
   [[ "$actual_sub" == "$EXPECTED_SUBSCRIPTION" ]] \
-    || die "구독 불일치: 기대 $EXPECTED_SUBSCRIPTION, 실제 $actual_sub — 공용 테넌트이므로 중단한다"
+    || die "구독 불일치: 기대 $EXPECTED_SUBSCRIPTION, 실제 $actual_sub. 공용 테넌트이므로 중단한다"
   actual_tenant="$(az_ account show --query tenantId -o tsv)"
   [[ "$actual_tenant" == "$EXPECTED_TENANT" ]] \
-    || die "테넌트 불일치: 기대 $EXPECTED_TENANT, 실제 $actual_tenant — App Registration은 테넌트 스코프 객체다"
+    || die "테넌트 불일치: 기대 $EXPECTED_TENANT, 실제 $actual_tenant. App Registration은 테넌트 스코프 객체다"
 }
 
-# ── 재시도 헬퍼 (계획 5절, 특정 오류 코드일 때만 재시도. 맹목적 재시도는 진짜
-#    실패를 감춘다) ───────────────────────────────────────────────────────────
+# ── 재시도 헬퍼 (특정 오류 코드일 때만 재시도. 맹목적 재시도는 진짜 실패를 감춘다) ──
 #
 # role assignment 생성 직후 실행 시 여러 복제 지연이 독립적으로 터질 수 있다:
-#   - PrincipalNotFound: SP 생성 직후 Entra 복제 지연(원본 README 128~131행이
-#     AWS IAM에 대해 경고한 것과 같은 계열)
+#   - PrincipalNotFound: SP 생성 직후 Entra 복제 지연(원본 README가 AWS IAM에 대해
+#     경고한 것과 같은 계열)
 #   - "Role '...' doesn't exist.": 커스텀 역할 정의(ensure_custom_role) 생성 직후
-#     ARM 캐시 전파 지연. 실측(2026-08-27 hub 부트스트랩 1차 실행)으로 확인 —
-#     원래는 PrincipalNotFound만 재시도 대상이었는데, workload 커스텀 역할 생성
-#     직후 role assignment가 이 오류로 즉시 die했다.
+#     ARM 캐시 전파 지연. 역할을 만든 바로 다음 role assignment가 이 오류로 거부된다.
 #   - RoleAssignmentScopeNotAssignableToRoleDefinition: 역할 정의의
-#     AssignableScopes를 update로 바꾼 직후(2026-09-04, RG 스코프 → 구독 스코프
-#     마이그레이션) 그 변경이 아직 전파되지 않은 상태에서 새 스코프로 role
-#     assignment를 만들면 "이 스코프에서 사용 불가"로 거부된다. hub에서는
-#     우연히 안 걸렸지만 dev 재부트스트랩에서 실측(2026-09-04) — 같은 ARM 캐시
-#     전파 지연 계열의 새 얼굴이다. AssignableScopes가 바뀐 건 이번이 처음이라
-#     (그 전엔 Actions/NotActions만 바뀌었다) 이전엔 드러날 기회가 없었다.
+#     AssignableScopes를 update로 바꾼 직후 그 변경이 아직 전파되지 않은 상태에서
+#     새 스코프로 role assignment를 만들면 "이 스코프에서 사용 불가"로 거부된다.
+#     같은 ARM 캐시 전파 지연 계열이다.
 retry_on_replication_delay() {
   local attempt=0 err
   while :; do
@@ -306,15 +283,13 @@ retry_on_replication_delay() {
 
 # AADSTS70021은 FIC 생성 후 GitHub Actions가 실제로 토큰 교환을 시도할 때(이
 # bootstrap 스크립트 밖, CI 워크플로 실행 시점) 전파 지연으로 발생할 수 있다.
-# bootstrap.sh 자신은 토큰 교환을 수행하지 않으므로 여기서는 다루지 않는다 —
-# 이 저장소에 실제 GitHub Actions 워크플로가 생기면 그 시점에 같은 형태의
-# 재시도 헬퍼(retry_on_conflict()를 참고)를 그쪽 코드에 추가한다. FIC 생성
-# 자체에서 발생 가능한 오류는 동시 생성 충돌(409)이며, retry_on_conflict()가
+# bootstrap.sh 자신은 토큰 교환을 수행하지 않으므로 여기서는 다루지 않는다.
+# FIC 생성 자체에서 발생 가능한 오류는 동시 생성 충돌(409)이며, retry_on_conflict()가
 # 처리한다.
 
 # 409(Conflict): 같은 App/UAMI 하위에 FIC를 동시 생성하면 충돌한다(공식 문서상
 # 이 제약은 user-assigned managed identity에 명시적으로 서술된 것이며, App
-# Registration 쪽으로 일반화한 것이 아니다 — 다만 직렬 재시도 자체는 무해하므로
+# Registration 쪽으로 일반화한 것이 아니다. 다만 직렬 재시도 자체는 무해하므로
 # 두 경로 모두에 재사용 가능한 형태로 둔다).
 retry_on_conflict() {
   local attempt=0 err
@@ -330,11 +305,10 @@ retry_on_conflict() {
 }
 
 # ── 워크로드 커스텀 역할: 구독 전체 Owner 등가, RG 자기 삭제만 제외 ─────────────
-# Owner는 built-in 정의 자체가 NotActions: []다 — Contributor처럼 런타임 조회할
-# 대상이 없다(그 조회 로직이 v4·v5에서 두 번 틀렸던 근본 원인이었는데, Owner
-# 기반으로 바꾸면서 그 실수 클래스 자체가 사라졌다). "RG 자체 삭제 방지"만
-# 값싼 사고 방지 안전망으로 유지한다 — 더 이상 보안 경계가 아니다(Owner는 RG
-# 안의 다른 모든 리소스를 어차피 지울 수 있다).
+# Owner는 built-in 정의 자체가 NotActions: []라 런타임에 조회할 대상이 없다.
+# Contributor 기반이면 그 NotActions를 매 실행 조회해야 하고, 그 조회를 틀리기 쉽다.
+# "RG 자체 삭제 방지"만 값싼 사고 방지 안전망으로 둔다. 보안 경계가 아니다(Owner는
+# RG 안의 다른 모든 리소스를 어차피 지울 수 있다).
 workload_role_definition_json() {  # workload_role_definition_json <assignable-scope>
   local scope="$1"
   jq -n \
@@ -342,11 +316,11 @@ workload_role_definition_json() {  # workload_role_definition_json <assignable-s
     --arg scope "$scope" \
     '{
       Name: $name,
-      # ⚠️ az CLI 실측 버그(azure-cli 2.89.1, ensure_custom_role의 update 경로):
+      # ⚠️ az CLI 버그(azure-cli 2.89.1, ensure_custom_role의 update 경로):
       # `az role definition update`는 카멜케이스 변환 후 role_definition["roleName"]을
-      # 직접 읽는데, create는 role_definition.get("name")을 읽는다 — 같은 명령군인데
-      # 요구하는 키가 다르다. Name만 쓰면 update 시 KeyError: 'roleName'으로 죽는다
-      # (2026-09-04 hub 재부트스트랩 실측). RoleName을 추가로 넣어 두 경로 다 만족시킨다
+      # 직접 읽는데, create는 role_definition.get("name")을 읽는다. 같은 명령군인데
+      # 요구하는 키가 다르다. Name만 쓰면 update 시 KeyError: 'roleName'으로 죽는다.
+      # RoleName을 추가로 넣어 두 경로 다 만족시킨다
       # (create/worker.create_role_definition은 role_name을 별도 인자로 받아 role_definition
       # dict의 여분 키를 무시하므로 부작용 없음).
       RoleName: $name,
@@ -360,21 +334,16 @@ workload_role_definition_json() {  # workload_role_definition_json <assignable-s
 }
 
 # ── state 데이터 커스텀 역할: Storage Blob Data Contributor에서
-#    containers/delete만 뺀 고정 델타(계획 2절, 실측 확정값이라 하드코딩 유지) ──
+#    containers/delete만 뺀 고정 델타 ──────────────────────────────────────────
 #
-# ⛔ **2026-09-04 재도입(당일 취소 결정 정정).** 워크로드 역할을 구독 전체
-# Owner로 바꾸며 "이제 state RG·컨테이너까지 전부 커버하니 이 역할은 무의미"라고
-# 판단해 한 번 제거했는데, **틀린 판단이었다.** Azure RBAC는 control-plane
-# (`Actions`)과 storage blob data-plane(`DataActions`)이 완전히 분리된 축이라,
-# `Actions: ["*"]`(Owner·Contributor 둘 다 그렇다 — `az role definition list
-# --name Owner`로 실측 확인, `dataActions: []`) 는 blob **데이터**(tfstate 파일
-# 자체) 읽기/쓰기를 전혀 포함하지 않는다. 이 backend는 `use_azuread_auth = true`
+# ⛔ 워크로드 역할이 구독 전체 Owner라고 이 역할을 없애지 않는다. Azure RBAC는
+# control-plane(`Actions`)과 storage blob data-plane(`DataActions`)이 분리된 축이라,
+# `Actions: ["*"]`(Owner·Contributor 둘 다 `dataActions: []`)는 blob **데이터**
+# (tfstate 파일 자체) 읽기/쓰기를 포함하지 않는다. 이 backend는 `use_azuread_auth = true`
 # 라 blob data-plane 접근이 반드시 RBAC data role(`Microsoft.Storage/
-# storageAccounts/blobServices/containers/blobs/*`)로 별도 부여돼야 한다 — 이
-# 역할이 없으면 워크로드 역할이 아무리 넓어도 `tofu init`/`plan`/`apply`가 tfstate
-# blob 접근 실패로 깨진다(live/hub/networking·vwan·aks 등 모든 root가 이 backend를
-# 공유한다). 원인은 "control-plane 권한이 넓으면 data-plane도 당연히 포함"이라는
-# 잘못된 가정이었다 — 실제로는 그 반대다.
+# storageAccounts/blobServices/containers/blobs/*`)로 별도 부여돼야 한다. 이 역할이
+# 없으면 모든 root(live/hub/*·live/dev/*가 이 backend를 공유)의 `tofu init`/`plan`/
+# `apply`가 tfstate blob 접근 실패로 깨진다.
 state_data_role_definition_json() {  # state_data_role_definition_json <assignable-scope>
   local scope="$1"
   jq -n \
@@ -437,21 +406,23 @@ spoke_peer_role_definition_json() {  # spoke_peer_role_definition_json <assignab
     }'
 }
 
-# ── hub-peer 역할: spoke-peer와 정반대 방향(hub-argocd-rbac-direction-flip
-#    계획 5절) ────────────────────────────────────────────────────────────────
+# ── hub-peer 역할: spoke-peer와 정반대 방향 ────────────────────────────────────
 # spoke-peer는 hub CI 신원에게 "이 스포크" 구독의 권한을 주지만, hub-peer는
 # spoke CI 신원에게 "hub" 구독의 권한을 준다. 역할 정의·할당 둘 다 hub 구독
 # 안에서 이뤄지므로, 이 역할을 다루는 호출은(BOOTSTRAP_TARGET=spoke 실행 중이라
 # az 컨텍스트가 spoke 구독인데도) --subscription "$HUB_SUBSCRIPTION"으로 명시
-# 라우팅한다 — verify.sh의 check_subscription_scope_assignments가 여러 구독을
-# 순회할 때 이미 쓰는 것과 같은 패턴이다.
+# 라우팅한다. verify.sh의 check_subscription_scope_assignments가 여러 구독을
+# 순회할 때 쓰는 것과 같은 패턴이다.
 #
-# 스코프는 리소스 단일이 아니라 hub 워크로드 RG다 — azurerm_resources data
+# 스코프는 리소스 단일이 아니라 hub 워크로드 RG다. azurerm_resources data
 # source 자체가 태그 기반 리스트 조회라 RG(또는 구독) 스코프가 필요하고, 2단계
-# azurerm_user_assigned_identity 명명 조회도 같은 RG 스코프 권한으로 충분하다
-# (계획 5절, Architect+Critic이 공통으로 확인). required_tags 필터
-# (Role=argocd-hub)로 실제 노출 범위를 좁힌다 — read 권한 자체는 RG 전체지만,
-# 이 태그가 없는 hub 리소스는 spoke 쪽 코드가 존재를 알 수 없다.
+# azurerm_user_assigned_identity 명명 조회도 같은 RG 스코프 권한으로 충분하다.
+# required_tags 필터(Role=argocd-hub)로 실제 노출 범위를 좁힌다. read 권한 자체는
+# RG 전체지만, 이 태그가 없는 hub 리소스는 spoke 쪽 코드가 존재를 알 수 없다.
+#
+# ⚠️ Description만 바꾸면 ensure_custom_role이 수렴시키지 않는다. role_definition_matches는
+#    Actions류 배열만 비교한다. Description 변경을 Azure에 반영하려면 `az role definition
+#    update`를 따로 실행한다.
 hub_peer_role_definition_json() {  # hub_peer_role_definition_json <assignable-scope>
   local scope="$1"
   jq -n \
@@ -461,7 +432,7 @@ hub_peer_role_definition_json() {  # hub_peer_role_definition_json <assignable-s
       Name: $name,
       # RoleName 중복 이유는 workload_role_definition_json 주석 참고(az CLI update 경로 버그).
       RoleName: $name,
-      Description: "Grant for a spoke CI identity to discover(read) the hub ArgoCD UAMI in the hub workload resource group, so the spoke can create its own role assignment granting hub ArgoCD access to its AKS cluster (aks-reference-infra hub-argocd-rbac-direction-flip plan 5절, spoke-peer의 정반대 방향).",
+      Description: "Grant for a spoke CI identity to discover(read) the hub ArgoCD UAMI in the hub workload resource group, so the spoke can create its own role assignment granting hub ArgoCD access to its AKS cluster (aks-reference-infra, reverse direction of spoke-peer).",
       Actions: [
         "Microsoft.ManagedIdentity/userAssignedIdentities/read",
         "Microsoft.Resources/subscriptions/resourceGroups/read",
@@ -474,33 +445,32 @@ hub_peer_role_definition_json() {  # hub_peer_role_definition_json <assignable-s
     }'
 }
 
-# ── FIC 기대 정의 (subject/issuer/audience 전 필드, 계획 3절 시나리오 1(f)) ──
+# ── FIC 기대 정의 (subject/issuer/audience 전 필드) ──────────────────────────────
 fic_expected_json() {  # fic_expected_json <name> <subject>
   jq -n --arg name "$1" --arg subject "$2" --arg issuer "$FIC_ISSUER" --arg aud "$FIC_AUDIENCE" \
     '{name: $name, subject: $subject, issuer: $issuer, audiences: [$aud]}'
 }
 
-# JSON 의미 비교 — 키 순서·공백 차이로 가짜 drift가 나지 않게 정규화한다.
+# JSON 의미 비교. 키 순서·공백 차이로 가짜 drift가 나지 않게 정규화한다.
 json_eq() { [[ "$(jq -cS . <<<"$1")" == "$(jq -cS . <<<"$2")" ]]; }
 
 # 배열을 집합으로 비교한다(순서 무관, 완전 일치). "포함 여부"가 아니라 "집합
-# 완전 일치" 검사에 쓴다 — 계획이 명시적으로 요구하는 방식이다.
+# 완전 일치" 검사에 쓴다. 기대 상태에 없는 권한이 하나라도 붙으면 drift여야 한다.
 array_set_eq() {  # array_set_eq <json-array-1> <json-array-2>
   [[ "$(jq -cS 'sort' <<<"$1")" == "$(jq -cS 'sort' <<<"$2")" ]]
 }
 
-# `az role definition list --name` 단건 조회가, 같은 역할이 방금 생성/갱신된
-# 직후 일시적으로 빈 배열을 돌려주는 경우가 실측됐다(2026-08-27 hub 부트스트랩
-# 2차 실행 — --name 단건 조회와 --custom-role-only 전체 목록 조회가 같은 시점에
-# 서로 다른 결과를 냈다. Azure RBAC 조회 경로 간 캐시 전파 지연으로 보인다).
-# bootstrap.sh·verify.sh 양쪽에서 같은 재시도로 흡수한다 — 각자 따로 재시도를
+# `az role definition list --name` 단건 조회는 같은 역할이 방금 생성/갱신된 직후
+# 일시적으로 빈 배열을 돌려줄 수 있다(--name 단건 조회와 --custom-role-only 전체 목록
+# 조회가 같은 시점에 서로 다른 결과를 낸다. Azure RBAC 조회 경로 간 캐시 전파 지연으로
+# 보인다). bootstrap.sh·verify.sh 양쪽에서 같은 재시도로 흡수한다. 각자 따로 재시도를
 # 구현하면 한쪽만 고쳐지고 다른 쪽은 계속 소음을 낸다.
 role_definition_list_retry() {  # role_definition_list_retry <role-name> [subscription]
   # [subscription]이 주어지면 이 대상 자신의 구독이 아닌 다른 구독(hub-peer 전용,
   # spoke 부트스트랩이 hub 구독에 있는 역할을 조회할 때)을 겨냥한다. 빈 배열
-  # 전개("${arr[@]}")로 선택적 인자를 흉내내지 않는다 — macOS 시스템 bash(3.2)는
+  # 전개("${arr[@]}")로 선택적 인자를 흉내내지 않는다. macOS 시스템 bash(3.2)는
   # `set -u` 아래에서 원소 0개인 배열의 `${arr[@]}` 참조 자체를 unbound
-  # variable로 죽인다(실측 확인). 그래서 두 분기를 완전히 분리해서 쓴다.
+  # variable로 죽인다. 그래서 두 분기를 완전히 분리해서 쓴다.
   local role_name="$1" sub="${2:-}" current attempt=0
   while :; do
     if [[ -n "$sub" ]]; then
@@ -518,7 +488,7 @@ role_definition_list_retry() {  # role_definition_list_retry <role-name> [subscr
 
 # 커스텀 역할 정의 전체(Actions/NotActions/DataActions/NotDataActions)를
 # 완전 일치로 비교한다. bootstrap.sh(수렴 판단)와 verify.sh(drift 감지)가
-# **반드시 같은 함수**를 써야 한다 — 두 스크립트가 각자 기준을 가지면 "bootstrap
+# **반드시 같은 함수**를 써야 한다. 두 스크립트가 각자 기준을 가지면 "bootstrap
 # 은 ok인데 verify는 실패"가 생기고, 그러면 verify.sh는 완화책이 아니라 소음이
 # 된다(원본 config.sh의 check_* 공유 원칙과 동일한 이유). 비교 대상을
 # NotActions 하나로 좁히면 state 데이터 역할의 Actions/DataActions drift를
