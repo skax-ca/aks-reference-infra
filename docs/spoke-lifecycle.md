@@ -102,14 +102,13 @@ gh workflow run deploy-dev-aks.yml --ref main -f action=apply
 > ForceNew라 첫 apply가 사실상 최종 선택이다.** hub와 동일 값을 그대로 쓰므로 1절에서
 > 이미 확정돼 있다.
 
-✅ **`live/hub/vwan`을 다시 적용할 필요가 없다(2026-09-10부터).** hub ArgoCD의 dev
-클러스터 RBAC 권한(`Azure Kubernetes Service RBAC Cluster Admin`)은 더 이상 hub가
-태그로 spoke AKS를 발견해 만드는 구조가 아니다 - `live/dev/aks` 자신이 hub ArgoCD
-UAMI(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그로 발견)를 조회해 자기
-apply 안에서 직접 role assignment를 만든다(AWS 원본 `eks-reference-infra`의
-`live/dev/eks`가 `access_entries`를 자기 apply 안에 포함시키는 것과 같은 원리 -
-`.omc/plans/hub-argocd-rbac-direction-flip.md` 참고). 위 `deploy-dev-aks.yml apply`
-한 번으로 role assignment까지 함께 생긴다 - hub 쪽을 추가로 건드릴 필요가 없다.
+✅ **`live/hub/vwan`을 다시 적용할 필요가 없다.** hub ArgoCD의 dev 클러스터 RBAC
+권한(`Azure Kubernetes Service RBAC Cluster Admin`)은 `live/dev/aks` 자신이 hub ArgoCD
+UAMI(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그로 발견)를 조회해 자기 apply
+안에서 직접 만든다(AWS 원본 `eks-reference-infra`의 `live/dev/eks`가 `access_entries`를
+자기 apply 안에 포함시키는 것과 같은 원리. 근거는 `iac-module-library`
+`docs/architectures/gitops-hub-spoke/azure/README.md` 「클러스터 등록」). 위
+`deploy-dev-aks.yml apply` 한 번으로 role assignment까지 함께 생긴다.
 
 같은 방식으로 `live/dev/workbench`를 초기화한다(`key = "dev/workbench.tfstate"`).
 `live/hub/workbench`를 템플릿으로 그대로 복제한다 - 도구 핀(az·kubectl·helm·argocd·
@@ -123,20 +122,16 @@ Storage Account 참조(`DEV_TF_STATE_ACCOUNT`)·CI 신원(`AZURE_DEV_CLIENT_ID`�
 gh workflow run deploy-dev-workbench.yml --ref main -f action=apply
 ```
 
-🔑 **cloud-init의 kubelogin 변환 분기에 레이스 컨디션 버그 2건이 있었다 - `aks-workbench-
-v0.7.0`부터 고정됐다.** (1) `apt-daily-upgrade.timer`가 부팅 15초 만에 자체
-`apt-get update`로 lists lock을 잡아 cloud-init의 azure-cli 설치용 `apt-get update`와
-경합할 수 있다 - `v0.6.0`부터 타이머·서비스를 stop→kill→mask해 제거한다. (2) cloud-init이
-root로 실행될 때 `$HOME`이 `/`로 잡혀(`/root` 아님) `kubelogin convert-kubeconfig`가
-존재하지 않는 `/.kube/config`를 대상으로 삼고 조용히 성공(exit 0)해버릴 수 있다 -
-`v0.7.0`부터 `--kubeconfig /root/.kube/config`를 명시한다.
+🔑 **모듈 태그를 내리지 않는다.** 옛 태그의 cloud-init은 kubelogin 변환 분기에서 부팅
+레이스에 취약하다(`apt-daily-upgrade.timer`와의 lists lock 경합, root `$HOME`이 `/`로
+잡혀 `/.kube/config`를 변환 대상으로 삼는 오인). `aks-workbench-v0.7.0`이 둘 다 고쳤다.
 
-⚠️ **`v0.7.0`의 apt lock 완화는 `apt-daily.service`류만 대상이다 - 2026-09-09 dev
-재구축 실측에서 `unattended-upgrades.service`(Entra RBAC용 AADSSHLoginForLinux 확장이
-`aadsshlogin` 패키지를 설치하며 잡는 lock)가 azure-cli 설치용 apt-get과 경합해 `az`
-명령 자체가 설치되지 않는 걸 확인했다.** hub는 `aks_entra_rbac_enabled=false`라 이
-확장을 안 써서 드러나지 않았다. 이 경합 상대는 `apt-daily`와 달리 필요한 작업이라
-죽이면 안 되고, `DPkg::Lock::Timeout=600`이 왜 이 lock에는 안 먹혔는지부터 봐야 한다 -
+⚠️ **`v0.7.0`의 apt lock 완화는 `apt-daily.service`류만 대상이다.** Entra RBAC용
+AADSSHLoginForLinux 확장이 `aadsshlogin` 패키지를 설치하며 잡는
+`unattended-upgrades.service`의 lock은 여전히 azure-cli 설치용 apt-get과 경합해 `az`
+명령 자체가 설치되지 않을 수 있다. hub는 `aks_entra_rbac_enabled=false`라 이 확장을 안
+써서 드러나지 않는다. 이 경합 상대는 필요한 작업이라 죽이면 안 되고,
+`DPkg::Lock::Timeout=600`이 왜 이 lock에는 안 먹히는지부터 봐야 한다.
 `iac-module-library`의 별도 조사·수정 대상이다(이 저장소 범위 밖).
 
 apply 후 접근을 확인한다(private key는 `~/.ssh/`에만 존재, `.pub`만 커밋):
@@ -153,14 +148,13 @@ hub의 `cluster-secret.yaml`은 `server: https://kubernetes.default.svc`(자기 
 endpoint·인증 수단이 필요하다. AWS 원본처럼 spoke 쪽에 `cross-account-trust-role`
 같은 "신뢰 전용" 리소스를 따로 만들지 않는다 - Azure RBAC role assignment는 tenant
 전역 ARM 오퍼레이션이라 그게 필요 없다(`entra-id-authorization` 공식 문서). 설계
-검토 경위는 `.omc/plans/dev-gitops-registration.md`(로컬 전용) 참고, 여기는 실행
-절차만 다룬다.
+근거는 `iac-module-library` `docs/architectures/gitops-hub-spoke/azure/README.md`
+「클러스터 등록」에 있다. 여기는 실행 절차만 다룬다.
 
-**선행 조건(hub 쪽, spoke가 몇 개든 한 번만)** - `live/hub/aks`가 이미 만들어 둔 것
-(2026-09-10 `live/hub/vwan`에서 이전): hub 전용 User-assigned Identity
-(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그) + ArgoCD SA 2개의 Federated
-Identity Credential. role assignment는 더 이상 hub 쪽 로직이 아니다(2026-09-10
-방향 전환) - **5절의 `deploy-dev-aks.yml apply`가 이미 만들어 놓은 상태**다. 이
+**선행 조건(hub 쪽, spoke가 몇 개든 한 번만)**: `live/hub/aks`가 이미 만들어 둔 것.
+hub 전용 User-assigned Identity(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그) +
+ArgoCD SA 2개의 Federated Identity Credential. role assignment는 hub 쪽 로직이 아니다.
+**5절의 `deploy-dev-aks.yml apply`가 이미 만들어 놓은 상태**다. 이
 절에서 새로 할 일은 없다. spoke 온보딩 시 hub 쪽에 한 번 필요한 건 `bootstrap.sh`
 (`BOOTSTRAP_TARGET=spoke`)가 자동 부여하는 `hub-peer` 커스텀 역할뿐이며 이미
 완료돼 있다(1절 부트스트랩 단계).
@@ -293,23 +287,23 @@ AKS는 `deletion_protection`이 이미 `false`라 이 단계가 필요 없다(`h
 `addon-*`가 실제 매칭 키). secret-type까지 지우면 ApplicationSet이 Application을 정상
 prune해도 그 finalizer(`resources-finalizer.argocd.argoproj.io`)가 대상 클러스터에
 접속할 방법을 잃어 cascade delete가 조용히 실패한다 - Application은 사라지지만 실제
-addon 파드·Gateway/LB·NAP NodePool은 orphan으로 남는다(2026-09-09 실측 확인,
-`argoproj/argo-cd#5817`과 같은 원리 - `eks-platform-gitops`가 먼저 검증해 둔 패턴).
+addon 파드·Gateway/LB·NAP NodePool은 orphan으로 남는다(`argoproj/argo-cd#5817`과 같은
+원리. `eks-platform-gitops`가 먼저 검증해 둔 패턴).
 **secret-type과 접속 정보(`stringData.server`·`config`)는 남기고, fan-out 매칭
 라벨만 지운다.**
 
 순서: ① fan-out 매칭 라벨만 지운다 → ② hub `root-app`의 반영 확인(`kubectl -n argocd
 get application root-app -o jsonpath='{.status.sync.revision}'` - multi-source가
 아니라 `revision` 단수 필드다) → ③ ApplicationSet 재평가 확인(`kubectl -n argocd get
-applications` - **라벨 update 이벤트만으로는 재평가가 트리거되지 않을 수 있다**,
-2026-09-09 실측: Secret 생성 이벤트에는 즉시 반응하나 라벨 제거 update에는 반응하지
-않는 사례 확인 - 안 바뀌면 `kubectl -n argocd rollout restart deployment
+applications` - **라벨 update 이벤트만으로는 재평가가 트리거되지 않을 수 있다.**
+Secret 생성 이벤트에는 즉시 반응하나 라벨 제거 update에는 반응하지 않는 경우가 있다.
+안 바뀌면 `kubectl -n argocd rollout restart deployment
 argocd-applicationset-controller`로 강제) → ④ dev 자신에서 addon 파드·Gateway/LB·NAP
 NodePool/AKSNodeClass 소멸 확인 → ⑤ 그제서야 `cluster-secret.yaml`을 통째로 삭제한다.
 
 ⚠️ **④의 cascade delete가 이미 실패한 뒤에 라벨을 정정해도 소급되지 않는다** -
 Application이 이미 삭제됐으면 finalizer도 함께 사라진 뒤라, 남은 자원은
-hub-lifecycle.md 12절과 같은 방식으로 workbench에서 직접 kubectl로 지운다(①ArgoCD
+hub-lifecycle.md 「IaC 밖 자원 선처리」와 같은 방식으로 workbench에서 직접 kubectl로 지운다(①ArgoCD
 컨트롤러 정지는 hub 쪽이라 해당 없음 ②Gateway/Ingress/LB Service ③PVC ④NAP
 NodePool/AKSNodeClass).
 
@@ -367,26 +361,22 @@ connection.spoke["dev"]`는 **살아있는 데이터소스**(`azurerm_resources`
 ### 14. 재배포 시 GitOps 재등록
 
 dev AKS를 destroy 후 재생성하면 클러스터 이름이 같아도 API endpoint·CA 인증서는 **반드시
-새로 발급**된다(FQDN 접미사 실측 이력: `1amwkeg8` → `9z9xsbiw` → `vsj5lmr3`, 매
-재구축마다 바뀐다). 재배포 시 `cluster-secret.yaml`의 `server`·`caData`만 갱신하고
+새로 발급**된다(FQDN의 무작위 접미사가 매 재구축마다 바뀐다). 재배포 시 `cluster-secret.yaml`의 `server`·`caData`만 갱신하고
 `argocd.argoproj.io/secret-type`·fan-out 매칭 라벨(`environment`·`addon-*`)은 그대로
 유지해야 한다(빠뜨리면 addon 구독이 조용히 빠진 채 재배포된다).
 
-✅ **hub ArgoCD의 dev 클러스터 RBAC 권한은 새 AKS 리소스 ID로 자동 재생성된다
-(2026-09-10부터).** 5절의 `deploy-dev-aks.yml apply`가 role assignment 생성까지
-포함하므로(방향 전환) `live/hub/vwan`을 추가로 만질 필요가 없다. ⚠️ 다만 hub 자신이
-재구축되면 hub ArgoCD UAMI(`live/hub/aks`와 같은 root)가 새 `clientId`로 바뀐다 -
-`cluster-secret.yaml`의 `AZURE_CLIENT_ID`는 리터럴 값이라 `az identity show`로
-재조회해 server·caData·platform.yaml과 함께 갱신한다.
+✅ **hub ArgoCD의 dev 클러스터 RBAC 권한은 새 AKS 리소스 ID로 자동 재생성된다.** 5절의
+`deploy-dev-aks.yml apply`가 role assignment 생성까지 포함하므로 `live/hub/vwan`을
+추가로 만질 필요가 없다.
 
-✅ **dev뿐 아니라 hub까지 포함한 전체 철거→재구축 e2e 검증 완료(2026-09-10).** 5절의
-role assignment 자동 생성이 실제로 동작함을 principalId 일치로 실측 확인했고, hub를
-재apply하지 않고도 6~13절이 그대로 성립함을 확인했다. 이 검증 중 `projects/platform.yaml`의
-dev destination이 여러 재구축을 거치며 갱신되지 않고 가장 오래된 FQDN을 그대로 가리키고
-있던 걸 발견했다 - **이 절의 `server`·`caData` 갱신에 `projects/platform.yaml`의
-해당 destination도 포함한다**(6절의 최초 등록 때만 필요한 게 아니라 매 재배포마다
-같이 간다). 빠뜨려도 즉시 에러는 안 나지만(기존 destination 항목이 여전히 유효한
-패턴으로 남아있는 동안은), 다음 재구축 때 문제가 드러난다.
+⚠️ **hub 자신이 재구축되면 hub ArgoCD UAMI(`live/hub/aks`와 같은 root)가 새
+`principalId`·`clientId`로 바뀐다.** 스포크마다 `live/<env>/aks`를 다시 apply해 role
+assignment를 새 principal로 옮기고, `cluster-secret.yaml`의 `AZURE_CLIENT_ID`(리터럴
+값)를 `az identity show`로 재조회해 server·caData·platform.yaml과 함께 갱신한다.
+
+⚠️ **`projects/platform.yaml`의 dev destination도 매 재배포마다 갱신한다.** 6절의 최초
+등록 때만 필요한 게 아니다. 빠뜨려도 즉시 에러는 안 나지만(기존 destination 항목이 여전히
+유효한 패턴으로 남아있는 동안은) 다음 재구축 때 오래된 FQDN을 가리키는 채로 드러난다.
 
 ### 15. 되돌릴 수 없는 것 / 자주 막히는 지점
 

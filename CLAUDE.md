@@ -11,24 +11,28 @@ hub-spoke AKS GitOps 패턴의 **레퍼런스 배포 루트**다(`eks-reference-
 | repo | 역할 | SSOT |
 |------|------|------|
 | **이 repo (`aks-reference-infra`)** | hub-spoke 패턴을 **소비해 배포**하는 루트 | 이 배포 코드. 설계 근거는 해당 `.tf`/`.sh` 파일의 인라인 주석이 SSOT다. 운영 절차는 `docs/hub-lifecycle.md`(✅)·`docs/spoke-lifecycle.md`(✅)·`docs/runbooks.md`(⏳) |
-| `iac-module-library` | Terraform/OpenTofu 모듈·설계 | 모듈 계약(`docs/module-catalog.md`), 네이밍 약어(`docs/naming/abbreviations/azure.md`), 아키텍처 결정(`docs/decisions.md`), 문서 문체 규칙(`docs/conventions.md`) |
-| `aks-platform-gitops` | ArgoCD Application·AppProject·cluster-secret (계층 2) | ✅ hub·dev 양쪽 등록 완료(self-managed ArgoCD·AKS App Routing·Karpenter·Kyverno, `eks-platform-gitops` 대응. dev는 2026-09-09 Entra Workload Identity 기반으로 등록). 설계 근거는 그 저장소 자신의 `README.md` |
+| `iac-module-library` | Terraform/OpenTofu 모듈·설계 | 모듈 계약(`docs/module-catalog.md`), 네이밍 약어(`docs/naming/abbreviations/azure.md`), 저장소 전역 결정(`docs/decisions.md`), **hub-spoke 패턴의 설계 갈림길과 기각(`docs/architectures/gitops-hub-spoke/azure/`)**, 문서·주석 규칙(`docs/conventions.md`) |
+| `aks-platform-gitops` | ArgoCD Application·AppProject·cluster-secret (계층 2) | ✅ hub·dev 양쪽 등록 완료(self-managed ArgoCD·AKS App Routing·Karpenter·Kyverno, `eks-platform-gitops` 대응. dev는 Entra Workload Identity 기반으로 등록). 설계 근거는 그 저장소 자신의 `README.md` |
 
 ⚠️ **설계·컨벤션의 근거는 이 repo에 없다.** "왜 OpenTofu인가" 같은 질문은
-`iac-module-library`의 `CLAUDE.md`·`docs/decisions.md`가 갖는다. 이 repo 고유의 설계
-판단(크로스 구독 권한 스코프, Pod CIDR 배치 등)은 별도 문서가 아니라 그 판단이 적용된
-`.tf`/`.sh` 파일의 인라인 주석이 SSOT다. 원본(`eks-reference-infra`)도 설계 문서를
-따로 두지 않고 코드 주석에 근거를 남기는 관례를 그대로 따른다. 문서 문체 규칙
-(em-dash 금지·이모지 7종·400줄 제한)의 텍스트 SSOT는 여전히 module repo다.
+`iac-module-library`의 `CLAUDE.md`·`docs/decisions.md`가, "왜 role assignment를
+스포크가 만드는가"·"왜 공개 FQDN인가" 같은 패턴 갈림길은 같은 repo의
+`docs/architectures/gitops-hub-spoke/azure/`가 갖는다. 이 repo 고유의 판단(Pod CIDR
+배치, 2단 조회가 필요한 이유 등)은 별도 문서가 아니라 그 판단이 적용된 `.tf`/`.sh`
+파일의 인라인 주석이 SSOT다. 원본(`eks-reference-infra`)도 설계 문서를 따로 두지 않고
+코드 주석에 근거를 남기는 관례를 그대로 따른다.
+
+⛔ **주석·문서에 좌표를 쓰지 않는다.** 날짜, 계획 파일 경로나 절 번호, 세션 차수, PR
+번호, "실측했다" 같은 사건 서술은 `git blame`과 커밋 메시지가 갖는다. 주석은 "왜 이
+값인가"와 "바꾸면 무엇이 깨지는가"에만 답한다(`iac-module-library` `docs/conventions.md`
+「주석」). 이 규칙이 없을 때 git 밖 계획 파일을 인용한 주석이 쌓여 아무도 열 수 없었다.
 
 **운영 절차 SSOT는 이 repo다.** 원본(`eks-reference-infra`)은 `docs/hub-lifecycle.md`·
 `docs/spoke-lifecycle.md`·`docs/runbooks.md` 세 문서가 그 역할을 한다. 이 repo는
 `docs/hub-lifecycle.md`·`docs/spoke-lifecycle.md`를 포팅했다(✅, 둘 다 전체
 철거→재구축 e2e 검증까지 완료). `docs/runbooks.md`는 아직이다(⏳).
-`docs/decisions/`(ADR류 설계 문서 8개)는 한 차례 만들었다가 삭제했다.
-대상 `.tf`/`.sh` 주석과 내용이 대부분 겹쳤고, 코드가 바뀐 뒤에도 갱신되지 않아
-실물과 어긋난 채 방치되는 것으로 확인됐다(git 이력에 남아 있다). 원본에 없는
-계층이라 다시 만들지 않는다.
+ADR류 설계 문서 계층(`docs/decisions/`)은 두지 않는다. 한 차례 만들었다가 `.tf`/`.sh`
+주석과 내용이 겹치고 코드가 바뀐 뒤 갱신되지 않아 지웠다(git 이력에 남아 있다).
 
 ## 1. 저장소 구조
 
@@ -39,7 +43,7 @@ live/hub/vwan/          ✅ Virtual WAN(hub, networking과 분리된 state)
 live/hub/aks/           ✅ AKS 클러스터(hub, Karpenter/NAP·KEDA·App Routing·hub ArgoCD workload identity 포함)
 live/hub/workbench/     ✅ CLI 전용 운영 VM(hub, private 클러스터의 유일한 일상 접근 지점)
 live/dev/networking/    ✅ VNet(spoke 첫 인스턴스), vWAN 스포크 연결 완료
-live/dev/aks/           ✅ AKS 클러스터(dev, hub와 풀 패리티. Karpenter/NAP·KEDA·App Routing 포함, 노드 2대 Ready 실측)
+live/dev/aks/           ✅ AKS 클러스터(dev, hub와 풀 패리티. Karpenter/NAP·KEDA·App Routing 포함, 노드 2대 Ready 확인)
 live/dev/workbench/     ✅ CLI 전용 운영 VM(dev, hub와 풀 패리티. vm_size만 Standard_B2s_v2로 오버라이드 - 이 구독의 Standard_B2s 용량 제약 때문)
 .github/workflows/      배포 루트마다 워크플로 하나(plan은 push, apply/destroy는 workflow_dispatch)
 docs/                   ✅ hub-lifecycle.md·spoke-lifecycle.md · ⏳ runbooks.md
@@ -59,7 +63,7 @@ scripts/                ⏳ 아직 없음(원본의 `validate-doc-conventions.py
 | 엔진 | OpenTofu(`tofu` 1.12.5), Terraform이 아니다 |
 | backend | Azure Storage Account + Blob Container. `use_azuread_auth = true`, `allowSharedKeyAccess = false`(계정 키로 RBAC 우회 차단). 계정명은 git에 없다(GitHub 저장소 변수 `AZURE_HUB_*`/`AZURE_DEV_*` + 로컬 `backend.hcl`, 둘 다 git 밖) |
 | state key | `<env>/<component>.tfstate`(예: `hub/vwan.tfstate`, `dev/networking.tfstate`) |
-| 자격증명 | GitHub OIDC → 단일 App Registration, 구독 전체 스코프 `Owner`(2026-09-04 결정, AWS 원본의 `AdministratorAccess` 실행 Role과 스코프 축에서 완전 대칭. ✅ hub·dev 양쪽 재부트스트랩 완료). 방어선은 권한 크기가 아니라 FIC subject 하나로 좁힌 도달 경로뿐이다(아래 ⛔ 참고). 이전 설계(RG 스코프 커스텀 역할 + 6종 불변식)에서 왜 바뀌었는지는 `bootstrap/README.md`·`bootstrap/config.sh`의 관련 주석 참고 |
+| 자격증명 | GitHub OIDC → 단일 App Registration, 구독 전체 스코프 `Owner`(AWS 원본의 `AdministratorAccess` 실행 Role과 스코프 축에서 완전 대칭). 방어선은 권한 크기가 아니라 FIC subject 하나로 좁힌 도달 경로뿐이다(아래 ⛔ 참고). 권한 크기를 방어선으로 삼는 설계(RG 스코프 커스텀 역할 + 불변식 검사)를 기각한 이유는 `iac-module-library` `docs/architectures/gitops-hub-spoke/azure/README.md` 「하지 않는 것」 |
 | plan → apply | plan은 push에서 자동 실행, `workflow_dispatch`를 누르는 것 자체가 apply 승인이다 |
 | 로컬에서 되는 것 | `init` + `validate`까지. **apply는 로컬에서 안 된다.** `require_oidc`/`var.ci_run` 가드가 `var.ci_run != true`이면 즉시 실패시킨다 |
 
@@ -69,12 +73,10 @@ plan을 처음부터 다시 돌려 승인한 것과 다른 계획을 만든다.
 
 ⛔ **CI 신원(App Registration)의 FIC(Federated Identity Credential) `subject`에
 와일드카드를 넣거나, 그 `subject`가 가리키는 GitHub repo·브랜치 보호 규칙을 완화하지
-않는다.** 이 신원은 구독 전체 `Owner`이므로(위 「자격증명」행, 2026-09-04 결정), 이
+않는다.** 이 신원은 구독 전체 `Owner`이므로(위 「자격증명」행), 이
 신원에 도달할 수 있는 경로를 정확히 하나(이 repo, `main` 브랜치)로 좁히는 것이 유일한
-방어선이다. 권한 크기로 좁히던 이전 방어선(RG 스코프+6종 불변식)은 폐기됐다. 이
-경로가 넓어지면(subject 완화, 정적 자격증명 추가, Entra 그룹 편입 등) 설계 자체를
-재검토하는 트리거로 취급한다. 폐기 경위·근거는 `bootstrap/config.sh`의 관련 주석과
-git 이력 참고.
+방어선이다. 권한 크기는 방어선이 아니다. 이 경로가 넓어지면(subject 완화, 정적 자격증명
+추가, Entra 그룹 편입 등) 설계 자체를 재검토하는 트리거로 취급한다.
 
 ## 3. 네이밍·태깅
 
@@ -108,9 +110,8 @@ Pod Subnet을 택한 이유도 그 주석에 있다.
 원본과 동일한 기준: *"CI가 머지 전에 막아야 하는가"* 하나뿐이다. 각 워크플로는
 `push: branches: [main]`에도 plan까지 돌므로 "PR이어야 CI가 돈다"는 성립하지 않는다.
 
-⚠️ **2026-09-03 이전 커밋은 이 규칙 확정 전(1인 스캐폴딩 단계)이라 `.tf`·워크플로
-변경도 전부 `main` 직접 push였다.** 이 규칙은 지금부터 적용한다. 과거 커밋을 소급
-정정하지 않는다.
+⚠️ **초기 스캐폴딩 단계의 커밋은 이 규칙 확정 전이라 `.tf`·워크플로 변경도 `main` 직접
+push였다.** 과거 커밋을 소급 정정하지 않는다.
 
 ## 6. 문서 작성 규칙
 

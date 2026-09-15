@@ -5,7 +5,7 @@
 #         연결이 끊겨 있으면(프로세스 죽음·curl 실패) 정리 후 새로 연결한다.
 #
 # eks-reference-infra의 argocd-tunnel-connect를 대조해 포팅. AWS SSM 대응물이 Azure에
-# 없어 1단(로컬↔workbench) 구간만 ssh -L로 대체했다 — SKILL.md 참고.
+# 없어 1단(로컬↔workbench) 구간만 ssh -L로 대체했다. SKILL.md 참고.
 #
 # 사용: AZURE_HUB_SUBSCRIPTION_ID=<GUID> scripts/connect.sh [LOCAL_PORT]  (기본 18080)
 # 기본값을 8080이 아닌 18080으로 둔 이유: eks-reference-infra가 로컬에서 이미 8080을
@@ -22,7 +22,7 @@ SSH_USER="azureuser"
 SSH_KEY="${HOME}/.ssh/workbench_ed25519"
 LOCAL_PORT="${1:-18080}"
 
-# 이 스킬 디렉토리(argocd-tunnel-connect) 밑에 전용 상태 폴더를 둔다 — AI 어시스턴트
+# 이 스킬 디렉토리(argocd-tunnel-connect) 밑에 전용 상태 폴더를 둔다. AI 어시스턴트
 # 도구의 세션 상태 디렉토리는 세션·워크트리 생명주기에 묶여 있어(worktree 삭제 시
 # 함께 지워질 수 있음) PID 추적 파일을 두기에 부적절하다. scripts/ 의 부모(스킬 루트)
 # 밑에 .state/를 둔다.
@@ -34,13 +34,13 @@ PORT_FILE="$STATE_DIR/local-port.txt"
 LOG_FILE="$STATE_DIR/local-watchdog.log"
 
 if [[ -z "${AZURE_HUB_SUBSCRIPTION_ID:-}" ]]; then
-  echo "ERROR: AZURE_HUB_SUBSCRIPTION_ID가 설정되지 않았다 — 어느 구독의 workbench인지 명시할 것." >&2
+  echo "ERROR: AZURE_HUB_SUBSCRIPTION_ID가 설정되지 않았다. 어느 구독의 workbench인지 명시할 것." >&2
   echo "       예: AZURE_HUB_SUBSCRIPTION_ID=<GUID> bash connect.sh" >&2
   exit 1
 fi
 
 if [[ ! -f "$SSH_KEY" ]]; then
-  echo "ERROR: SSH private key가 없다 ($SSH_KEY) — workbench_ed25519가 이 머신에 있는지 확인." >&2
+  echo "ERROR: SSH private key가 없다 ($SSH_KEY). workbench_ed25519가 이 머신에 있는지 확인." >&2
   exit 1
 fi
 
@@ -65,13 +65,13 @@ if [[ -f "$PID_FILE" ]]; then
     open_browser "$OLD_PORT"
     exit 0
   fi
-  # 죽었거나 응답이 없다 — 잔여 프로세스 정리 후 재연결로 진행한다
+  # 죽었거나 응답이 없다. 잔여 프로세스 정리 후 재연결로 진행한다
   kill -- "-$OLD_PID" 2>/dev/null || kill "$OLD_PID" 2>/dev/null || true
   rm -f "$PID_FILE"
 fi
 
 # PID 파일에 안 잡히는 고아 프로세스 대비: LOCAL_PORT를 실제로 점유 중인 프로세스가
-# 있으면 전부 정리한다(eks-reference-infra 원본과 동일 근거 — 이전 세션 터미널 강제
+# 있으면 전부 정리한다(eks-reference-infra 원본과 동일 근거. 이전 세션 터미널 강제
 # 종료 등으로 PID 파일 없이 세션이 남을 수 있다).
 STALE_PIDS=$(lsof -nP -iTCP:"$LOCAL_PORT" -sTCP:LISTEN -t 2>/dev/null || true)
 if [[ -n "$STALE_PIDS" ]]; then
@@ -89,7 +89,7 @@ fi
 # ForceNew) 매번 조회한다.
 ACTUAL_SUB=$(az account show --query id -o tsv 2>/dev/null || echo "")
 if [[ "$ACTUAL_SUB" != "$AZURE_HUB_SUBSCRIPTION_ID" ]]; then
-  echo "ERROR: 현재 az CLI 컨텍스트 구독($ACTUAL_SUB)이 hub 구독($AZURE_HUB_SUBSCRIPTION_ID)과 다르다 — az account set --subscription $AZURE_HUB_SUBSCRIPTION_ID 실행 후 재시도." >&2
+  echo "ERROR: 현재 az CLI 컨텍스트 구독($ACTUAL_SUB)이 hub 구독($AZURE_HUB_SUBSCRIPTION_ID)과 다르다. az account set --subscription $AZURE_HUB_SUBSCRIPTION_ID 실행 후 재시도." >&2
   exit 1
 fi
 
@@ -99,14 +99,14 @@ if [[ -z "$VM_INFO" ]]; then
   echo "ERROR: workbench VM을 찾지 못했다 ($VM_NAME, RG=$RESOURCE_GROUP)" >&2
   exit 1
 fi
-# 실측: az의 -o tsv는 리스트 쿼리(`[a, b]`)를 탭이 아니라 줄바꿈으로 구분해 출력한다
+# az의 -o tsv는 리스트 쿼리(`[a, b]`)를 탭이 아니라 줄바꿈으로 구분해 출력한다
 # (IFS=$'\t' read로는 못 나눈다). macOS 기본 bash 3.2에는 mapfile/readarray가 없어
-# (이 저장소의 기존 교훈, project-memory.json architecture 노트 참고) sed로 줄 단위 추출한다.
+# (bootstrap/config.sh의 role_definition_list_retry 주석과 같은 제약) sed로 줄 단위 추출한다.
 POWER_STATE=$(echo "$VM_INFO" | sed -n '1p')
 PUBLIC_IP=$(echo "$VM_INFO" | sed -n '2p')
 
 if [[ "$POWER_STATE" != "VM running" ]]; then
-  echo "ERROR: workbench VM 상태가 running이 아니다 (실측: $POWER_STATE, $VM_NAME)" >&2
+  echo "ERROR: workbench VM 상태가 running이 아니다 (현재: $POWER_STATE, $VM_NAME)" >&2
   exit 1
 fi
 if [[ -z "$PUBLIC_IP" ]]; then
@@ -114,17 +114,17 @@ if [[ -z "$PUBLIC_IP" ]]; then
   exit 1
 fi
 
-# ── 2) 원격 watchdog 기동 — kubectl port-forward가 끊기면(예: pod 재시작) 자동 재시작 ──
+# ── 2) 원격 watchdog 기동. kubectl port-forward가 끊기면(예: pod 재시작) 자동 재시작 ──
 # 비대화형 SSH 원격 명령에서 disown은 job control 부재로 조용히 실패한다(exit 255,
-# 실측 확인) — 서브셸 백그라운드 (cmd &)로 대체해 SSH 세션 종료 후에도
+# 확인). 서브셸 백그라운드 (cmd &)로 대체해 SSH 세션 종료 후에도
 # 원격 프로세스가 살아남게 한다.
 #
 # ⚠️ pkill -f "kubectl port-forward -n argocd svc/argocd-server" 를 그대로 쓰면 안 된다
-# (이번 스킬 작성 중 직접 실측): AWS SSM(send-command)은 명령을 스크립트 파일로 저장해
-# 실행하지만, SSH는 명령 문자열을 그대로 원격 셸의 커맨드라인 인자로 넘긴다 — 그래서
+# AWS SSM(send-command)은 명령을 스크립트 파일로 저장해
+# 실행하지만, SSH는 명령 문자열을 그대로 원격 셸의 커맨드라인 인자로 넘긴다. 그래서
 # pkill의 검색 패턴이 그 pkill을 실행 중인 셸 자신의 커맨드라인에도 그대로 들어있어
 # 자기 자신(정확히는 그 부모 bash)을 죽이고 SSH 세션이 exit 255·무출력으로 끊긴다.
-# $$(자기 PID)를 명시적으로 제외해 이 자기 자신 매칭을 피한다 — eks-reference-infra
+# $$(자기 PID)를 명시적으로 제외해 이 자기 자신 매칭을 피한다. eks-reference-infra
 # 원본(SSM 기반)에는 없던, SSH 기반 원격 실행 특유의 함정이다.
 REMOTE_CMD='CUR=$$; for p in $(pgrep -f "kubectl port-forward -n argocd svc/argocd-server" 2>/dev/null); do [ "$p" = "$CUR" ] && continue; kill "$p" 2>/dev/null; done; sleep 1; (setsid nohup bash -c "while true; do kubectl port-forward -n argocd svc/argocd-server 8080:443 --address 127.0.0.1; sleep 2; done" > ~/argocd-portforward.log 2>&1 < /dev/null &) ; sleep 2; ss -ltnp | grep 8080'
 
@@ -133,7 +133,7 @@ if ! ssh "${SSH_OPTS[@]}" "${SSH_USER}@${PUBLIC_IP}" "$REMOTE_CMD"; then
   exit 1
 fi
 
-# ── 3) 로컬 watchdog — SSH 세션이 끊기면(네트워크 전환 등) 자동 재연결 ──
+# ── 3) 로컬 watchdog. SSH 세션이 끊기면(네트워크 전환 등) 자동 재연결 ──
 (
   while true; do
     ssh "${SSH_OPTS[@]}" -N -L "${LOCAL_PORT}:127.0.0.1:8080" \
@@ -155,6 +155,6 @@ if check_healthy "$LOCAL_PORT"; then
   echo "CONNECTED port=$LOCAL_PORT ip=$PUBLIC_IP pid=$LOCAL_PID"
   open_browser "$LOCAL_PORT"
 else
-  echo "WARNING: 터널은 떴지만 https://localhost:$LOCAL_PORT 응답이 아직 없다 — 몇 초 후 다시 확인할 것" >&2
+  echo "WARNING: 터널은 떴지만 https://localhost:$LOCAL_PORT 응답이 아직 없다. 몇 초 후 다시 확인할 것" >&2
   echo "CONNECTED_UNVERIFIED port=$LOCAL_PORT ip=$PUBLIC_IP pid=$LOCAL_PID"
 fi

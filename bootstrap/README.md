@@ -80,7 +80,7 @@ hub는 구독 하나의 단일 고정 거처이고, spoke는 별도 구독에 �
 
 | 항목 | 값 |
 |------|-----|
-| 이름 | `st<workload><env><8자리 hex>`(3~24자, 소문자+숫자만, 하이픈 불가, Azure 물리 제약. `st` 약어는 CAF 표에서 그대로 채택, 2026-08-27 등재) |
+| 이름 | `st<workload><env><8자리 hex>`(3~24자, 소문자+숫자만, 하이픈 불가, Azure 물리 제약. `st` 약어는 CAF 표에서 그대로 채택) |
 | 이름의 소재 | git에 없다. GitHub repo 변수 또는 로컬 `backend.hcl`(gitignore됨) |
 | 인증 | `use_azuread_auth = true`. `allowSharedKeyAccess = false` 강제(계정 키로 RBAC 우회 차단) |
 | 내구성 | blob 버전 관리 + blob soft delete(30일) + **컨테이너 소프트 삭제**(30일, blob soft delete와 별개 기능이라 반드시 함께 켠다) |
@@ -151,13 +151,12 @@ locks/delete`를 갖는다). 이 잠금은 이제 CI 신원 압축 시나리오�
 | subject 패턴 | `repo:<org>@<org_id>/<repo>@<repo_id>:ref:refs/heads/main`, `repo:<org>@<org_id>/<repo>@<repo_id>:environment:<env>` |
 | 배포 승인 방식 | **배포 브랜치 정책만**(사용자 확정, 필수 리뷰어 없음, 무인 자동화 유지) |
 
-`<org>/<repo>`는 `skax-ca/aks-reference-infra`로 확정됐다(2026-08-27, GitHub repo 생성 후
-`GH_ORG_REPO` 기본값을 갱신, `bootstrap/config.sh` 참고).
+`<org>/<repo>`는 `skax-ca/aks-reference-infra`다(`bootstrap/config.sh`의 `GH_ORG_REPO`).
 
 🔴 **`<org>@<org_id>/<repo>@<repo_id>` 형식이다. 이름만 쓴 subject는 인증에 실패한다.**
 이 조직/계정에서는 GitHub가 org·repo 이름 뒤에 불변 숫자 ID를 붙여 OIDC `sub` 클레임을
-발급한다(2026-08-27 hub CI 최초 실행에서 `AADSTS700213: No matching federated identity
-record found`로 실측 확인). `config.sh`가 `gh api`로 실제 ID를 조회해 자동으로 조합하므로
+발급한다. 이름만 쓴 subject는 `AADSTS700213: No matching federated identity record
+found`로 실패한다. `config.sh`가 `gh api`로 실제 ID를 조회해 자동으로 조합하므로
 사람이 직접 계산할 필요는 없다.
 
 ⛔ 와일드카드를 쓰지 않는다. Entra ID의 Federated Identity Credential은 애초에
@@ -215,9 +214,9 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일치하는지 검사한다
 (`BOOTSTRAP_TARGET=spoke`일 때만).
 
-### 크로스 구독 연결 (반대 방향, 2026-09-10)
+### 크로스 구독 연결 (반대 방향)
 
-hub ArgoCD RBAC role assignment 방향 전환(`.omc/plans/hub-argocd-rbac-direction-flip.md`)으로 spoke가 hub 구독의 ArgoCD UAMI를 직접 발견해야 해서, spoke-peer와 정반대 방향의 역할이 필요하다.
+hub ArgoCD의 스포크 클러스터 접근 role assignment는 스포크 자신의 `live/<env>/aks`가 만든다(근거는 `iac-module-library` `docs/architectures/gitops-hub-spoke/azure/README.md` 「클러스터 등록」). 그러려면 spoke가 hub 구독의 ArgoCD UAMI를 직접 발견해야 해서, spoke-peer와 정반대 방향의 역할이 필요하다.
 
 | 항목 | 값 |
 |------|-----|
@@ -271,13 +270,11 @@ GitOps 워크로드가 없는 데모 클러스터라 destroy 비용이 낮았다
 `*/register/action`도 가지므로 이것도 Terraform으로 옮길 수 있지만, 사람이
 부트스트랩 시점에 한 번 처리하면 되는 저빈도 작업이라 옮길 실익이 낮다고 판단해
 남겨 뒀다(별개 판단, identity·role assignment 이관과 묶지 않았다). 등록은 비동기라
-`bootstrap.sh`는 `--wait`로 완료까지 기다린다. 2026-09-08부로 이 등록·검사는
-`BOOTSTRAP_TARGET`과 무관하게 hub·spoke 양쪽에서 무조건 실행된다. `live/dev/aks`
-신설로 "AKS는 hub만 쓴다"는 원래 가정이 깨졌고, 구독 단위 상태 조회라 대상과 무관하게
-멱등이고 비용이 없다. 목록에 `Microsoft.Compute`·`Microsoft.ManagedIdentity`가 추가된
-이유: dev 구독을 `az provider list`로 hub와 직접 비교(`comm -23`) 실측한 결과 이 둘도
-`NotRegistered`였다. hub는 과거 다른 작업(예: `live/hub/workbench`의 VM 배포)으로
-이미 등록돼 있어 이 요구사항 자체가 지금까지 드러나지 않았을 뿐이다.
+`bootstrap.sh`는 `--wait`로 완료까지 기다린다. 이 등록·검사는 `BOOTSTRAP_TARGET`과
+무관하게 hub·spoke 양쪽에서 실행된다. 스포크 구독도 `live/<env>/aks` apply에 이 RP들이
+필요하고, 구독 단위 상태 조회라 대상과 무관하게 멱등이고 비용이 없다. 목록은
+`live/<env>/aks`가 실제로 만드는 리소스 기준 최소 집합이다(AKS, user-assigned identity,
+VMSS 노드). 새 구독은 셋 다 `NotRegistered`일 수 있다.
 
 ## 3. 검증
 
@@ -366,14 +363,10 @@ import {
 
 | 값 | 행선지 |
 |----|--------|
-| `AZURE_CLIENT_ID` (App Registration의 appId) | GitHub repo 변수 |
+| `AZURE_<HUB|DEV>_CLIENT_ID` (App Registration의 appId) | GitHub repo 변수 |
 | `AZURE_TENANT_ID` | GitHub repo 변수 |
-| `AZURE_SUBSCRIPTION_ID` | GitHub repo 변수 |
+| `AZURE_<HUB|DEV>_SUBSCRIPTION_ID` | GitHub repo 변수 |
 | state Storage Account명·컨테이너명 | 로컬 `backend.hcl`(각 `live/<env>/` 디렉토리, gitignore됨). `tofu init -backend-config=backend.hcl` |
-
-⚠️ `AZURE_HUB_AKS_IDENTITY_ID`는 2026-09-04부로 더 이상 출력하지 않는다. AKS
-컨트롤 플레인 identity를 이제 `live/hub/aks`가 Terraform으로 직접 만든다(위 「AKS
-클러스터용 identity·권한」절). 기존 GitHub repo 변수는 미사용 상태로 정리한다.
 
 새 spoke 인스턴스(`dev`가 아닌 환경)를 추가하면 워크플로 배선(repo 변수 이름,
 `live/<env>/` 루트)이 아직 없다. 그 배선은 이 부트스트랩과 별개로 설계해야 한다.

@@ -86,9 +86,9 @@ gh workflow run deploy-hub-network.yml --ref main -f action=apply
 ```
 
 같은 방식으로 `live/hub/vwan`을 초기화한다(`key = "hub/vwan.tfstate"`). 스포크(dev) VNet은
-`azurerm_resources`(태그 `Workload`·`Environment=dev` 기준)로 **자동 발견**한다(2026-09-08,
-CI 변수 직접 주입에서 전환 - bootstrap.sh `BOOTSTRAP_TARGET=spoke`가 부여하는
-`virtualNetworks/read`+`peer/action` 2액션만 있으면 된다). dev가 아직 없으면 이 data
+`azurerm_resources`(태그 `Workload` 기준, `Environment` 값이 연결 키)로 **자동 발견**한다
+(bootstrap.sh `BOOTSTRAP_TARGET=spoke`가 부여하는 `virtualNetworks/read`+`peer/action`
+2액션만 있으면 된다). dev가 아직 없으면 이 data
 source는 빈 리스트를 반환해 스포크 연결 0개로 정상 apply된다 - **hub를 spoke 없이 통째로
 먼저 지어도 된다.**
 
@@ -99,7 +99,7 @@ gh workflow run deploy-hub-vwan.yml --ref main -f action=apply
 > **networking apply 전까지 vwan 워크플로의 plan은 실패한다**(hub VNet을 못 찾는다), 순서가 있다는 신호이지 고장이 아니다.
 
 🔑 **dev(spoke)가 나중에 생기면 이 워크플로를 한 번 더 apply한다.** AWS 원본
-(`eks-reference-infra` `docs/spoke-lifecycle.md` 4절)의 "hub networking → hub eks → spoke
+(`eks-reference-infra` `docs/spoke-lifecycle.md`)의 "hub networking → hub eks → spoke
 networking → spoke eks → **hub networking 재적용**"과 정확히 같은 패턴이다 - hub는 spoke
 존재 여부와 무관하게 완결적으로 지을 수 있고, dev networking이 그 뒤에 생기면 hub vwan을
 한 번 더 apply해야 그 연결이 채워진다. 스포크가 여러 개(qa 등)로 늘어나도 태그만 맞으면
@@ -111,7 +111,9 @@ networking → spoke eks → **hub networking 재적용**"과 정확히 같은 �
 
 identity·role assignment는 **이 root가 Terraform으로 직접 만든다**(bootstrap이 아니다. CI가 구독 전체 Owner 등가라 그 구조적 제약이 없다). `aks-cluster` 모듈 자체는 identity도 role assignment도 만들지 않는 경계 원칙을 유지한다.
 
-2026-09-10부터 hub ArgoCD의 Workload Identity(GitOps 크로스 클러스터 인증용 UAMI+FIC)도 이 root가 만든다 - FIC의 issuer가 *이 클러스터 자신의* OIDC issuer URL에 묶여야 해서다. 한때 `live/hub/vwan`에 있었으나, 전체 철거→재구축 e2e 검증 중 그 root가 이 클러스터를 크로스 root `data` 조회하는 숨은 의존성이 드러나(networking→vwan→aks 순서로 from-scratch 구축하면 AKS가 아직 없어 실패) 이 root로 옮겼다.
+hub ArgoCD의 Workload Identity(GitOps 크로스 클러스터 인증용 UAMI+FIC)도 이 root가 만든다. FIC의 issuer가 *이 클러스터 자신의* OIDC issuer URL에 묶여야 해서다. 다른 root(vwan 등)에서 이 클러스터를 `data`로 재조회해 만들면 networking→vwan→aks 순서의 from-scratch 구축에서 AKS가 아직 없어 실패한다.
+
+⚠️ **hub를 재구축하면 이 UAMI도 새로 발급된다.** 스포크마다 `live/<env>/aks`를 다시 apply해 role assignment를 새 principal로 옮기고, `aks-platform-gitops`의 cluster Secret에 적힌 client ID를 갱신한다(`spoke-lifecycle.md` 재배포 절).
 
 ```bash
 gh workflow run deploy-hub-aks.yml --ref main -f action=apply
@@ -119,14 +121,14 @@ gh workflow run deploy-hub-aks.yml --ref main -f action=apply
 
 > 🔴 **`cni_mode`·`pod_cidr`·`private_cluster_enabled`는 `network_profile` 블록 전체가 ForceNew라 첫 apply가 사실상 최종 선택이다.** 1절에서 값을 미리 확정해 둔다.
 
-🔑 **node resource group(`MC_*`)에 우리 Terraform이 만든 적 없는 리소스가 자동으로 생긴다.** apply 직후 실측 확인 방법:
+🔑 **node resource group(`MC_*`)에 우리 Terraform이 만든 적 없는 리소스가 자동으로 생긴다.** apply 직후 확인 방법:
 
 ```bash
 NODE_RG=$(az aks show -g <rg> -n <cluster> --query nodeResourceGroup -o tsv)
 az resource list --resource-group "$NODE_RG" -o table
 ```
 
-이 저장소 hub 클러스터 기준(2026-09-08 실측) 내용물: VMSS(노드 컴퓨트, 가장 큰 비용 항목)·`kubernetes-internal`(내부 LB, 7절 Gateway가 붙는 바로 그 LB)·NSG(AKS 자체 생성분 - `live/hub/networking`이 서브넷 레벨에 만드는 NSG와는 별개 리소스)·API 서버 Private Endpoint+NIC·private DNS zone+VNet link(`private_cluster_enabled=true`라 생김)·managed identity 2종(kubelet용·App Routing workload identity). 전부 클러스터 태그(`Workload`·`Environment`)를 물려받지만:
+이 저장소 hub 클러스터 기준 내용물: VMSS(노드 컴퓨트, 가장 큰 비용 항목)·`kubernetes-internal`(내부 LB, 7절 Gateway가 붙는 바로 그 LB)·NSG(AKS 자체 생성분 - `live/hub/networking`이 서브넷 레벨에 만드는 NSG와는 별개 리소스)·API 서버 Private Endpoint+NIC·private DNS zone+VNet link(`private_cluster_enabled=true`라 생김)·managed identity 2종(kubelet용·App Routing workload identity). 전부 클러스터 태그(`Workload`·`Environment`)를 물려받지만:
 
 - **IAM**: 워크로드 RG 하나에만 스코프된 역할로는 이 RG 안을 Azure RBAC로 못 본다(K8s RBAC와 별개 축) - CI 신원을 구독 전체 Owner로 둔 이유 중 하나가 정확히 이 제약이다(0절, `bootstrap/config.sh` 관련 주석 참고).
 - **비용**: 리소스 그룹별 Cost Analysis에서 hub 비용이 두 RG로 쪼개져 보인다. 태그 기준 조회로 우회한다.
