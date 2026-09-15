@@ -12,7 +12,7 @@ output "virtual_hub_id" {
 }
 
 output "virtual_hub_address_prefix" {
-  description = "vHub 주소 공간. 생성 후 변경 불가 — 참조만 하고 재계산하지 않는다."
+  description = "vHub 주소 공간. 생성 후 변경 불가. 참조만 하고 재계산하지 않는다."
   value       = azurerm_virtual_hub.this.address_prefix
 }
 
@@ -26,5 +26,3 @@ output "spoke_connection_ids" {
   value       = { for k, v in azurerm_virtual_hub_connection.spoke : k => v.id }
 }
 
-# argocd_identity_client_id·argocd_identity_principal_id는 2026-09-10 live/hub/aks로
-# 이전했다(main.tf의 관련 주석 참고) — 그 root의 outputs.tf에 동일하게 정의된다.

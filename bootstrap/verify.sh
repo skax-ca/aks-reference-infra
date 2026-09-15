@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# drift 감지 — **read-only**. 아무것도 만들거나 고치지 않는다.
+# drift 감지. **read-only**, 아무것도 만들거나 고치지 않는다.
 #
 # 부트스트랩이 IaC 밖이라 `tofu plan`이 없다. 이 스크립트가 그 역할을 대신한다.
-# 기대 상태는 config.sh가 bootstrap.sh와 **공유**한다 — 기준이 갈리면 소음이 된다.
+# 기대 상태는 config.sh가 bootstrap.sh와 **공유**한다. 기준이 갈리면 소음이 된다.
 #
 # exit 0 = 기대 상태와 일치 / exit 1 = drift / exit 2 = 실행 불가(자격증명·구독·
 # 테넌트 불일치, 또는 조회 자체가 실패해 판정할 수 없음)
 #
-# ⚠️ 이 스크립트는 음성 테스트로 증명해야 한다(계획 5절 3-2 대응). 리소스를
+# ⚠️ 이 스크립트는 음성 테스트로 증명해야 한다. 리소스를
 #    일부러 어긋나게 한 뒤 exit 1이 나오는 것을 보지 않으면, "완화책이 있다"는
 #    착각만 남는다. 구체적인 주입·복구 절차는 README.md에 있다.
 #
 # ⛔ **fail-closed 원칙**: 조회 자체가 실패하면(권한 부족, 네트워크 오류, 잘못된
-#    쿼리 등) 절대 "0건이라 통과"로 처리하지 않는다 — exit 2(실행 불가)로 즉시
+#    쿼리 등) 절대 "0건이라 통과"로 처리하지 않는다. exit 2(실행 불가)로 즉시
 #    중단한다. "권한이 없어 못 봤다"를 "0건이라 검증됐다"로 둔갑시키는 것은 이
 #    스크립트 자신이 방지하려는 바로 그 실패 양상이다(원본 config.sh의
 #    check_*가 조회 실패 시 absent로 처리하는 fail-closed 관례와 같은 정신).
@@ -22,28 +22,22 @@
 #    가능하지만, (c)~(g)(Entra 디렉터리 역할, Graph 앱 권한, 정적 자격증명·
 #    owners, FIC 전 필드, 그룹 멤버십)는 Microsoft Graph 디렉터리 읽기 권한
 #    (Application.Read.All/Directory.Read.All 또는 앱 소유권)을 요구하는데, 이
-#    저장소는 CI 신원에 Graph 권한 자체를 0건으로 유지한다(2026-09-04 이후에도
-#    바뀌지 않은 축 — 아래 참고). 이 스크립트는 **사람 관리자 자격증명으로 수동
-#    실행**하는 것을 전제로 작성됐다.
+#    저장소는 CI 신원에 Graph 권한 자체를 0건으로 유지한다. 이 스크립트는 **사람
+#    관리자 자격증명으로 수동 실행**하는 것을 전제로 작성됐다.
 #
-# ⚠️ 원래 (b) 관리 그룹 스코프 role assignment 0건 검사가 있었으나 제거했다
-#    (2026-08-27, 실제 Azure 검증 세션). 이 설계의 OIDC 배포 경로는 관리 그룹을
-#    전혀 쓰지 않는데(role assignment는 항상 RG·컨테이너 스코프에만 생성),
+# ⚠️ 관리 그룹 스코프 role assignment 0건 검사는 두지 않는다. 이 설계의 OIDC 배포
+#    경로는 관리 그룹을 쓰지 않는데(role assignment는 항상 구독·RG·컨테이너 스코프),
 #    그 부재를 증명하려면 검증자에게 테넌트 루트 `Microsoft.Management/
-#    managementGroups/read`가 필요했다 — README가 명시한 실행 전제(구독
-#    Owner/UAA)보다 훨씬 넓은 권한을 검증자에게만 요구하는 불균형이라 사용자가
-#    직접 삭제를 확정했다.
+#    managementGroups/read`가 필요하다. README가 명시한 실행 전제(구독 Owner/UAA)보다
+#    훨씬 넓은 권한을 검증자에게만 요구하는 불균형이라 뺐다.
 #
-# ⚠️ **불변식 (a)의 성격이 반전됐다.** CI 신원이 이제 구독 전체
-#    Owner 등가 역할을 가지므로(AWS 원본 `AdministratorAccess`와 스코프 축
-#    대칭), "구독 스코프 role assignment 0건"이 아니라 "정확히 워크로드 역할
-#    1건, 이 구독에만"이 기대 상태다. 권한 크기로 좁히던 방어선은 폐기됐고,
-#    (c)~(g)(신뢰 경로·정적 자격증명·그룹 멤버십 관련 불변식)만 방어선으로
-#    남는다 — 그래서 이 검사들은 지금부터 이전보다 더 중요하다. **state 데이터
-#    역할은 그대로 유지한다** — control-plane(`Actions`)과 blob data-plane
-#    (`DataActions`)은 완전히 분리된 축이라, 워크로드 역할이 아무리 넓어도(Owner도
-#    `dataActions: []`다, 실측 확인) blob 데이터 접근은 대체하지 못한다. 당일
-#    한 번 "포괄한다"고 잘못 판단해 제거했다가 재도입했다(design doc 참고).
+# ⚠️ **불변식 (a)는 "0건"이 아니라 "정확히 1건"이다.** CI 신원이 구독 전체 Owner
+#    등가 역할을 가지므로(AWS 원본 `AdministratorAccess`와 스코프 축 대칭) "정확히
+#    워크로드 역할 1건, 이 구독에만"이 기대 상태다. 권한 크기는 방어선이 아니고,
+#    (c)~(g)(신뢰 경로·정적 자격증명·그룹 멤버십 관련 불변식)만 방어선이다. 그래서
+#    그 검사들이 더 중요하다. **state 데이터 역할은 그대로 검사한다.** control-plane
+#    (`Actions`)과 blob data-plane(`DataActions`)은 분리된 축이라, 워크로드 역할이
+#    아무리 넓어도(Owner도 `dataActions: []`다) blob 데이터 접근은 대체하지 못한다.
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./config.sh
@@ -65,7 +59,7 @@ report() {  # report <이름> <상태>
     *)
       # ⚠️ 방어 계층 하나일 뿐, 이것만으로는 부족하다. macOS 시스템
       # bash(3.2)는 `$( )` 명령 치환 안에서 errexit를
-      # 전혀 적용하지 않는다 — check_x 안에서 die()가 exit 2를 해도 그
+      # 전혀 적용하지 않는다. check_x 안에서 die()가 exit 2를 해도 그
       # 서브셸만 죽고 바깥은 계속 진행되며(할당문이든 명령 인자든 동일하게
       # 영향받는다, 위치의 문제가 아니다), check_x가 "실패했지만 ok/absent/
       # drift 중 하나로 보이는 값"을 반환하면 이 default 분기에도 안 걸린다.
@@ -78,7 +72,7 @@ report() {  # report <이름> <상태>
   esac
 }
 
-# Microsoft Graph 호출 — 실패하면 즉시 exit 2 한다. --query로 서버 측 JMESPath를
+# Microsoft Graph 호출. 실패하면 즉시 exit 2 한다. --query로 서버 측 JMESPath를
 # 걸지 않고 항상 원시 JSON을 받아 jq로 걸러낸다. `@odata.type` 같은 필드를
 # JMESPath에 그대로 넣으면 az CLI 인자 파싱 단계에서 거부되지만, jq는 이런
 # 필드명도 문제없이 다룬다.
@@ -94,9 +88,9 @@ echo "=== verify (read-only . target=$BOOTSTRAP_TARGET env=$ENV_TOKEN) ==="
 assert_subscription_tenant
 
 # ── App Registration / Service Principal 조회 (없으면 이후 전부 absent) ────
-# ⚠️ az_or_die로 감싼다 — 감싸지 않으면 Graph 조회 권한 부족 등으로 이 명령
+# ⚠️ az_or_die로 감싼다. 감싸지 않으면 Graph 조회 권한 부족 등으로 이 명령
 # 자체가 실패했을 때 exit 1(die가 아니라 az의 원래 종료 코드)로 끝나 "drift"로
-# 오분류된다(계획 5절 exit code 규약: 조회 실패는 exit 2여야 한다).
+# 오분류된다. exit code 규약상 조회 실패는 exit 2여야 한다.
 APP_ID="$(az_or_die "App Registration 목록" -- az_ ad app list --display-name "$APP_NAME" --query "[0].appId" -o tsv)"
 if [[ -z "$APP_ID" || "$APP_ID" == "None" ]]; then
   mismatch "[$ENV_TOKEN] App Registration - 존재하지 않는다: $APP_NAME"
@@ -136,7 +130,7 @@ fi
 # ── 불변식 (a): 구독 스코프 role assignment 정확히 1건(워크로드 역할, 이 구독) ──
 # CI가 구독 전체 Owner 등가 역할을 가지므로 "0건"이 아니라 "정확히 워크로드
 # 역할 1건, 그 구독에만"이 기대 상태다. 다른(엉뚱한) 구독에 role assignment가
-# 있으면 여전히 drift다 — 방어선이 FIC subject 하나로 좁아진 지금, 이 검사는
+# 있으면 여전히 drift다. 방어선이 FIC subject 하나뿐이므로, 이 검사는
 # "그 도달 경로로 실제로 얻는 권한이 의도한 구독·역할과 정확히 일치하는가"를
 # 확인하는 것으로 성격이 바뀌었다.
 # ⚠️ az account list로 접근 가능한 구독만 순회한다. 실행자의 Azure 계정이 모든
@@ -165,9 +159,9 @@ check_subscription_scope_assignments() {
 # ⚠️ 명령 치환을 read의 리다이렉션 인자 자리에서 직접 평가하지 않는다. `IFS='|'
 # read ... <<<"$(fn)"`처럼 쓰면 접두사 IFS 할당이 그 명령의 인자 전개(리다이렉션
 # 대상의 명령 치환 포함) 동안에도 적용돼, `fn` 내부의 `for x in $y`(기본 IFS
-# 기대)까지 IFS='|'를 물려받는다(실측 확인, 2026-09-04 hub 재부트스트랩 —
-# check_subscription_scope_assignments 내부의 구독 순회 for문이 `\n` 대신 `|`
-# 로만 쪼개져 두 구독 ID가 한 토큰으로 뭉쳐 az 호출이 깨졌다). 그래서 명령
+# 기대)까지 IFS='|'를 물려받는다. check_subscription_scope_assignments 내부의
+# 구독 순회 for문이 `\n` 대신 `|`로만 쪼개져 두 구독 ID가 한 토큰으로 뭉쳐 az
+# 호출이 깨진다. 그래서 명령
 # 치환을 먼저 일반 대입으로 캡처한 뒤, 이미 캡처된 순수 문자열에만 IFS='|' read
 # 를 적용한다.
 sub_scope_result="$(check_subscription_scope_assignments)"
@@ -265,10 +259,10 @@ check_workload_role() {
 }
 report "[workload] 커스텀 역할 Actions/NotActions 완전 일치" "$(check_workload_role)"
 
-# ⚠️ state 데이터 역할은 2026-09-04에 "워크로드 역할이 이미 커버한다"는 잘못된
-# 판단으로 한 번 제거했다가 같은 날 재도입했다(config.sh 참고 — Azure RBAC는
-# control-plane Actions와 blob data-plane DataActions가 완전히 분리된 축이라,
-# Owner 등가 워크로드 역할이 아무리 넓어도 blob 데이터 접근은 별도로 필요하다).
+# ⚠️ state 데이터 역할을 "워크로드 역할이 이미 커버한다"고 보고 검사에서 빼지
+# 않는다(config.sh 참고. Azure RBAC는 control-plane Actions와 blob data-plane
+# DataActions가 분리된 축이라, Owner 등가 워크로드 역할이 아무리 넓어도 blob
+# 데이터 접근은 별도로 필요하다).
 check_state_data_role() {
   local current
   current="$(role_definition_list_retry "$STATE_DATA_ROLE_NAME")"
@@ -315,7 +309,7 @@ report "[state] 컨테이너 존재" "$(check_container_exists)"
 
 # ⚠️ 워크로드 역할의 별도 "role assignment 존재" 확인은 위 불변식 (a)(구독
 # 스코프 정확히 1건 검사)가 이미 포함해 여기서 다시 안 한다(중복 판정 방지).
-# state-data는 (a)가 보지 않는 컨테이너 스코프라 여기서 별도로 확인한다 — 이것이
+# state-data는 (a)가 보지 않는 컨테이너 스코프라 여기서 별도로 확인한다. 이것이
 # 없으면 role assignment가 지워져도 verify.sh가 drift 없음을 보고한다.
 check_role_assignment_exists() {  # check_role_assignment_exists <role-name> <scope>
   local role_name="$1" scope="$2" role_id count
@@ -335,23 +329,24 @@ fi
 
 # ── 불변식 (a) 예외: 스포크 워크로드 RG 스코프의 외부 principal role assignment
 #    허용 목록 완전 일치 ("0건"을 "허용 목록과 완전 일치"로 승격한 유일한 예외.
-#    스코프는 VNet 리소스가 아니라 워크로드 RG 전체다 — dev VNet이 아직 없는
-#    bootstrap 시점에 함께 끝내기 위한 의도적 완화, 대가는 hub SP가 이 RG에
-#    나중에 생길 다른 리소스에도 peer/action을 갖는다는 것) ──
+#    스코프는 VNet 리소스가 아니라 워크로드 RG 전체다. 스포크 VNet이 아직 없는
+#    bootstrap 시점에 함께 끝내기 위한 의도적 완화이고, 대가는 hub SP가 이 RG에
+#    나중에 생길 다른 VNet에도 peer·read를 갖는다는 것이다) ──
 #
-# ⚠️ 이 허용 목록은 두 갈래로 구성된다(2026-09-09, MAJOR M4 정정):
-#    1) hub SP + spoke-peer 역할(bootstrap.sh 6-1절이 만든다) — principal·역할
-#       둘 다 정확히 일치해야 하는 엄격 검사, 기존과 동일.
-#    2) `WORKBENCH_ADMIN_LOGIN_ROLE_NAME`(live/dev/workbench가 Terraform으로
-#       만드는, 사람이 SSH sudo 로그인하는 role assignment) — bootstrap이 만든
+# ⚠️ 이 허용 목록은 두 갈래로 구성된다:
+#    1) hub SP + spoke-peer 역할(bootstrap.sh 6-1절이 만든다). principal·역할
+#       둘 다 정확히 일치해야 하는 엄격 검사.
+#    2) `WORKBENCH_ADMIN_LOGIN_ROLE_NAME`(live/<env>/workbench가 Terraform으로
+#       만드는, 사람이 SSH sudo 로그인하는 role assignment). bootstrap이 만든
 #       게 아니라 principal identity를 알 수 없으므로(Terraform 변수, GitHub
 #       repo 변수 소관) 위 "App Registration owners"와 같은 원칙: 존재 자체는
-#       허용하되 신원은 사람이 육안 대조한다. 처음엔 hub SP 1건만 있어 구분이
-#       필요 없었는데, workbench 배포로 두 번째 외부 principal이 생기며 mismatch가
-#       났다 — 이 자리에서 이 스크립트가 처음부터 알던 hub SP와, 별도 계층
-#       (Terraform)이 만드는 항목을 구분해 분류한다.
+#       허용하되 신원은 사람이 육안 대조한다.
 #    이 두 갈래 중 어디에도 안 걸리는 항목은 여전히 fail-closed로 drift
 #    취급한다(예상 밖 principal이 RG 스코프에 role assignment를 얻은 경우).
+#
+# ⚠️ RG 스코프에 직접 걸린 할당만 본다(`[?scope=='$RG_SCOPE']`). 하위 리소스
+#    스코프의 할당은 이 검사가 잡지 못한다. spoke-peer에 roleAssignments/write를
+#    주지 않는 이유 중 하나다(config.sh).
 if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
   HUB_APP_ID_CHECK="$(az_or_die "hub App Registration" -- az_ ad app list --display-name "$HUB_APP_NAME" --query "[0].appId" -o tsv)"
   if [[ -z "$HUB_APP_ID_CHECK" || "$HUB_APP_ID_CHECK" == "None" ]]; then
@@ -367,9 +362,8 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
     report "[spoke-peer] 커스텀 역할 Actions 완전 일치" "$(check_spoke_peer_role)"
 
     # 워크로드 RG 스코프의 role assignment 전체에서 "이 대상 자신의 SP(workload
-    # 역할, 이미 위에서 확인됨)"를 뺀 나머지를 세 갈래로 분류한다(2026-09-09
-    # MAJOR M4 정정 — 원래는 "정확히 1건, hub SP" 단일 판정이었으나
-    # workbench_admin_login이 생겨 그 전제가 깨졌다). 이렇게 "자기 자신 제외"로
+    # 역할, 이미 위에서 확인됨)"를 뺀 나머지를 세 갈래로 분류한다. "정확히 1건,
+    # hub SP" 단일 판정은 workbench_admin_login이 있으면 틀린다. "자기 자신 제외"로
     # 걸러야 workload role assignment 존재 확인과 중복 판정하지 않는다.
     rg_assignments="$(az_or_die "$ENV_TOKEN 워크로드 RG 스코프 role assignment" -- \
       az_ role assignment list --scope "$RG_SCOPE" --query "[?scope=='$RG_SCOPE']" -o json)"
@@ -387,8 +381,8 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
       '[.[] | select(.roleDefinitionId != $rid and .roleDefinitionName != $name)]' <<<"$external_assignments")"
     other_count="$(jq 'length' <<<"$other_assignments")"
 
-    # 1) hub SP + spoke-peer 역할 — 엄격 검사, 기존과 동일(principal·역할 둘 다
-    #    정확히 일치해야 한다).
+    # 1) hub SP + spoke-peer 역할. 엄격 검사(principal·역할 둘 다 정확히 일치해야
+    #    한다).
     if [[ "$hub_peer_count" -eq 1 ]]; then
       actual_principal_id="$(jq -r '.[0].principalId' <<<"$hub_peer_assignments")"
       if [[ -n "$spoke_peer_role_id" && "$actual_principal_id" == "$HUB_SP_ID_CHECK" ]]; then
@@ -400,17 +394,17 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
       mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 hub SP($SPOKE_PEER_ROLE_NAME) role assignment - ${hub_peer_count}건 존재(정확히 1건이어야 한다)"
     fi
 
-    # 2) workbench admin login — bootstrap이 만든 게 아니라(live/dev/workbench,
+    # 2) workbench admin login. bootstrap이 만든 게 아니라(live/<env>/workbench,
     #    Terraform 소관) principal identity를 이 스크립트가 검증할 수 없다.
     #    "App Registration owners"와 같은 원칙: 존재는 허용하되 신원은 사람이
     #    육안 대조한다.
     if [[ "$admin_login_count" -le 1 ]]; then
-      ok "[$ENV_TOKEN] 워크로드 RG 스코프 $WORKBENCH_ADMIN_LOGIN_ROLE_NAME role assignment: ${admin_login_count}건(live/dev/workbench 소관 — 사람이 예상 계정과 육안 대조할 것)"
+      ok "[$ENV_TOKEN] 워크로드 RG 스코프 $WORKBENCH_ADMIN_LOGIN_ROLE_NAME role assignment: ${admin_login_count}건(live/${ENV_TOKEN}/workbench 소관. 사람이 예상 계정과 육안 대조할 것)"
     else
       mismatch "[$ENV_TOKEN] 워크로드 RG 스코프 $WORKBENCH_ADMIN_LOGIN_ROLE_NAME role assignment - ${admin_login_count}건 존재(0~1건이어야 한다)"
     fi
 
-    # 3) 그 외 — 여전히 fail-closed. 알려진 두 갈래 어디에도 안 걸리면 drift.
+    # 3) 그 외. 여전히 fail-closed. 알려진 두 갈래 어디에도 안 걸리면 drift.
     if [[ "$other_count" -eq 0 ]]; then
       ok "[$ENV_TOKEN] 워크로드 RG 스코프 알 수 없는 외부 principal role assignment: 0건"
     else
@@ -418,12 +412,12 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
     fi
   fi
 
-  # ── hub-peer(spoke-peer와 정반대 방향, hub-argocd-rbac-direction-flip 계획
-  #    5절) drift 검사 — 역할 정의·role assignment 둘 다 hub 구독에 있으므로
-  #    --subscription "$HUB_SUBSCRIPTION"으로 명시 라우팅한다(bootstrap.sh와
-  #    같은 패턴). 할당 대상은 이 spoke 자신의 SP_ID다(spoke-peer와 달리 외부
-  #    principal을 찾을 필요가 없다 — hub-peer는 "이 spoke가 hub를 읽을 권한"
-  #    이라 assignee가 항상 자기 자신이다). ─────────────────────────────────
+  # ── hub-peer(spoke-peer와 정반대 방향) drift 검사 ────────────────────────────
+  #    역할 정의·role assignment 둘 다 hub 구독에 있으므로 --subscription
+  #    "$HUB_SUBSCRIPTION"으로 명시 라우팅한다(bootstrap.sh와 같은 패턴). 할당
+  #    대상은 이 spoke 자신의 SP_ID다. hub-peer는 "이 spoke가 hub를 읽을 권한"이라
+  #    assignee가 항상 자기 자신이고, spoke-peer와 달리 외부 principal을 찾을 필요가
+  #    없다.
   HUB_RG_SCOPE="/subscriptions/${HUB_SUBSCRIPTION}/resourceGroups/${HUB_RG_NAME}"
 
   check_hub_peer_role() {
@@ -446,16 +440,10 @@ if [[ "$BOOTSTRAP_TARGET" == "spoke" ]]; then
 fi
 
 # ── RP 등록 (hub·spoke 공통) ─────────────────────────────────────────────────
-# ⚠️ AKS 클러스터용 identity·role assignment 검사는 2026-09-04부로 여기서
-# 제거했다 — 그 산출물이 이제 `live/<env>/aks`의 Terraform state 안에 있어(`tofu
-# plan`이 자기 검증 역할을 대신한다), CI 신원(App Registration) 권한을 보는 이
-# 스크립트의 검사 대상이 아니게 됐다. RP 등록만 그대로 남긴다(bootstrap.sh 참고).
-#
-# ⚠️ 2026-09-08: bootstrap.sh와 같은 근거로 `BOOTSTRAP_TARGET == "hub"` 게이트를
-# 제거했다 — `live/dev/aks` 신설로 스포크 구독도 이 RP 등록이 apply 사전조건이 됐다.
-# 목록도 bootstrap.sh와 동일하게 Microsoft.Compute·Microsoft.ManagedIdentity를
-# 추가했다(실측 근거는 bootstrap.sh의 같은 자리 주석 참고 — dev 구독은 이 둘도
-# NotRegistered였다).
+# ⚠️ AKS 클러스터용 identity·role assignment는 검사하지 않는다. 그 산출물은
+# `live/<env>/aks`의 Terraform state 안에 있어 `tofu plan`이 자기 검증 역할을 하고,
+# CI 신원(App Registration) 권한을 보는 이 스크립트의 검사 대상이 아니다. RP 등록만
+# 검사한다(목록과 근거는 bootstrap.sh의 같은 자리 주석).
 check_resource_provider() {
   local ns="$1" state
   state="$(az_or_die "${ns} 등록 상태" -- \

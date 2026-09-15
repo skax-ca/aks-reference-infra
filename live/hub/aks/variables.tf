@@ -1,7 +1,7 @@
 # 이 루트의 변수는 두 종류다. 섞어 두면 "왜 이건 코드에 있고 저건 없나"가 흐려진다.
 #
-#   ① 코드에 기본값이 있는 것  — 노출돼도 무해하고, 고객사가 바꿀 토큰이다(workload·env·region)
-#   ② 기본값이 **없는** 것      — 구독 식별 정보이거나 bootstrap 산출물이라 git 에 두지 않는다.
+#   ① 코드에 기본값이 있는 것: 노출돼도 무해하고, 고객사가 바꿀 토큰이다(workload·env·region)
+#   ② 기본값이 **없는** 것: 구독 식별 정보이거나 bootstrap 산출물이라 git 에 두지 않는다.
 #                                CI 는 repo 변수, 로컬은 TF_VAR_* 환경변수로 주입한다
 #
 # live/hub/vwan/variables.tf와 동일 구조다(같은 hub 구독의 다른 state root).
@@ -43,7 +43,7 @@ variable "subscription_id" {
   description = <<-EOT
     apply 대상 Azure 구독 ID(hub). live/hub/networking·live/hub/vwan과 같은 구독이다.
 
-    ⛔ 기본값을 두지 않는다 — 구독 식별 정보라 git 에 두지 않는다. 주입 경로는 둘 다 git 밖이다:
+    ⛔ 기본값을 두지 않는다. 구독 식별 정보라 git 에 두지 않는다. 주입 경로는 둘 다 git 밖이다:
        CI   : GitHub repo 변수 AZURE_HUB_SUBSCRIPTION_ID → ARM_SUBSCRIPTION_ID
        로컬 : export TF_VAR_subscription_id=...
   EOT
@@ -53,7 +53,7 @@ variable "subscription_id" {
 variable "require_oidc" {
   description = <<-EOT
     true면 var.ci_run이 true가 아닐 때 plan/apply 자체를 막는다(로컬 az login 인증 경로
-    차단). live/hub/networking/variables.tf와 동일 근거 — Terraform/OpenTofu 언어에는
+    차단). live/hub/networking/variables.tf와 동일 근거다. Terraform/OpenTofu 언어에는
     getenv 같은 함수가 없어 var.ci_run으로 우회한다.
   EOT
   type        = bool
@@ -68,9 +68,6 @@ variable "ci_run" {
   nullable    = false
 }
 
-# aks_identity_id 변수는 제거했다. CI 신원(App Registration)이 이제
-# 구독 전체 Owner 등가 역할을 가지므로, "CI가 roleAssignments/write를 가지면 자기 자신에게 상위
-# 역할을 부여할 수 있다"는 옛 금지 항목이 사라졌다 — 이 root가 자기 identity를
-# azurerm_user_assigned_identity로 직접 만든다(main.tf 참고). bootstrap 계층에서
-# 만들어 TF_VAR로 주입하던 간접 경로·GitHub repo 변수 AZURE_HUB_AKS_IDENTITY_ID는
-# 더 이상 쓰지 않는다.
+# aks_identity_id 변수는 두지 않는다. CI 신원(App Registration)이 구독 전체 Owner
+# 등가라 이 root가 자기 identity를 azurerm_user_assigned_identity로 직접 만든다(main.tf
+# 참고). bootstrap이 만든 identity를 변수로 넘겨받지 않는다.

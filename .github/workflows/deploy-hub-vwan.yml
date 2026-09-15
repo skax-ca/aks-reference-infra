@@ -1,11 +1,11 @@
-# live/hub/vwan — plan → (사람이 dispatch) → plan → apply
+# live/hub/vwan: plan → (사람이 dispatch) → plan → apply
 #
-# deploy-hub-network.yml과 같은 구조(plan은 push에서 자동, apply는 workflow_dispatch로만)
-# — 같은 hub 구독, 같은 CI 신원(environment: hub)을 쓰는 별도 state root다. 왜
-# live/hub/networking과 분리된 root인지는 live/hub/vwan/main.tf 상단 주석 참고.
+# deploy-hub-network.yml과 같은 구조(plan은 push에서 자동, apply는 workflow_dispatch로만)다.
+# 같은 hub 구독, 같은 CI 신원(environment: hub)을 쓰는 별도 state root다. live/hub/networking과
+# 분리한 이유는 live/hub/vwan/main.tf 상단 주석에 있다.
 #
-# ⛔ plan job에 `environment:`를 추가하지 않는다(deploy-hub-network.yml과 동일 근거 —
-#    FIC subject의 ref:refs/heads/main / environment:hub 대응을 어긋나게 하지 않는다).
+# ⛔ plan job에 `environment:`를 추가하지 않는다. FIC subject의 ref:refs/heads/main /
+#    environment:hub 대응이 어긋난다(근거는 deploy-hub-network.yml).
 # ⛔ apply를 `tofu apply`(재-plan)로 바꾸지 않는다.
 
 name: deploy · live/hub/vwan
@@ -44,14 +44,14 @@ env:
   ARM_USE_OIDC: "true"
   TF_VAR_subscription_id: ${{ vars.AZURE_HUB_SUBSCRIPTION_ID }}
   TF_VAR_ci_run: "true"
-  # dev VNet을 태그 기반 data source로 자동 발견하는 두 번째 provider(azurerm.dev,
-  # providers.tf)의 subscription_id. live/dev/networking이 이미 쓰는 것과 같은 repo
-  # variable을 재사용한다(2026-09-08, CI 변수 직접 주입 방식에서 전환).
+  # dev VNet을 태그 기반 data source로 발견하는 두 번째 provider(azurerm.dev,
+  # providers.tf)의 subscription_id. live/dev/networking이 쓰는 repo variable을 재사용한다.
+  # VNet ID 자체를 CI 변수로 넘기지 않는 이유는 live/hub/vwan/main.tf에 있다.
   TF_VAR_dev_subscription_id: ${{ vars.AZURE_DEV_SUBSCRIPTION_ID }}
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
-  # plan — main push와 dispatch 양쪽에서 돈다. environment를 선언하지 않는다.
+  # plan: main push와 dispatch 양쪽에서 돈다. environment를 선언하지 않는다.
   # ──────────────────────────────────────────────────────────────────────────
   plan:
     name: plan
@@ -68,7 +68,7 @@ jobs:
             echo "::error::destroy 하려면 confirm에 정확히 'destroy live/hub/vwan'를 입력한다."
             exit 1
           fi
-          echo "::warning::destroy 계획을 세운다 — live/hub/vwan"
+          echo "::warning::destroy 계획을 세운다: live/hub/vwan"
 
       - uses: actions/checkout@v7.0.1
 
@@ -107,7 +107,7 @@ jobs:
         run: |
           for i in 1 2 3; do
             tofu init -backend-config=backend.hcl && exit 0
-            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3) — 10초 후 재시도"; sleep 10; }
+            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3). 10초 후 재시도"; sleep 10; }
           done
           echo "::error::tofu init 3회 재시도 후에도 실패"
           exit 1
@@ -141,11 +141,11 @@ jobs:
           tofu show -no-color tfplan > plan.txt
           {
             if [ "${{ steps.plan.outputs.destroy }}" = "true" ]; then
-              echo "### 🔴 \`tofu plan -destroy\` — live/hub/vwan"
+              echo "### 🔴 \`tofu plan -destroy\`: live/hub/vwan"
               echo
               echo "> **파기 계획이다.** 이 run의 apply를 승인하면 아래 목록이 전부 사라진다."
             else
-              echo "### \`tofu plan\` — live/hub/vwan"
+              echo "### \`tofu plan\`: live/hub/vwan"
             fi
             echo
             echo "변경 있음: **${{ steps.plan.outputs.changes }}**"
@@ -176,7 +176,7 @@ jobs:
           if-no-files-found: error
 
   # ──────────────────────────────────────────────────────────────────────────
-  # apply — workflow_dispatch에서만. main push에서는 skip된다.
+  # apply: workflow_dispatch에서만. main push에서는 skip된다.
   # ──────────────────────────────────────────────────────────────────────────
   apply:
     name: apply
@@ -228,7 +228,7 @@ jobs:
         run: |
           for i in 1 2 3; do
             tofu init -backend-config=backend.hcl && exit 0
-            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3) — 10초 후 재시도"; sleep 10; }
+            [ "$i" -lt 3 ] && { echo "::warning::tofu init 실패(${i}/3). 10초 후 재시도"; sleep 10; }
           done
           echo "::error::tofu init 3회 재시도 후에도 실패"
           exit 1
@@ -254,7 +254,7 @@ jobs:
           code=$?
           set -e
           if [ "$code" = 2 ]; then
-            echo "::error::apply 직후인데 재-plan이 여전히 변경사항을 보고한다 — 일부 리소스가 반영되지 않았을 가능성이 높다. Azure 포털/CLI로 실물을 직접 대조할 것."
+            echo "::error::apply 직후인데 재-plan이 여전히 변경사항을 보고한다. 일부 리소스가 반영되지 않았을 가능성이 높다. Azure 포털/CLI로 실물을 직접 대조할 것."
             exit 1
           elif [ "$code" != 0 ]; then
             exit "$code"
@@ -265,7 +265,7 @@ jobs:
         working-directory: ${{ env.TF_ROOT }}
         run: |
           {
-            echo "### \`tofu apply\` — live/hub/vwan"
+            echo "### \`tofu apply\`: live/hub/vwan"
             echo
             echo "적용한 계획: run \`${{ github.run_id }}\`의 artifact \`tfplan-${{ github.run_id }}\`"
             echo "커밋: \`${{ github.sha }}\`"

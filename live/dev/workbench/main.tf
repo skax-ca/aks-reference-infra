@@ -1,23 +1,22 @@
-# live/dev/workbench — AKS 운영 workbench 배포 루트 (dev 스포크)
+# live/dev/workbench: AKS 운영 workbench 배포 루트 (dev 스포크)
 #
-# iac-module-library 의 modules/azure/aks-workbench(aks-workbench-v0.5.0) 를 소비한다.
+# iac-module-library 의 modules/azure/aks-workbench 를 소비한다.
 #
 # live/hub/workbench 를 템플릿으로 복제한 두 번째 인스턴스다. 기능 범위·모듈 버전·도구
-# 버전을 hub 와 완전히 동일하게 승계한다 — 여러 세션에 걸쳐 hub 에서 실증된 조합이라
-# 여기서 다시 고르지 않는다. 아래 주석의 "실측" 근거는 대부분 hub 에서 얻은 것이고,
-# 그 출처를 명시해 뒀다.
+# 버전을 hub 와 동일하게 승계한다. hub 와 갈리는 것은 vm_size(구독 용량 제약)와 Entra
+# RBAC 경로(dev AKS가 Entra 통합이라 kubelogin 변환과 RBAC role assignment가 필요)다.
 #
 # ⚠️ 네트워킹은 live/dev/networking 이 소유한다. 이 root 는 이미 배포된 vm 서브넷을
-#    Name 기반 data 로 조회만 한다 — 서브넷을 새로 만들지 않는다(CLAUDE.md 1절,
-#    ⛔ terraform_remote_state 금지).
+#    Name 기반 data 로 조회만 한다. 서브넷을 새로 만들지 않는다(⛔ terraform_remote_state
+#    금지, CLAUDE.md 「저장소 구조」).
 #
-# ⚠️ identity·role assignment는 이 root가 Terraform으로 직접 만든다 — live/dev/aks와
-#    같은 패턴이다(CI 신원이 구독 전체 Owner 등가라 구조적 제약 없음, config.sh의
-#    관련 주석 참조). aks-workbench 모듈 자체는 identity도
-#    role assignment도 만들지 않는 경계 원칙을 그대로 유지한다(모듈 README 「신원」절).
+# ⚠️ identity·role assignment는 이 root가 Terraform으로 직접 만든다. live/dev/aks와
+#    같은 패턴이다(CI 신원이 구독 전체 Owner 등가라 구조적 제약 없음, config.sh 참조).
+#    aks-workbench 모듈 자체는 identity도 role assignment도 만들지 않는 경계 원칙을
+#    그대로 유지한다(모듈 README 「신원」절).
 
 locals {
-  # 사람이 선생성한 워크로드 RG. 이 root 는 RG 를 만들지 않는다 — live/dev/aks·networking과
+  # 사람이 선생성한 워크로드 RG. 이 root 는 RG 를 만들지 않는다. live/dev/aks·networking과
   # 동일 근거(파괴 반경 한정).
   resource_group_name = "rg-${var.workload}-${var.env}-${var.region_code}-workload-01"
 
@@ -42,26 +41,25 @@ data "azurerm_subnet" "vm" {
 }
 
 # vm 서브넷에는 live/dev/networking이 이미 서브넷 레벨 NSG를 만들어 뒀다(vnet 모듈의
-# nsg_enabled=true). 그 모듈은 규칙을 만들지 않는다 — "룰은 이 모듈이 만들지 않는다.
-# 소비자가 azurerm_network_security_rule 별도 리소스로 얹는다"(vnet 모듈 main.tf 주석) —
-# 그래서 지금은 커스텀 규칙이 0개다. 이 root가 그 소비자다(아래 azurerm_network_security_rule).
+# nsg_enabled=true). 그 모듈은 규칙을 만들지 않는다("룰은 이 모듈이 만들지 않는다.
+# 소비자가 azurerm_network_security_rule 별도 리소스로 얹는다", vnet 모듈 main.tf 주석).
+# 이 root가 그 소비자다(아래 azurerm_network_security_rule).
 #
-# ⚠️ vm 서브넷은 workbench 전용이 아니다(live/dev/networking이 hub와 같은 서브넷 그룹
-# 구성을 그대로 옮긴 것 — 관리 VM 일반용 자리다) — 이 규칙은 이 서브넷에 붙는 모든 VM에
-# 적용된다(NIC 레벨이 아니라 서브넷 레벨이라 구조적으로 그렇다). 나중에 이 서브넷에 다른
-# 관리 VM이 추가되면 그 VM도 같은 ssh_ingress_cidrs를 물려받는다는 뜻 — 의도된
-# 트레이드오프이지 결함이 아니다(서브넷 자체가 "관리 전용" 용도로 분리돼 있어 워크로드
-# 트래픽과 섞이지 않는다). 우선순위 100-199는 이 root가 예약한다 — live/dev/networking이나
-# 다른 소비자가 이 NSG에 규칙을 더 얹을 땐 이 범위를 피해야 충돌(우선순위 중복은 apply
-# 시점 Azure API 에러) 없다.
+# ⚠️ vm 서브넷은 workbench 전용이 아니다(관리 VM 일반용 자리다). 이 규칙은 이 서브넷에
+# 붙는 모든 VM에 적용된다(NIC 레벨이 아니라 서브넷 레벨이라 구조적으로 그렇다). 나중에
+# 이 서브넷에 다른 관리 VM이 추가되면 그 VM도 같은 ssh_ingress_cidrs를 물려받는다.
+# 의도된 트레이드오프다(서브넷 자체가 "관리 전용" 용도로 분리돼 있어 워크로드 트래픽과
+# 섞이지 않는다). 우선순위 100-199는 이 root가 예약한다. live/dev/networking이나 다른
+# 소비자가 이 NSG에 규칙을 더 얹을 땐 이 범위를 피해야 충돌(우선순위 중복은 apply 시점
+# Azure API 에러)이 없다.
 data "azurerm_network_security_group" "vm_subnet" {
   name                = "nsg-${var.workload}-${var.env}-${var.region_code}-vm"
   resource_group_name = local.resource_group_name
 }
 
 # 크로스 root 결합: role assignment 스코프에는 실제 리소스 ID가 필요해 Name 기반 data로
-# 이 환경의 AKS 클러스터(live/dev/aks)를 조회한다(같은 RG, CLAUDE.md 1절 —
-# terraform_remote_state 대신 data).
+# 이 환경의 AKS 클러스터(live/dev/aks)를 조회한다(같은 RG. terraform_remote_state 대신
+# data).
 data "azurerm_kubernetes_cluster" "this" {
   name                = "aks-${var.workload}-${var.env}-${var.region_code}-main-01"
   resource_group_name = local.resource_group_name
@@ -74,7 +72,7 @@ data "azurerm_resource_group" "workload" {
 }
 
 # workbench VM 이 쓰는 user-assigned managed identity. aks-workbench 모듈은 이걸 만들지
-# 않고 입력으로만 받는다(모듈 경계 원칙) — 소비자인 이 root가 만들어 넘긴다.
+# 않고 입력으로만 받는다(모듈 경계 원칙). 소비자인 이 root가 만들어 넘긴다.
 resource "azurerm_user_assigned_identity" "workbench" {
   name                = "id-${var.workload}-${var.env}-${var.region_code}-workbench-01"
   resource_group_name = local.resource_group_name
@@ -83,7 +81,7 @@ resource "azurerm_user_assigned_identity" "workbench" {
 }
 
 # kubeconfig 부트스트랩(모듈 custom_data, README「AKS 연동」절)이 az aks get-credentials를
-# VM 최초 부팅 시 1회 실행한다 — 이 role assignment가 그 전에 존재해야 한다. VM은 ForceNew라
+# VM 최초 부팅 시 1회 실행한다. 이 role assignment가 그 전에 존재해야 한다. VM은 ForceNew라
 # 재부팅으로는 재시도되지 않는다(README「부팅 후 확인」절).
 resource "azurerm_role_assignment" "workbench_aks_cluster_user" {
   scope                            = data.azurerm_kubernetes_cluster.this.id
@@ -94,9 +92,8 @@ resource "azurerm_role_assignment" "workbench_aks_cluster_user" {
 
 # 위 Cluster User Role은 "az aks get-credentials를 호출할 수 있다"(컨트롤 플레인
 # 자격증명 조회)는 것이지, live/dev/aks가 켠 Azure RBAC for Kubernetes Authorization이
-# 실제로 검사하는 "K8s API에서 뭘 할 수 있는가"(데이터플레인 인가)와는 별개 축이다 —
-# 이 role assignment 없이 kubelogin 변환만 끝내면 인증은 성공하고 인가에서 거부된다
-# (dev-gitops-registration 설계 RALPLAN-DR 5차 M-a가 사전에 지적한 결함).
+# 실제로 검사하는 "K8s API에서 뭘 할 수 있는가"(데이터플레인 인가)와는 별개 축이다.
+# 이 role assignment 없이 kubelogin 변환만 끝내면 인증은 성공하고 인가에서 거부된다.
 resource "azurerm_role_assignment" "workbench_aks_rbac_admin" {
   scope                            = data.azurerm_kubernetes_cluster.this.id
   role_definition_name             = "Azure Kubernetes Service RBAC Cluster Admin"
@@ -105,14 +102,12 @@ resource "azurerm_role_assignment" "workbench_aks_rbac_admin" {
 }
 
 # skip_service_principal_aad_check(위 두 role assignment)는 role assignment "생성"
-# 시점의 AAD 존재 확인만 우회한다 — 생성된 role이 실제 인가 판단(authorization)에
-# 반영되기까지의 캐시 전파 지연은 별개다(이 repo가 이미 여러 차례 실측한 클래스,
-# config.sh의 retry_on_replication_delay 관련 주석 참고 — "역할 정의 AssignableScopes
-# 변경 직후 role assignment 생성이 거부" 등). VM의 custom_data는 provider 스키마상
-# ForceNew라 cloud-init이 최초 부팅 시 1회만 az aks get-credentials·kubelogin 변환을
-# 실행하고 재시도가 없다(aks-workbench 모듈 README「부팅 후 확인」절) — 이 유예 없이
-# 실패하면 VM 재생성이 유일한 복구 경로가 된다. 첫 apply 한정 비용(60초)으로 그
-# 리스크를 피한다.
+# 시점의 AAD 존재 확인만 우회한다. 생성된 role이 실제 인가 판단(authorization)에
+# 반영되기까지의 캐시 전파 지연은 별개다(config.sh의 retry_on_replication_delay가 다루는
+# 것과 같은 클래스). VM의 custom_data는 provider 스키마상 ForceNew라 cloud-init이 최초
+# 부팅 시 1회만 az aks get-credentials·kubelogin 변환을 실행하고 재시도가 없다
+# (aks-workbench 모듈 README「부팅 후 확인」절). 이 유예 없이 실패하면 VM 재생성이 유일한
+# 복구 경로가 된다. 첫 apply 한정 비용(60초)으로 그 리스크를 피한다.
 resource "time_sleep" "role_propagation" {
   depends_on = [
     azurerm_role_assignment.workbench_aks_cluster_user,
@@ -122,23 +117,22 @@ resource "time_sleep" "role_propagation" {
 }
 
 # Entra SSH 로그인 시 sudo 권한(모듈 README「전제 role assignment」표). 스코프는 VM 단위가
-# 아니라 RG 단위 — Azure 플랫폼 자체의 최소 요구사항이다(MS Learn, 모듈 README 인용: "VM이
+# 아니라 RG 단위다. Azure 플랫폼 자체의 최소 요구사항이다(MS Learn, 모듈 README 인용: "VM이
 # 아니라 그 VM·NIC·공용 IP·NSG를 포함하는 리소스 그룹"), 이 root가 임의로 넓힌 게 아니다.
 # principal_id가 사람(User) 객체라 skip_service_principal_aad_check는 쓰지 않는다(그
-# 플래그는 서비스 프린시펄 전용 — azurerm provider 문서).
+# 플래그는 서비스 프린시펄 전용, azurerm provider 문서).
 resource "azurerm_role_assignment" "workbench_admin_login" {
   scope                = data.azurerm_resource_group.workload.id
   role_definition_name = "Virtual Machine Administrator Login"
   principal_id         = var.admin_login_principal_id
 }
 
-# NIC 레벨 NSG(module.aks_workbench가 만드는 AllowSsh)만으로는 부족하다 — 인터넷發
-# 인바운드는 AllowVNetInBound(플랫폼 기본 규칙)가 커버하지 않아, 서브넷 레벨 NSG의
-# 커스텀 규칙이 0개인 지금은 플랫폼 기본 DenyAllInBound(65500)가 여기서 먼저 막는다.
-# 2026-09-04 hub 실측: 이 규칙 없이 apply한 직후 SSH가 전부 타임아웃됨(TCP 자체가 상대편에
-# 도달 못함, NIC NSG 로그에는 아예 안 잡히는 것으로 실측 — 서브넷 레벨에서 끊긴 것과
-# 정합). workbench_enabled·ssh_ingress_cidrs가 비면(순수 Run Command 프로파일) 이 구멍
-# 자체를 만들지 않는다.
+# NIC 레벨 NSG(module.aks_workbench가 만드는 AllowSsh)만으로는 부족하다. 인터넷發
+# 인바운드는 AllowVNetInBound(플랫폼 기본 규칙)가 커버하지 않아, 서브넷 레벨 NSG에
+# 커스텀 규칙이 없으면 플랫폼 기본 DenyAllInBound(65500)가 여기서 먼저 막는다. 이 규칙
+# 없이 apply하면 SSH가 전부 타임아웃된다(TCP 자체가 상대편에 도달 못하고 NIC NSG
+# 로그에는 아예 안 잡힌다). workbench_enabled·ssh_ingress_cidrs가 비면(순수 Run Command
+# 프로파일) 이 구멍 자체를 만들지 않는다.
 resource "azurerm_network_security_rule" "vm_subnet_allow_ssh" {
   count = var.workbench_enabled && length(var.ssh_ingress_cidrs) > 0 ? 1 : 0
 
@@ -159,57 +153,13 @@ module "aks_workbench" {
   # ⛔ 소싱 URL 은 git::https:// 하나로 유지한다(모듈 repo 규약).
   # ⛔ ?ref= 는 정확 태그 핀이다. git 소싱에 ~> 는 동작하지 않는다.
   #
-  # ref 는 v0.6.0 — 여기서 hub(v0.5.0 유지, 아직 미적용)와 처음 갈라진다. v0.5.0까지는
-  # "hub와 같은 태그"였고 그 경위도 전부 hub 실배포에서 나왔지만, v0.6.0은 **이 root
-  # (dev)의 재배포**(2026-09-09, Step 6 apply)가 직접 발견·수정한 버그다 — hub는 같은
-  # 잠재 결함(부팅 초기 apt-daily 타이머와의 lists lock 경합)을 아직 실제로 만난 적이
-  # 없을 뿐 안전한 게 아니다(레이스 컨디션이라 매번 재현되지 않았을 뿐). hub도 다음
-  # workbench 재배포 시 이 태그로 함께 올릴 것 — 이 저장소 범위 밖의 후속 작업으로 남김.
-  # v0.5.0 까지 올라온 경위는 전부 hub 실배포에서 나왔다:
-  #
-  #   v0.2.0 — v0.1.0의 custom_data가 apt-get 락 경합 시 재시도 없이 실패해
-  #            (2026-09-04 hub 첫 실배포 실측 — "Could not get lock
-  #            /var/lib/dpkg/lock-frontend") az CLI 설치·kubeconfig 부트스트랩이
-  #            연쇄 실패했다.
-  #   v0.3.0 — v0.2.0은 az aks get-credentials가 root(cloud-init)로 실행돼 kubeconfig가
-  #            /root/.kube/config에만 생기고 실제 로그인 계정(admin_username)에는 없어
-  #            sudo 없이는 kubectl을 못 썼다(2026-09-04 hub 실측). 이 root도 hub와 같이
-  #            admin_username을 오버라이드하지 않아 모듈 기본값 "azureuser"를 그대로
-  #            쓰므로, admin_username 하나에만 사용자별 kubeconfig 사본이 자동 배포된다.
-  #            Entra SSH 계정에는 자동으로 안 준다(모듈 code-review 2라운드로 발견한
-  #            보안 회귀 — 로그인 역할 2단계 구분이 무너지는 문제,
-  #            iac-module-library PR #45 참고).
-  #   v0.4.0 — 2026-09-07 hub 실측: AWS 원본 modules/aws/workbench/user-data.sh.tftpl과
-  #            대조한 결과, kubectl·helm·argocd·krew를 설치는 했지만 /etc/profile.d
-  #            로그인 프로파일 블록 자체가 없어 k alias·kubectl completion·KREW_ROOT
-  #            PATH가 전혀 안 잡혀 있었다. v0.4.0이 그 블록을 신설했다.
-  #   v0.5.0 — v0.4.0을 hub에 처음 실제 적용하면서(krew_version을 그날 처음 넘김)
-  #            krew install이 "unknown flag: --krew-root"로 실패하는 것을 실측 발견 —
-  #            krew는 그 플래그를 지원하지 않는다(공식 문서 확인, KREW_ROOT 환경변수만으로
-  #            충분). v0.5.0이 그 플래그를 제거했다.
-  #   v0.6.0 — 2026-09-09 dev workbench 재배포(Step 5의 Entra RBAC 전환에 맞춰 이
-  #            root를 갱신하는 apply) 중 실측: 부팅 15초 만에 apt-daily-upgrade.timer가
-  #            자체 apt-get update로 lists lock을 잡고, 이 스크립트의 두 번째
-  #            apt-get update(azure-cli repo 추가 후)와 경합해 az CLI 설치가 실패 →
-  #            로그인·kubeconfig·kubelogin 변환까지 연쇄 실패했다. 기존
-  #            DPkg::Lock::Timeout=600(v0.2.0)은 이 축(update의 lists lock)에는
-  #            재시도를 안 건다는 것도 같은 세션에서 실제 apt-get 프로세스 2개를
-  #            동시에 띄워 재현·확인(apt 2.8.3, Ubuntu 24.04 noble). v0.6.0이
-  #            apt-get 호출 전에 apt-daily 타이머·서비스를 stop→kill→mask해 경쟁자
-  #            자체를 제거했다.
-  #   v0.7.0 — v0.6.0을 이 root에 실제 적용해 재검증하는 중 실측한 두 번째 버그:
-  #            cloud-init(systemd cloud-final.service)이 root로 이 스크립트를 실행할
-  #            때 $HOME이 "/"로 잡혀(/proc/1/environ 확인, /root 아님) kubelogin
-  #            convert-kubeconfig가 존재하지 않는 "/.kube/config"를 변환 대상으로 잡고
-  #            조용히 성공(exit 0)해버렸다 — az aks get-credentials가 실제로 쓴
-  #            /root/.kube/config는 안 건드려져 devicecode 그대로 남고 kubectl이
-  #            대화형 로그인을 요구하며 멈췄다. v0.7.0이 --kubeconfig
-  #            /root/.kube/config를 명시해 이 환경 의존을 없앴다.
-  #
-  # ⚠️ custom_data는 ForceNew라 이 ref를 올리는 것 자체가 VM 재생성을 유발한다.
+  # ⚠️ custom_data는 ForceNew라 모듈 태그를 올리는 것 자체가 VM 재생성을 유발한다. 이
+  #    VM은 상태를 담지 않는 설계라 재생성이 정상 운용이다. 태그를 내리지 않는다. 옛
+  #    태그의 cloud-init은 apt-daily 타이머와의 lock 경합, root $HOME 오인 같은 부팅
+  #    레이스에 취약하다(모듈 태그 메시지 참고). hub와 dev는 같은 태그를 쓴다.
   source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-workbench?ref=aks-workbench-v0.7.0&depth=1"
 
-  # 소비자는 리소스 타입 약어를 타이핑하지 않는다 — 모듈이 조합한다.
+  # 소비자는 리소스 타입 약어를 타이핑하지 않는다. 모듈이 조합한다.
   # {demo, dev, krc} → vm-demo-dev-krc-workbench-01
   naming = {
     workload    = var.workload
@@ -223,25 +173,24 @@ module "aks_workbench" {
   subnet_id   = data.azurerm_subnet.vm.id
   identity_id = azurerm_user_assigned_identity.workbench.id
 
-  # ⚠️ 2026-09-08 dev 첫 apply 실측: 모듈 기본값 Standard_B2s가 이 구독에서
-  # SkuNotAvailable(409, reasonCode=NotAvailableForSubscription, koreacentral)로 거부됐다.
-  # `az vm list-skus --subscription <dev>`로 직접 조회한 결과, 구형 B2s만 이 구독·리전
-  # 조합에서 막혀 있고 Standard_B2s_v2는 restrictions가 비어 있다(hub 구독은 B2s가
-  # 문제없이 동작 중 — 구독별 용량 배정 차이이지 이 저장소 설계 문제가 아니다). dev만
-  # v2로 오버라이드한다 — hub는 그대로 둔다(hub main.tf에 vm_size를 넣지 않는다).
+  # ⚠️ 모듈 기본값 Standard_B2s는 이 구독·리전(koreacentral) 조합에서 SkuNotAvailable
+  #    (409, reasonCode=NotAvailableForSubscription)로 거부된다. `az vm list-skus`로
+  #    보면 구형 B2s만 막혀 있고 Standard_B2s_v2는 restrictions가 비어 있다. hub 구독은
+  #    B2s가 동작한다. 구독별 용량 배정 차이이지 이 저장소 설계 문제가 아니다. dev만
+  #    v2로 오버라이드한다.
   vm_size = "Standard_B2s_v2"
 
-  # role assignment 순서 의존 명시(live/dev/aks/main.tf의 동일 클래스 문제와 같은 이유) —
+  # role assignment 순서 의존 명시(live/dev/aks/main.tf의 동일 클래스 문제와 같은 이유).
   # 이게 없으면 kubeconfig 부트스트랩이 role assignment 전에 실행돼 조용히 실패할 수 있다.
   # time_sleep을 거치는 이유는 위 time_sleep.role_propagation 주석 참고(AAD 전파 지연).
   depends_on = [time_sleep.role_propagation]
 
-  # 모듈이 설계한 kill switch(파괴 방향, README: "수시 생성·파기가 정상 운용") — VM만
+  # 모듈이 설계한 kill switch(파괴 방향, README: "수시 생성·파기가 정상 운용"). VM만
   # 다시 만들고 싶을 때 identity·role assignment까지 건드리는 전체 CI destroy 없이
   # 이 값 하나로 끝내려고 변수로 연다(기본값 true, variables.tf 참고).
   workbench_enabled = var.workbench_enabled
 
-  # ── 접속 모델 — SSH가 일상 경로, Run Command가 브레이크글래스 ────────────────────
+  # ── 접속 모델: SSH가 일상 경로, Run Command가 브레이크글래스 ─────────────────────
   #
   # dev VNet에 VPN/ExpressRoute가 없어 모듈 README의 "레퍼런스(VPN 미보유)" 프로파일을
   # 쓴다: Public IP + 공인 IP 화이트리스트. ssh_ingress_cidrs는 유동 IP라 변수로 받는다
@@ -249,14 +198,14 @@ module "aks_workbench" {
   ssh_ingress_cidrs = var.ssh_ingress_cidrs
   public_ip_enabled = true
 
-  # ⚠️ hub와 **다른** SSH 키를 쓴다(환경별 blast radius 분리 — 이 repo가 identity·role
+  # ⚠️ hub와 **다른** SSH 키를 쓴다(환경별 blast radius 분리. 이 repo가 identity·role
   #    assignment·구독을 환경별로 나눠 온 것과 같은 논리). 리포 내 파일명은 hub와 같지만
   #    디렉토리로 구분되고, 로컬 개인키는 ~/.ssh/workbench_dev_ed25519다.
   admin_ssh_public_key = file("${path.module}/workbench_ed25519.pub")
 
-  # ── 이미지 — 재현성을 위해 정확한 버전을 핀(모듈이 "latest"를 거부한다) ─────────────
-  # hub와 같은 값으로 고정한다(2026-09-04 실측 최신값, az vm image list --location
-  # koreacentral --publisher Canonical --offer ubuntu-24_04-lts --sku server --all).
+  # ── 이미지: 재현성을 위해 정확한 버전을 핀(모듈이 "latest"를 거부한다) ──────────────
+  # hub와 같은 값으로 고정한다. 최신값은 az vm image list --location koreacentral
+  # --publisher Canonical --offer ubuntu-24_04-lts --sku server --all 로 조회한다.
   source_image_reference = {
     publisher = "Canonical"
     offer     = "ubuntu-24_04-lts"
@@ -264,18 +213,18 @@ module "aks_workbench" {
     version   = "24.04.202608270"
   }
 
-  # ── AKS 연동 — kubeconfig 부트스트랩 + kubelogin MSI 변환 ───────────────────────
+  # ── AKS 연동: kubeconfig 부트스트랩 + kubelogin MSI 변환 ────────────────────────
   #
   # ⚠️ 여기서 hub와 갈라진다(live/dev/aks/main.tf의 entra_integration_enabled 갈림과
   # 같은 이유). hub의 self-managed ArgoCD는 자기 자신이 도는 클러스터를 가리키는
   # self-hosting 지름길(kubernetes.default.svc)만 쓰므로 Entra RBAC 노출이 필요
   # 없어 hub workbench는 aks_entra_rbac_enabled = false로 남는다. dev AKS는
-  # live/dev/aks가 entra_integration_enabled = true로 전환(2026-09-09, 비가역)해
-  # Azure RBAC for Kubernetes Authorization이 유일한 K8s API 인가 경로가 됐다 —
-  # 이 workbench도 그 경로를 타야 kubectl이 동작한다(dev-gitops-registration 설계).
+  # live/dev/aks가 entra_integration_enabled = true(비가역)라 Azure RBAC for Kubernetes
+  # Authorization이 유일한 K8s API 인가 경로다. 이 workbench도 그 경로를 타야 kubectl이
+  # 동작한다.
   #
   # az aks get-credentials가 --admin 없이 호출되므로(모듈 cloud-init 템플릿 확인)
-  # 발급되는 kubeconfig는 AAD 로그인이 필요한 형태다 — kubelogin convert-kubeconfig
+  # 발급되는 kubeconfig는 AAD 로그인이 필요한 형태다. kubelogin convert-kubeconfig
   # -l msi --client-id로 대화형 로그인 없이 workbench 자신의 UAMI로 인증하게
   # 바꾼다. 이 인증을 실제 K8s API 요청에서 인가하는 건 위
   # azurerm_role_assignment.workbench_aks_rbac_admin이다(인증과 인가는 별개 축).
@@ -284,11 +233,10 @@ module "aks_workbench" {
   aks_entra_rbac_enabled  = true
   identity_client_id      = azurerm_user_assigned_identity.workbench.client_id
 
-  # 추측하지 않고 실제 릴리스(Azure/kubelogin)를 조회해 확인한 최신 태그
-  # (2026-09-09, `gh api repos/Azure/kubelogin/releases/latest`).
+  # 최신 태그는 `gh api repos/Azure/kubelogin/releases/latest`로 조회한다.
   kubelogin_version = "v0.2.19"
 
-  # ── 도구 — hub와 동일한 핀(2026-09-04 실측 최신 안정 버전) ─────────────────────
+  # ── 도구: hub와 동일한 핀 ──────────────────────────────────────────────────────
   az_cli_version  = "2.88.0-1~noble"
   kubectl_version = "v1.37.0"
   helm_version    = "v4.2.4"
@@ -296,7 +244,7 @@ module "aks_workbench" {
 
   # krew_plugins는 모듈 기본값(ctx·ns·neat·rbac-tool·view-secret·whoami)을 그대로 쓴다.
   krew_version = "v0.5.0"
-  # ⚠️ Azure/aks-node-viewer는 2024-11-10 이후 갱신 없는 alpha 단계(모듈 변수 설명 경고).
+  # ⚠️ Azure/aks-node-viewer는 갱신이 드문 alpha 단계다(모듈 변수 설명 경고).
   # 설치 실패는 부팅을 막지 않는다(모듈 자체가 || true로 감쌈).
   aks_node_viewer_version = "v0.0.2-alpha"
 
