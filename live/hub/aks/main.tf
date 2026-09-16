@@ -95,7 +95,11 @@ module "aks_cluster" {
   # ⚠️ 이 root가 쓰는 인자(enable_keda·web_app_routing 등)는 모듈 버전마다 있고 없고가
   #    갈린다. 태그를 내리면 아래 인자가 "Unsupported argument"로 깨진다. 태그를 올릴 때는
   #    모듈 CHANGELOG(태그 메시지)로 ForceNew 축 변경 여부를 먼저 본다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.7.0&depth=1"
+  # dev 와 같은 태그를 유지한다. 두 루트가 같은 모듈의 다른 버전을 쓰면 "어느 계약인가"를
+  # 루트마다 따로 봐야 하고, 다음 업그레이드를 한 PR 로 못 올린다. dev 만 쓰는 인자
+  # (entra_integration_enabled·private_cluster_public_fqdn_enabled)는 기본값 false 라
+  # hub 에서 태그만 올려도 plan 은 No changes 다.
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.9.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다. 모듈이 조합한다(모듈 repo 규약).
   # {demo, hub, krc} → aks-demo-hub-krc-main-01

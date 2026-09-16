@@ -325,16 +325,15 @@ gh workflow run deploy-dev-network.yml --ref main \
 
 ### 12. 4단계: 잔존물 검증
 
-`hub-lifecycle.md`와 같은 8개 항목을 dev 구독 기준으로 확인한다(NAT Gateway·VM/VMSS·Managed
-Disk·Public IP·LB·AKS·NIC·Log Analytics).
+`hub-lifecycle.md` 「4단계: 잔존물 검증」과 같은 스크립트를 dev 구독 기준으로 돈다.
+`EXPECTED_SUBSCRIPTION`이 dev 구독 GUID여야 하고 `az` 활성 구독도 dev여야 한다(다르면 exit 2).
 
 ```bash
-az network nat gateway list --query "[?tags.Environment=='dev']"
-az vmss list --query "[?tags.Environment=='dev']"
-az disk list --query "[?diskState=='Unattached' && tags.Environment=='dev']"
-az network public-ip list --query "[?ipConfiguration==null && tags.Environment=='dev']"
-az resource list --tag Workload=demo --tag Environment=dev
+az account set --subscription <dev 구독 GUID>
+WORKLOAD=demo ENVIRONMENT=dev EXPECTED_SUBSCRIPTION=<dev 구독 GUID> ./scripts/teardown-verify.sh
 ```
+
+hub 구독에 남는 vWAN 연결은 이 스크립트 범위 밖이다(다른 구독). 다음 절을 본다.
 
 ### 13. dev 단독 teardown 시 hub vWAN 잔존 연결
 

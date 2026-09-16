@@ -96,8 +96,8 @@ module "aks_cluster" {
   # ⛔ 소싱 URL 은 git::https:// 하나로 유지한다(모듈 repo 규약, AWS 원본과 동일 근거).
   # ⛔ ?ref= 는 정확 태그 핀이다. git 소싱에 ~> 는 동작하지 않는다.
   #
-  # hub 보다 높은 태그를 쓴다. entra_integration_enabled·private_cluster_public_fqdn_enabled
-  # (아래)는 dev 고유 요구사항이라 hub 가 쓰는 태그에 없다. hub 의 self-managed ArgoCD 는
+  # hub 와 같은 태그를 유지한다. entra_integration_enabled·private_cluster_public_fqdn_enabled
+  # (아래)는 dev 고유 요구사항이라 hub 는 쓰지 않는다. hub 의 self-managed ArgoCD 는
   # 자기 자신이 도는 클러스터를 가리키는 self-hosting 지름길(cluster-secret 의
   # server: https://kubernetes.default.svc)만 쓰므로 Entra RBAC 노출이 필요 없고, dev 는
   # hub 구독의 ArgoCD 가 크로스 구독으로 접근해야 해서 필요하다.
