@@ -2,8 +2,10 @@
 # iac-module-library docs/conventions.md 「주석」에서 이식. 규칙 SSOT는 그 문서다. 여기서 규칙
 # 텍스트를 다시 쓰지 않는다. 기계로 판정 가능한 것만 잡는다:
 #
-#  1. 주석 줄의 좌표: "§", 결정 식별자(D-XX·D25 등), 날짜(YYYY-MM-DD), 문서 절 번호("N절"),
-#     "실측" 같은 사건 서술. 언제 누가 왜 바꿨는지는 git blame과 커밋 메시지가 답한다.
+#  1. 주석 줄의 외부 참조: "§", 결정 식별자(D-XX·D25 등), 문서 절 번호("N절"). 가리키는 쪽이
+#     움직이면 주석이 조용히 틀려진다. 가리키던 내용을 본문으로 옮겨 쓴다.
+#  2. 주석 줄의 이력 서술: 날짜(YYYY-MM-DD), "실측" 같은 사건 서술. 통째로 지운다. 언제 누가
+#     왜 바꿨는지는 git blame과 커밋 메시지가 답한다.
 #
 #  적용 범위: live/**/*.tf · bootstrap/*.sh · scripts/*.{sh,py} · .githooks/* ·
 #  .claude/skills/**/*.sh · .github/workflows/*.yml. .terraform/ 아래는 upstream 코드라 제외한다.
@@ -15,12 +17,14 @@ import glob
 import re
 import sys
 
-COORD_PATTERNS = [
-    (re.compile("§"), "'§' 인용"),
-    (re.compile(r"\bD-[A-Z]|\bD\d{2}\b"), "결정 식별자"),
-    (re.compile(r"\b20\d{2}-\d{2}-\d{2}\b"), "날짜"),
-    (re.compile(r"[0-9]+절"), "문서 절 번호"),
-    (re.compile("실측"), "사건 서술('실측')"),
+# (범주, 패턴, 라벨). 범주가 고치는 방향을 가른다. 순서는 바꾸지 않는다 - 한 줄에 둘 이상
+# 걸릴 때 보고 순서가 달라진다.
+CHECKS = [
+    ("외부 참조", re.compile("§"), "'§' 인용"),
+    ("외부 참조", re.compile(r"\bD-[A-Z]|\bD\d{2}\b"), "결정 식별자"),
+    ("이력 서술", re.compile(r"\b20\d{2}-\d{2}-\d{2}\b"), "날짜"),
+    ("외부 참조", re.compile(r"[0-9]+절"), "문서 절 번호"),
+    ("이력 서술", re.compile("실측"), "사건 서술('실측')"),
 ]
 
 # 검증 스크립트 둘은 규칙을 검출하느라 금지 문자를 리터럴로 담는다. 검사 대상에서 뺀다.
@@ -67,9 +71,11 @@ def check_file(path: str) -> list[str]:
         c = comment_part(line)
         if c is None:
             continue
-        for pattern, label in COORD_PATTERNS:
+        for category, pattern, label in CHECKS:
             if pattern.search(c):
-                errors.append(f"{path}:{i}: 주석의 좌표({label}). 지금 성립하는 이유만 남긴다")
+                errors.append(
+                    f"{path}:{i}: 주석의 {category}({label}). 지금 성립하는 이유만 남긴다"
+                )
     return errors
 
 
