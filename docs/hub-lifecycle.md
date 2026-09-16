@@ -188,7 +188,7 @@ argocd app diff argocd --core  # 출력 없음·exit 0이 기대값(무해한 di
 
 스크립트는 매니페스트를 **생성하지 않는다.** GitOps 저장소에 커밋된 파일을 그대로 apply한다.
 
-**완료 조건: 초기 admin 비밀번호 교체**는 선택이 아니다. 교체 후 `argocd-initial-admin-secret`을 삭제한다. 절차는 `runbooks.md`가 소유할 예정이나 아직 이 저장소에 포팅되지 않았다(⏳). 지금은 `argocd account update-password` + `kubectl -n argocd delete secret argocd-initial-admin-secret`을 수동으로 확인한다.
+**완료 조건: 초기 admin 비밀번호 교체**는 선택이 아니다. 교체 후 `argocd-initial-admin-secret`을 삭제한다. 절차는 `runbooks.md` 「ArgoCD 관리자 비밀번호 교체」가 소유한다.
 
 ### 8. 완료 판정
 
@@ -197,7 +197,7 @@ argocd app diff argocd --core  # 출력 없음·exit 0이 기대값(무해한 di
 | 1 | 부트스트랩 drift 없음 | `./bootstrap/verify.sh` |
 | 2 | 노드가 Ready | `az aks command invoke -g <rg> -n <cluster> --command "kubectl get nodes -o wide"` (또는 workbench에서 직접) |
 | 3 | `network_profile`이 요청대로 적용 | `az aks show -g <rg> -n <cluster> --query networkProfile` |
-| 4 | root Application이 커밋 SHA를 읽음 | `kubectl -n argocd get application root-app -o jsonpath='{.status.sync.revisions}'`(multi-source라 `revision` 단수가 아니라 `revisions` 배열) |
+| 4 | root Application이 커밋 SHA를 읽음 | `kubectl -n argocd get application root-app -o jsonpath='{.status.sync.revision}'`(`root-app`은 single-source라 `revision` 단수 필드다. `revisions` 배열은 multi-source Application만 쓴다) |
 | 5 | 전 Application이 `Synced`/`Healthy` | `kubectl -n argocd get applications` |
 | 6 | 초기 비밀번호 Secret 삭제됨 | `kubectl -n argocd get secret argocd-initial-admin-secret` → NotFound |
 | 7 | CI 재-plan 수렴 | 각 root에서 `No changes` |

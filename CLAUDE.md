@@ -10,7 +10,7 @@ hub-spoke AKS GitOps 패턴의 **레퍼런스 배포 루트**다(`eks-reference-
 
 | repo | 역할 | SSOT |
 |------|------|------|
-| **이 repo (`aks-reference-infra`)** | hub-spoke 패턴을 **소비해 배포**하는 루트 | 이 배포 코드. 설계 근거는 해당 `.tf`/`.sh` 파일의 인라인 주석이 SSOT다. 운영 절차는 `docs/hub-lifecycle.md`(✅)·`docs/spoke-lifecycle.md`(✅)·`docs/runbooks.md`(⏳) |
+| **이 repo (`aks-reference-infra`)** | hub-spoke 패턴을 **소비해 배포**하는 루트 | 이 배포 코드. 설계 근거는 해당 `.tf`/`.sh` 파일의 인라인 주석이 SSOT다. 운영 절차는 `docs/hub-lifecycle.md`·`docs/spoke-lifecycle.md`·`docs/runbooks.md`(셋 다 ✅) |
 | `iac-module-library` | Terraform/OpenTofu 모듈·설계 | 모듈 계약(`docs/module-catalog.md`), 네이밍 약어(`docs/naming/abbreviations/azure.md`), 저장소 전역 결정(`docs/decisions.md`), **hub-spoke 패턴의 설계 갈림길과 기각(`docs/architectures/gitops-hub-spoke/azure/`)**, 문서·주석 규칙(`docs/conventions.md`) |
 | `aks-platform-gitops` | ArgoCD Application·AppProject·cluster-secret (계층 2) | ✅ hub·dev 양쪽 등록 완료(self-managed ArgoCD·AKS App Routing·Karpenter·Kyverno, `eks-platform-gitops` 대응. dev는 Entra Workload Identity 기반으로 등록). 설계 근거는 그 저장소 자신의 `README.md` |
 
@@ -28,9 +28,9 @@ hub-spoke AKS GitOps 패턴의 **레퍼런스 배포 루트**다(`eks-reference-
 「주석」). 이 규칙이 없을 때 git 밖 계획 파일을 인용한 주석이 쌓여 아무도 열 수 없었다.
 
 **운영 절차 SSOT는 이 repo다.** 원본(`eks-reference-infra`)은 `docs/hub-lifecycle.md`·
-`docs/spoke-lifecycle.md`·`docs/runbooks.md` 세 문서가 그 역할을 한다. 이 repo는
-`docs/hub-lifecycle.md`·`docs/spoke-lifecycle.md`를 포팅했다(✅, 둘 다 전체
-철거→재구축 e2e 검증까지 완료). `docs/runbooks.md`는 아직이다(⏳).
+`docs/spoke-lifecycle.md`·`docs/runbooks.md` 세 문서가 그 역할을 한다. 이 repo는 셋을
+모두 포팅했다(✅). lifecycle 둘은 전체 철거→재구축 e2e 검증까지 완료했고, `runbooks.md`는
+EKS 전제인 절(업그레이드 순서·workbench 교체·taint 전략)을 AKS 실물에 맞춰 다시 썼다.
 ADR류 설계 문서 계층(`docs/decisions/`)은 두지 않는다. 한 차례 만들었다가 `.tf`/`.sh`
 주석과 내용이 겹치고 코드가 바뀐 뒤 갱신되지 않아 지웠다(git 이력에 남아 있다).
 
@@ -46,7 +46,7 @@ live/dev/networking/    ✅ VNet(spoke 첫 인스턴스), vWAN 스포크 연결 
 live/dev/aks/           ✅ AKS 클러스터(dev, hub와 풀 패리티. Karpenter/NAP·KEDA·App Routing 포함, 노드 2대 Ready 확인)
 live/dev/workbench/     ✅ CLI 전용 운영 VM(dev, hub와 풀 패리티. vm_size만 Standard_B2s_v2로 오버라이드 - 이 구독의 Standard_B2s 용량 제약 때문)
 .github/workflows/      배포 루트마다 워크플로 하나(plan은 push, apply/destroy는 workflow_dispatch)
-docs/                   ✅ hub-lifecycle.md·spoke-lifecycle.md · ⏳ runbooks.md
+docs/                   ✅ hub-lifecycle.md·spoke-lifecycle.md·runbooks.md
 scripts/                ⏳ 아직 없음(원본의 `validate-doc-conventions.py` 등 포팅 예정, 4절)
 ```
 
@@ -96,9 +96,8 @@ Pod Subnet을 택한 이유도 그 주석에 있다.
 
 원본(`eks-reference-infra`)은 `scripts/validate-doc-conventions.py` +
 `tofu fmt`/`tflint`/`trivy`를 `.githooks/`(pre-commit/pre-push)로 강제한다. 이 repo는
-`scripts/`·`.githooks/`를 아직 포팅하지 않아 이 게이트가 없다. `docs/runbooks.md`
-포팅(0절 표 참고)과 함께 진행할 후속 작업이다. 그때까지는 사람이 직접 `tofu fmt`·
-문서 규칙을 지킨다.
+`scripts/`·`.githooks/`를 아직 포팅하지 않아 이 게이트가 없다. 다음 후속 작업이다.
+그때까지는 사람이 직접 `tofu fmt`·문서 규칙을 지킨다.
 
 ## 5. 브랜치·PR 규칙
 
