@@ -12,6 +12,7 @@ variable "workload" {
   EOT
   type        = string
   default     = "demo"
+  nullable    = false
 }
 
 variable "env" {
@@ -21,18 +22,21 @@ variable "env" {
   EOT
   type        = string
   default     = "hub"
+  nullable    = false
 }
 
 variable "region_code" {
   description = "Name 태그·naming 인자에 쓰는 리전 약어. bootstrap/config.sh 의 REGION_CODE 와 같다."
   type        = string
   default     = "krc"
+  nullable    = false
 }
 
 variable "location" {
   description = "Azure 리전. region_code 와 짝이 맞아야 한다(krc ↔ koreacentral)."
   type        = string
   default     = "koreacentral"
+  nullable    = false
 }
 
 variable "repository" {
@@ -42,6 +46,7 @@ variable "repository" {
   EOT
   type        = string
   default     = "skax-ca/aks-reference-infra"
+  nullable    = false
 }
 
 variable "subscription_id" {
@@ -56,6 +61,7 @@ variable "subscription_id" {
     컨텍스트의 기본 구독에 암묵적으로 의존하지 않는다.
   EOT
   type        = string
+  nullable    = false
 }
 
 variable "require_oidc" {

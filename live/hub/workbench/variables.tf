@@ -13,30 +13,35 @@ variable "workload" {
   EOT
   type        = string
   default     = "demo"
+  nullable    = false
 }
 
 variable "env" {
   description = "환경 코드. 이 루트는 env=\"hub\"로 논리적 환경을 가른다(live/hub/aks와 동일)."
   type        = string
   default     = "hub"
+  nullable    = false
 }
 
 variable "region_code" {
   description = "Name 태그·naming 토큰에 쓰는 리전 약어. bootstrap/config.sh 의 REGION_CODE 와 같다."
   type        = string
   default     = "krc"
+  nullable    = false
 }
 
 variable "location" {
   description = "Azure 리전. region_code 와 짝이 맞아야 한다(krc ↔ koreacentral)."
   type        = string
   default     = "koreacentral"
+  nullable    = false
 }
 
 variable "repository" {
   description = "거버넌스 태그 Repository 값. 리소스에서 이 repo 로 역추적하는 경로다."
   type        = string
   default     = "skax-ca/aks-reference-infra"
+  nullable    = false
 }
 
 variable "subscription_id" {
@@ -49,6 +54,7 @@ variable "subscription_id" {
        로컬 : export TF_VAR_subscription_id=...
   EOT
   type        = string
+  nullable    = false
 }
 
 variable "require_oidc" {
@@ -79,6 +85,7 @@ variable "ssh_ingress_cidrs" {
     로컬 : export TF_VAR_ssh_ingress_cidrs='["1.2.3.4/32"]'
   EOT
   type        = list(string)
+  nullable    = false
 
   validation {
     # 형식만 검증한다(진짜 CIDR인지, 즉 호스트 비트가 0인지는 안 본다). plan 단계에서
@@ -113,4 +120,5 @@ variable "admin_login_principal_id" {
     로컬 : export TF_VAR_admin_login_principal_id=...
   EOT
   type        = string
+  nullable    = false
 }
