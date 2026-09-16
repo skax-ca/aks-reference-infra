@@ -47,7 +47,7 @@ live/dev/aks/           ✅ AKS 클러스터(dev, hub와 풀 패리티. Karpente
 live/dev/workbench/     ✅ CLI 전용 운영 VM(dev, hub와 풀 패리티. vm_size만 Standard_B2s_v2로 오버라이드 - 이 구독의 Standard_B2s 용량 제약 때문)
 .github/workflows/      배포 루트마다 워크플로 하나(plan은 push, apply/destroy는 workflow_dispatch)
 docs/                   ✅ hub-lifecycle.md·spoke-lifecycle.md·runbooks.md
-scripts/                ✅ 문서·주석 규칙 검증 스크립트(pre-commit이 호출, 4절)
+scripts/                ✅ 문서·주석 규칙 검증(pre-commit이 호출, 4절) · teardown-verify.sh(철거 후 잔존물 검사, read-only)
 .githooks/              ✅ pre-commit(문서·주석·fmt·tflint·trivy) · pre-push(각 루트 validate)
 ```
 

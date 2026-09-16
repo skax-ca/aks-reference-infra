@@ -321,7 +321,7 @@ gh workflow run deploy-hub-network.yml --ref main \
 
 `confirm`에 루트 이름을 손으로 정확히 적어야 한다. **vwan은 networking보다 먼저 지운다.** vwan의 hub 연결(`azurerm_virtual_hub_connection.hub`)이 networking의 VNet ID를 참조하므로, VNet을 먼저 지우면 vwan destroy가 존재하지 않는 리소스를 찾다 실패한다.
 
-> 🔴 **"읽고 누른다"의 "누른다"는 이미 지나간 뒤다.** `plan` job이 끝나자마자 `apply` job이 자동으로 이어진다: 진짜 승인 지점은 **dispatch 자체를 누르기 전**이다. `confirm` 문자열은 잘못된 루트를 파괴하는 사고만 막지 예상 밖 자원은 못 막는다. dispatch 전에 14절의 `az` 명령으로 태그 기준 현황을 먼저 본다.
+> 🔴 **"읽고 누른다"의 "누른다"는 이미 지나간 뒤다.** `plan` job이 끝나자마자 `apply` job이 자동으로 이어진다: 진짜 승인 지점은 **dispatch 자체를 누르기 전**이다. `confirm` 문자열은 잘못된 루트를 파괴하는 사고만 막지 예상 밖 자원은 못 막는다. dispatch 전에 14절의 `teardown-verify.sh`로 태그 기준 현황을 먼저 본다(철거 전에 돌리면 "지금 무엇이 있는가" 목록이 된다).
 
 ```bash
 az aks list --query "[?tags.Workload=='demo' && tags.Environment=='hub']"
@@ -329,26 +329,19 @@ az aks list --query "[?tags.Workload=='demo' && tags.Environment=='hub']"
 
 ### 14. 4단계: 잔존물 검증
 
-⏳ 이 저장소는 아직 `scripts/teardown-verify.sh`(원본의 자동 검증 스크립트)를 포팅하지 않았다(`CLAUDE.md` 참고). 지금은 아래 `az` 명령으로 태그 기준 수동 확인한다.
-
-| 순위 | 자원 | 확인 |
-|:---:|------|------|
-| 1 | NAT Gateway | 트래픽 0이어도 시간당 과금 |
-| 2 | VM/VMSS 인스턴스 | NAP 고아 노드 |
-| 3 | Managed Disk(`Unattached`) | 붙어 있지 않아도 과금 |
-| 4 | Public IP(미연결) | 미연결일 때 과금 |
-| 5 | Load Balancer / Application Gateway for Containers | |
-| 6 | AKS 클러스터 | 노드 0대여도 컨트롤 플레인 과금 |
-| 7 | NIC(연결 안 됨) | 과금은 없으나 서브넷·VNet 삭제를 막는다 |
-| 8 | Log Analytics workspace | 보존 기간만큼 저장 과금(컨트롤 플레인 로깅을 켰다면) |
-
 ```bash
-az network nat gateway list --query "[?tags.Environment=='hub']"
-az vmss list --query "[?tags.Environment=='hub']"
-az disk list --query "[?diskState=='Unattached' && tags.Environment=='hub']"
-az network public-ip list --query "[?ipConfiguration==null && tags.Environment=='hub']"
-az network nic list --query "[?ipConfigurations[0].privateIPAddress==null]"
+WORKLOAD=demo ENVIRONMENT=hub EXPECTED_SUBSCRIPTION=<hub 구독 GUID> ./scripts/teardown-verify.sh
 ```
+
+read-only다. 태그(`Workload`·`Environment`)로 좁혀 비용이 계속 나는 것부터 순서대로 본다:
+NAT Gateway → VM(NAP 고아 노드) → VMSS → Managed Disk(`Unattached`) → Public IP(미연결) →
+Load Balancer → AKS → NIC(미연결, VNet 삭제를 막는다) → VNet → `MC_*` RG → Log Analytics →
+태그가 붙은 나머지 전부. state Storage Account는 bootstrap 소유라 잔존물로 세지 않고 따로
+표시한다. exit 0이면 잔존물 없음, 1이면 있음, 2면 판정 불가(구독 불일치·조회 실패. "0건이라
+통과"로 둔갑시키지 않는다).
+
+⚠️ 태그가 없는 자원은 이 스크립트가 찾지 못한다. `az resource list --resource-group <rg>`로
+워크로드 RG 안을 한 번 더 본다.
 
 🔴 **`tofu destroy`가 성공해도 `MC_*` 리소스 그룹이 지연 삭제되거나 남을 수 있다.** AGFC가 만든 Application Gateway for Containers 리소스가 그 RG 안에 있으면 삭제가 지연된다. 12절의 IaC 밖 자원 선처리를 건너뛰었다는 신호다.
 
