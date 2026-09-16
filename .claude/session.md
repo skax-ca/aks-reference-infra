@@ -12,6 +12,4 @@ plan은 No changes 예상). GitHub 변수 `AZURE_HUB_AKS_IDENTITY_ID` 삭제. �
 삭제 보호 복원(hub-lifecycle 0단계 ⛔에 이미 있음)을 뺐다. 인프라는 여전히 전부 철거 상태다.
 
 ## 다음 할 일
-- [ ] 재구축(hub-lifecycle → spoke-lifecycle 순서). 그때 hub aks v0.9.0 plan이 No changes인지, `teardown-verify.sh`를 철거 전 "현황 목록"으로도 써 보는지 확인
-- [ ] 다른 Mac에서 clone하면 `git config core.hooksPath .githooks` + `tflint --init` 1회(CLAUDE.md 4절)
-- [ ] Azure Firewall을 두지 않는 결정을 `iac-module-library` `docs/architectures/gitops-hub-spoke/azure/README.md` 「하지 않는 것」에 한 줄 남길지 결정(그 repo 작업)
+(없음)
