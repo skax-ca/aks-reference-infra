@@ -12,4 +12,13 @@ plan은 No changes 예상). GitHub 변수 `AZURE_HUB_AKS_IDENTITY_ID` 삭제. �
 삭제 보호 복원(hub-lifecycle 0단계 ⛔에 이미 있음)을 뺐다. 인프라는 여전히 전부 철거 상태다.
 
 ## 다음 할 일
-(없음)
+- [ ] CLAUDE.md를 eks(24줄)처럼 "값·좌표만"으로 줄인다. **선행 조건**: `iac-module-library/CLAUDE.md`에
+  「배포 루트 공통」이 실제로 생긴 뒤(사용자가 그 repo에서 설계 예정. 현재 eks 머리말이 가리키지만
+  절이 없다). 분류: 0절 위치 표·2절 엔진·5절 브랜치는 module CLAUDE.md와 이미 중복이라 삭제.
+  state 분리·`data` 조회 결합·plan→apply·rerun `--failed`·로컬 init+validate·인라인 주석 SSOT·
+  ADR 없음·좌표 금지·게이트 파이프라인·모듈 계약 확인·문서 규칙·naming 합성은 공통으로 올림.
+  남길 값: 7루트·state key·backend(`use_azuread_auth`·`allowSharedKeyAccess=false`)·repo 변수명
+  (`AZURE_HUB_*`/`AZURE_DEV_*`)·`demo`/`hub|dev`/`krc`·훅 활성화+azurerm ruleset 0.32.0·dev workbench
+  `Standard_B2s_v2`·docs 좌표 3개·`docs/architectures/gitops-hub-spoke/azure/` 좌표. Azure 고유라
+  공통에 못 올리는 것: CI 신원(App Registration 1개, 구독 Owner) + ⛔ FIC subject 와일드카드·경로
+  확장 금지. 이건 별도 절로 남긴다.
