@@ -7,8 +7,14 @@
 #
 # CI 신원은 구독 전체 Owner 등가다(AWS 원본 AdministratorAccess와 스코프 축 대칭).
 
+# 이 파일은 source 되는 설정이다. 여기서 정의한 값을 쓰는 쪽은 bootstrap.sh·verify.sh 이고
+# 검사기는 한 파일만 보므로 전부 미사용으로 보인다. export 로 바꿔 회피하지 않는다.
+# shellcheck disable=SC2034
+
 set -euo pipefail
 
+# source 된 경우 return 이, 직접 실행이면 exit 이 쓰인다. 둘 중 하나는 늘 도달하지 않는다.
+# shellcheck disable=SC2317
 [[ -n "${BASH_VERSION:-}" ]] || {
   echo "ERROR: bash로 실행해야 한다. 예: bash bootstrap.sh" >&2
   return 1 2>/dev/null || exit 1
@@ -64,7 +70,8 @@ case "$BOOTSTRAP_TARGET" in
     ;;
 esac
 readonly SPOKE_ENV="${SPOKE_ENV:-dev}"
-readonly ENV_TOKEN="$([[ "$BOOTSTRAP_TARGET" == hub ]] && echo hub || echo "$SPOKE_ENV")"
+ENV_TOKEN="$([[ "$BOOTSTRAP_TARGET" == hub ]] && echo hub || echo "$SPOKE_ENV")"
+readonly ENV_TOKEN
 
 # hub-peer 역할(아래 「커스텀 역할 이름」절)은 hub 구독의 워크로드 RG에 만들어지는데,
 # spoke 부트스트랩 실행 중에는 az 컨텍스트가 spoke 구독(EXPECTED_SUBSCRIPTION)이라
@@ -175,8 +182,13 @@ command -v gh >/dev/null || {
 readonly GH_ORG_REPO="${GH_ORG_REPO:-skax-ca/aks-reference-infra}"
 readonly GH_ORG="${GH_ORG_REPO%%/*}"
 readonly GH_REPO_NAME="${GH_ORG_REPO##*/}"
-readonly GH_ORG_ID="$(gh api "orgs/${GH_ORG}" --jq '.id')"
-readonly GH_REPO_ID="$(gh api "repos/${GH_ORG_REPO}" --jq '.id')"
+# ⚠️ 대입과 readonly 를 나눈다. 한 줄로 쓰면 readonly 의 종료코드가 gh 의 실패를 덮어
+#    set -e 가 못 잡는다. 빈 ID 는 아래 GH_ORG_REPO_SUBJECT 를 조용히 망가뜨리고,
+#    그 subject 가 이 신원에 도달하는 경로를 좁히는 유일한 방어선이다.
+GH_ORG_ID="$(gh api "orgs/${GH_ORG}" --jq '.id')"
+readonly GH_ORG_ID
+GH_REPO_ID="$(gh api "repos/${GH_ORG_REPO}" --jq '.id')"
+readonly GH_REPO_ID
 readonly GH_ORG_REPO_SUBJECT="${GH_ORG}@${GH_ORG_ID}/${GH_REPO_NAME}@${GH_REPO_ID}"
 readonly FIC_ISSUER="https://token.actions.githubusercontent.com"
 readonly FIC_AUDIENCE="api://AzureADTokenExchange"
@@ -319,7 +331,7 @@ workload_role_definition_json() {  # workload_role_definition_json <assignable-s
       # ⚠️ az CLI 버그(azure-cli 2.89.1, ensure_custom_role의 update 경로):
       # `az role definition update`는 카멜케이스 변환 후 role_definition["roleName"]을
       # 직접 읽는데, create는 role_definition.get("name")을 읽는다. 같은 명령군인데
-      # 요구하는 키가 다르다. Name만 쓰면 update 시 KeyError: 'roleName'으로 죽는다.
+      # 요구하는 키가 다르다. Name만 쓰면 update 시 KeyError: "roleName"으로 죽는다.
       # RoleName을 추가로 넣어 두 경로 다 만족시킨다
       # (create/worker.create_role_definition은 role_name을 별도 인자로 받아 role_definition
       # dict의 여분 키를 무시하므로 부작용 없음).

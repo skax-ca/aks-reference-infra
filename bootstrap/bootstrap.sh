@@ -21,7 +21,10 @@
 #    워크로드 RG에 걸면 그 안의 모든 리소스 교체(destroy → create)가 막혀 무인
 #    자동화가 파괴된다. 자기 RG 삭제 방지는 커스텀 역할의 notActions로 해결한다.
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
+# set -euo 는 config.sh 가 건다. 그 전이라 cd 실패가 여기서는 잡히지 않는다 - 직접 막는다.
+# 실패한 채 넘어가면 엉뚱한 디렉토리의 config.sh 를 읽는다.
+cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
+# shellcheck source=bootstrap/config.sh
 source ./config.sh
 
 CHANGES=0

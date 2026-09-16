@@ -39,7 +39,9 @@
 #    (`Actions`)과 blob data-plane(`DataActions`)은 분리된 축이라, 워크로드 역할이
 #    아무리 넓어도(Owner도 `dataActions: []`다) blob 데이터 접근은 대체하지 못한다.
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
+# set -euo 는 config.sh 가 건다. 그 전이라 cd 실패가 여기서는 잡히지 않는다 - 직접 막는다.
+cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
+# shellcheck source=bootstrap/config.sh
 source ./config.sh
 
 DRIFTS=0

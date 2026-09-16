@@ -126,8 +126,11 @@ fi
 # 자기 자신(정확히는 그 부모 bash)을 죽이고 SSH 세션이 exit 255·무출력으로 끊긴다.
 # $$(자기 PID)를 명시적으로 제외해 이 자기 자신 매칭을 피한다. eks-reference-infra
 # 원본(SSM 기반)에는 없던, SSH 기반 원격 실행 특유의 함정이다.
+# $$·$p·$(pgrep …) 는 workbench 에서 풀려야 한다. 작은따옴표로 로컬 확장을 막는 것이 목적이다.
+# shellcheck disable=SC2016
 REMOTE_CMD='CUR=$$; for p in $(pgrep -f "kubectl port-forward -n argocd svc/argocd-server" 2>/dev/null); do [ "$p" = "$CUR" ] && continue; kill "$p" 2>/dev/null; done; sleep 1; (setsid nohup bash -c "while true; do kubectl port-forward -n argocd svc/argocd-server 8080:443 --address 127.0.0.1; sleep 2; done" > ~/argocd-portforward.log 2>&1 < /dev/null &) ; sleep 2; ss -ltnp | grep 8080'
 
+# shellcheck disable=SC2029  # 위 REMOTE_CMD 가 이미 단일 인용이라 로컬에서 확장되지 않는다
 if ! ssh "${SSH_OPTS[@]}" "${SSH_USER}@${PUBLIC_IP}" "$REMOTE_CMD"; then
   echo "ERROR: 원격 kubectl port-forward 기동 실패 (workbench SSH 접속 또는 원격 명령 실패)" >&2
   exit 1
