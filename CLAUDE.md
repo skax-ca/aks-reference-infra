@@ -101,12 +101,12 @@ pre-push:   live/**/*.tf 변경 시 각 루트 tofu init -backend=false + valida
 ```
 
 clone마다 1회 활성화: `git config core.hooksPath .githooks` + `tflint --init`. 우회
-(`--no-verify`)는 긴급 시에만, 사유를 커밋 메시지에 남긴다. CI는 이 게이트를 돌리지 않는다
-(plan/apply만). 그래서 이 훅이 fmt·lint·문서 규칙의 유일한 강제 지점이다.
+(`--no-verify`)는 긴급 시에만, 사유를 커밋 메시지에 남긴다. CI는 plan/apply만 돌린다.
+fmt·lint·문서 규칙은 이 훅만 강제한다.
 
 두 검증 스크립트는 `iac-module-library` `docs/conventions.md`의 규칙을 이 repo 안에서
 pre-commit으로 즉시 돌리기 위해 원본(`eks-reference-infra`)에서 그대로 **이식**한 것이다
-(규칙 텍스트의 SSOT는 여전히 module repo). 기계로 잡는 것:
+(규칙 텍스트의 SSOT는 module repo). 기계로 잡는 것:
 
 - 주석(`live/**/*.tf`·`bootstrap/*.sh`·`scripts/`·`.githooks/`·스킬 `.sh`·워크플로):
   날짜·문서 절 번호·결정 식별자·"실측" 같은 좌표, em-dash. 0절 ⛔의 기계 판정본이다
@@ -115,7 +115,7 @@ pre-commit으로 즉시 돌리기 위해 원본(`eks-reference-infra`)에서 그
 
 `.tflint.hcl`의 azurerm ruleset 핀은 `iac-module-library`와 같게 유지한다(다르면 같은 코드에
 다른 지적이 나온다). `.trivyignore`에 모듈 내부 지적을 넣지 않는다(훅이
-`--tf-exclude-downloaded-modules`로 애초에 제외한다. 모듈 쪽 위험 수락은 모듈 repo가 한다).
+`--tf-exclude-downloaded-modules`로 제외한다. 모듈 쪽 위험 수락은 모듈 repo가 한다).
 
 ## 5. 브랜치·PR 규칙
 

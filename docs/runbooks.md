@@ -5,7 +5,7 @@
 환경을 **구축하고 철거하는** 절차는 hub는 [`hub-lifecycle.md`](hub-lifecycle.md),
 spoke는 [`spoke-lifecycle.md`](spoke-lifecycle.md)가 소유한다. 아래는 hub 기준이다. dev는
 workbench·클러스터 이름과 SSH 키 파일명(`workbench_dev_ed25519`)만 다르고, ArgoCD 관련
-절(2·3·5)은 hub에만 해당한다(dev 자신에는 ArgoCD가 없다. hub ArgoCD가 원격 클러스터로 관리한다).
+절(2·3·5)은 hub에만 해당한다(dev에는 ArgoCD가 없다. hub ArgoCD가 원격 클러스터로 관리한다).
 
 ---
 
@@ -51,7 +51,7 @@ az aks command invoke -g <rg> -n <cluster> --command "kubectl get nodes -o wide"
 
 ArgoCD `Service`는 `ClusterIP`다. 노출을 만들지 않고 기존 SSH 채널 위에 스트림만 얹는다.
 평소에는 `argocd-tunnel-connect` 스킬(`.claude/skills/`, 멱등·자동 재연결)을 쓴다. 아래는
-그 스킬이 하는 일을 손으로 하는 형태다.
+같은 일을 손으로 한다.
 
 ```bash
 IP=$(az vm show -d -g rg-demo-hub-krc-workload-01 -n vm-demo-hub-krc-workbench-01 --query publicIps -o tsv)
@@ -66,8 +66,8 @@ ssh -i ~/.ssh/workbench_ed25519 -N -L 18080:127.0.0.1:8080 azureuser@$IP
 ```
 
 브라우저에서 **https://localhost:18080**. 자체 서명 인증서 경고는 통과한다(TLS를 끄지 않는
-것이 의도된 설계다). 로컬 포트를 `8080`이 아닌 `18080`으로 둔 이유는 `eks-reference-infra`의
-같은 터널이 `8080`을 쓰는 환경과 충돌하지 않기 위해서다.
+것이 의도된 설계다). 로컬 포트 `18080`은 `eks-reference-infra`의 같은 터널이 쓰는 `8080`과
+겹치지 않게 고른 값이다.
 
 | 증상 | 원인 | 대응 |
 |------|------|------|
@@ -125,12 +125,12 @@ kubectl -n argocd get secret argocd-initial-admin-secret     # NotFound 여야 �
 - **컨트롤플레인이 항상 먼저다.** 노드 풀 버전은 컨트롤플레인보다 높을 수 없고, 최대
   **3마이너**까지 뒤처질 수 있다. EKS와 순서가 반대다(EKS는 노드를 먼저 맞춘다).
 - 이 repo는 `automatic_upgrade_channel`을 쓰지 않는다(모듈이 노출하지 않아 `none`).
-  버전은 **사람이 올리기 전까지 절대 움직이지 않는다.**
+  사람이 올리기 전까지 버전은 그대로다.
 
 ### 지금 클러스터가 어느 버전인지
 
-`live/*/aks/main.tf`는 `kubernetes_version`을 넘기지 않는다. 그러면 provider가 **생성 시점의
-권장 버전**을 고르고 이후 자동 업그레이드는 하지 않는다. 즉 코드에 버전이 없으니 실물을 본다.
+`live/*/aks/main.tf`는 `kubernetes_version`을 넘기지 않는다. provider가 **생성 시점의 권장
+버전**을 고르고 이후 자동 업그레이드는 하지 않는다. 코드에 버전이 없으니 실물을 본다.
 
 ```bash
 az aks show -g <rg> -n <cluster> \
@@ -147,10 +147,10 @@ az aks get-upgrades -g <rg> -n <cluster> -o table     # 갈 수 있는 버전 �
 | **apply 2** | 시스템 노드 풀 업그레이드 | `az aks nodepool upgrade`(IaC 밖) |
 | (자동) | NAP(Karpenter) 노드 | 컨트롤플레인 버전을 자동 추종한다 |
 
-apply 1이 컨트롤플레인만 올리는 이유는 provider 동작이다: `kubernetes_version` 변경 시
-클러스터의 `kubernetesVersion`만 바꿔 PUT하고, 기본 노드 풀의 `orchestratorVersion`은 기존
-값 그대로 보낸다. 모듈이 `orchestrator_version`을 노출하지 않으므로 시스템 풀을 올릴 IaC
-레버가 없다. 그래서 apply 2는 CLI다.
+apply 1이 컨트롤플레인만 올리는 이유: azurerm은 `kubernetes_version`이 바뀌면 클러스터의
+`kubernetesVersion`만 바꿔 PUT하고, 기본 노드 풀의 `orchestratorVersion`은 기존 값을 그대로
+보낸다. 모듈이 `orchestrator_version`을 노출하지 않으니 시스템 풀을 올릴 IaC 레버가 없고,
+apply 2는 CLI로 한다.
 
 ```bash
 az aks nodepool upgrade -g <rg> --cluster-name <cluster> -n <system pool> \
@@ -204,7 +204,7 @@ kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=cluster
 
 `custom_data`(cloud-init)는 **부팅 때만 돌고 ForceNew다.** 그래서 부팅 당시 조건이 틀렸던
 VM은 `apply`로 고쳐지지 않고 **교체해야** 코드가 상태를 되찾는다(예: role assignment 전파
-전에 떠서 kubeconfig가 없는 경우. 이 레이스 자체는 `time_sleep.role_propagation`이 막지만
+전에 떠서 kubeconfig가 없는 경우. 이 레이스는 `time_sleep.role_propagation`이 막지만
 IMDS 타임아웃 같은 다른 부팅 레이스는 남아 있다).
 
 워크플로에 `replace` 입력이 없다. 루트 전체를 destroy → apply한다(VM·NIC·공인 IP·NSG·
@@ -219,12 +219,11 @@ gh workflow run deploy-hub-workbench.yml --ref main -f action=apply
 교체 후 kubeconfig · 도구 · 프로파일은 cloud-init이 다시 만든다. **다시 서지 않는 것은
 port-forward뿐이다.** 공인 IP도 바뀔 수 있으니 2절을 IP 조회부터 다시 한다.
 
-교체하기 전에 먼저 `cloud-init status`가 `done`인지 본다. kubeconfig만 없는 경우는
-재생성 없이 복구되는 경로가 있다(`hub-lifecycle.md` 「자주 막히는 지점」의 `localhost:8080`
-연결 거부 행).
+교체 전에 `cloud-init status`가 `done`인지 본다. kubeconfig만 없는 경우는 재생성 없이
+복구할 수 있다(`hub-lifecycle.md` 「자주 막히는 지점」의 `localhost:8080` 연결 거부 행).
 
-모듈 태그(`ref=aks-workbench-v*`)를 올리는 것만으로도 `custom_data`가 바뀌어 VM이
-재생성된다. 의도한 교체가 아니면 plan의 `must be replaced`를 승인 전에 읽는다.
+모듈 태그(`ref=aks-workbench-v*`)를 올리면 `custom_data`가 바뀌어 VM이 교체 대상이 된다.
+의도한 교체가 아니면 plan의 `must be replaced`를 승인 전에 읽는다.
 
 ---
 
@@ -249,8 +248,8 @@ gh run rerun <run-id> --failed
 ### 인프라가 없는 상태에서 push CI가 실패한다
 
 전부 철거된 상태에서는 `main` push마다 도는 plan이 networking 2개만 성공하고 나머지는
-`data` 조회(`aks-node` 서브넷·AKS 클러스터)가 not found로 실패한다. 순서가 있다는 신호이지
-고장이 아니다. 재구축은 lifecycle 문서 순서를 따른다.
+`data` 조회(`aks-node` 서브넷·AKS 클러스터)가 not found로 실패한다. lifecycle 문서 순서로
+재구축하면 사라진다.
 
 ### state lock이 풀리지 않는다
 
@@ -299,10 +298,9 @@ az resource list --resource-group "$NODE_RG" -o table
 | NAP(Karpenter) 노드 | 나머지 전부 | `NodePool`·`AKSNodeClass` CR(`aks-platform-gitops` `addons/catalog/karpenter.yaml`) | pending 파드에 따라 |
 
 **시스템 풀에 taint가 없다.** 모듈이 기본 풀의 taint(`only_critical_addons_enabled`)를
-노출하지 않는다(추가 풀의 `node_taints`만 있다). 그래서 EKS 원본의 "taint로 밀어내고
-nodeSelector로 끌어당긴다" 전략은 여기서 **구현되어 있지 않다**: app 파드가 시스템 풀에
-여유가 있으면 거기 먼저 앉고, 없을 때만 NAP가 노드를 띄운다. 시스템 풀이 2대 고정이라
-실질적으로 대부분의 app 파드는 NAP 노드로 간다.
+노출하지 않는다(추가 풀의 `node_taints`만 있다). EKS 원본의 "taint로 밀어내고 nodeSelector로
+끌어당긴다" 전략은 **이 repo에 없다**: app 파드가 시스템 풀에 여유가 있으면 거기 먼저 앉고,
+없을 때만 NAP가 노드를 띄운다. 시스템 풀이 2대 고정이라 대부분의 app 파드는 NAP 노드로 간다.
 
 이 상태가 문제가 되는 경우는 하나다: 시스템 풀에 앉은 app 파드가 addon(coredns 등)의
 자리를 잠식해 addon이 `Pending`이 되는 것. 확인:
@@ -317,5 +315,5 @@ kube-system 밖의 파드가 많이 보이면 taint 도입을 검토한다. 그 
 이유로 의도적이다: 모든 app Deployment가 toleration을 알아야 하는 마찰만 생긴다.
 
 NAP가 시스템 풀 파드 때문에 불필요한 노드를 만들지 않는지는 `kubectl get nodeclaims`로
-본다. 시스템 풀에 taint가 없으므로 이 방향의 오작동은 구조상 생기지 않는다(addon 파드는
-어느 노드든 앉을 수 있다).
+본다. 시스템 풀에 taint가 없으므로 이 방향의 오작동은 생기지 않는다(addon 파드는 어느
+노드든 앉을 수 있다).
