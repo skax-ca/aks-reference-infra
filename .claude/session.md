@@ -1,20 +1,17 @@
 # Session — aks-reference-infra
 
-## 지난 세션 (2026-09-15)
-OMC 종속성을 전부 걷어냈다. 로컬 `.omc/`(루트·하위 8개·모듈 캐시 2개) 삭제, `.gitignore` 규칙
-삭제(45059e0), 고유 계획 파일 2개는 `~/archive/aks-reference-infra-omc-20260915.tar.gz`에만
-보관(GUID 포함, git 금지). 그 인용을 풀어 쓰는 김에 코드·문서 주석을 iac-module-library
-`conventions.md` 「주석」 기준으로 다시 썼다: PR #47(52파일, 비주석 변경은 description·
-error_message·echo 문구뿐, 7루트 validate 통과), 문서·스킬 b7802a7. 그 과정에서 spoke-peer
-역할의 미사용 `roleAssignments/*`·`managedClusters/read`를 회수했다(PR #46, bootstrap 2회
-changed 1→0, verify drift 없음). 결정의 자리는 iac-module-library
-`docs/architectures/gitops-hub-spoke/azure/`(3cc5c6a·af98957)와 CLAUDE.md 0절 ⛔(좌표 금지)에 있다.
-인프라는 전부 철거 상태라 main push CI는 networking 2개만 성공하고 5개는 not found로 실패한다(정상).
+## 지난 세션 (2026-09-16)
+원본(`eks-reference-infra`)에서 남아 있던 이식 항목을 전부 끝냈다. `docs/runbooks.md` 포팅
+(a0a551e. EKS 전제인 업그레이드 순서·workbench 교체·taint 전략은 AKS 실물에 맞춰 다시 씀,
+hub-lifecycle의 root-app `revisions`→`revision` 오기 정정), 로컬 게이트 `.githooks/`+
+`scripts/validate-*.py`+`.tflint.hcl`(azurerm 0.32.0)+`.trivyignore`(PR #48, 전체 기준선 통과),
+`scripts/teardown-verify.sh`(PR #49. 원본과 달리 fail-closed, hub·dev 철거 상태에서 exit 0과
+exit 2 경로 셋을 실측). hub aks 모듈 태그를 dev와 같은 v0.9.0으로 맞췄다(PR #49, validate 통과,
+plan은 No changes 예상). GitHub 변수 `AZURE_HUB_AKS_IDENTITY_ID` 삭제. 할 일에서 ArgoCD 비밀번호
+교체(hub-lifecycle 완료 조건에 이미 있음)·Azure Firewall(인터넷 노출 없는 패턴이라 불필요)·
+삭제 보호 복원(hub-lifecycle 0단계 ⛔에 이미 있음)을 뺐다. 인프라는 여전히 전부 철거 상태다.
 
 ## 다음 할 일
-- [ ] 재구축 후 `deletion_protection`/`prevent_destroy`를 `true`로 복원(hub·dev networking, hub vwan)
-- [ ] GitHub repo 변수 `AZURE_HUB_AKS_IDENTITY_ID` 삭제(코드 참조 0, README 안내도 지웠음)
-- [ ] `docs/runbooks.md` 포팅
-- [ ] `scripts/validate-doc-conventions.py` + `.githooks/` 로컬 게이트 이식(CLAUDE.md 4절)
-- [ ] 재구축 시 ArgoCD 초기 admin 비밀번호 교체 + `argocd-initial-admin-secret` 삭제
-- [ ] Azure Firewall을 vWAN 허브에 둘지 결정(vHub는 `/22`라 선택지는 열려 있음)
+- [ ] 재구축(hub-lifecycle → spoke-lifecycle 순서). 그때 hub aks v0.9.0 plan이 No changes인지, `teardown-verify.sh`를 철거 전 "현황 목록"으로도 써 보는지 확인
+- [ ] 다른 Mac에서 clone하면 `git config core.hooksPath .githooks` + `tflint --init` 1회(CLAUDE.md 4절)
+- [ ] Azure Firewall을 두지 않는 결정을 `iac-module-library` `docs/architectures/gitops-hub-spoke/azure/README.md` 「하지 않는 것」에 한 줄 남길지 결정(그 repo 작업)
