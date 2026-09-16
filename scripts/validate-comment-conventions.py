@@ -4,8 +4,6 @@
 #
 #  1. 주석 줄의 좌표: "§", 결정 식별자(D-XX·D25 등), 날짜(YYYY-MM-DD), 문서 절 번호("N절"),
 #     "실측" 같은 사건 서술. 언제 누가 왜 바꿨는지는 git blame과 커밋 메시지가 답한다.
-#  2. 모든 줄의 em-dash(U+2014). 주석뿐 아니라 echo·description 문구도 문서와 같은 문체 규칙을
-#     따른다.
 #
 #  적용 범위: live/**/*.tf · bootstrap/*.sh · scripts/*.{sh,py} · .githooks/* ·
 #  .claude/skills/**/*.sh · .github/workflows/*.yml. .terraform/ 아래는 upstream 코드라 제외한다.
@@ -17,7 +15,6 @@ import glob
 import re
 import sys
 
-EM_DASH = "—"
 COORD_PATTERNS = [
     (re.compile("§"), "'§' 인용"),
     (re.compile(r"\bD-[A-Z]|\bD\d{2}\b"), "결정 식별자"),
@@ -67,8 +64,6 @@ def check_file(path: str) -> list[str]:
     except (FileNotFoundError, UnicodeDecodeError):
         return errors
     for i, line in enumerate(lines, 1):
-        if EM_DASH in line:
-            errors.append(f"{path}:{i}: em-dash. 마침표·쉼표·괄호로 바꾼다")
         c = comment_part(line)
         if c is None:
             continue
