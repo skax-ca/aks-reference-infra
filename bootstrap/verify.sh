@@ -334,7 +334,7 @@ fi
 #    나중에 생길 다른 VNet에도 peer·read를 갖는다는 것이다) ──
 #
 # ⚠️ 이 허용 목록은 두 갈래로 구성된다:
-#    1) hub SP + spoke-peer 역할(bootstrap.sh 6-1절이 만든다). principal·역할
+#    1) hub SP + spoke-peer 역할(bootstrap.sh 「크로스 구독 스포크 연결 권한」이 만든다). principal·역할
 #       둘 다 정확히 일치해야 하는 엄격 검사.
 #    2) `WORKBENCH_ADMIN_LOGIN_ROLE_NAME`(live/<env>/workbench가 Terraform으로
 #       만드는, 사람이 SSH sudo 로그인하는 role assignment). bootstrap이 만든

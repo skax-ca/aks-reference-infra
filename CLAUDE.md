@@ -47,7 +47,8 @@ live/dev/aks/           ✅ AKS 클러스터(dev, hub와 풀 패리티. Karpente
 live/dev/workbench/     ✅ CLI 전용 운영 VM(dev, hub와 풀 패리티. vm_size만 Standard_B2s_v2로 오버라이드 - 이 구독의 Standard_B2s 용량 제약 때문)
 .github/workflows/      배포 루트마다 워크플로 하나(plan은 push, apply/destroy는 workflow_dispatch)
 docs/                   ✅ hub-lifecycle.md·spoke-lifecycle.md·runbooks.md
-scripts/                ⏳ 아직 없음(원본의 `validate-doc-conventions.py` 등 포팅 예정, 4절)
+scripts/                ✅ 문서·주석 규칙 검증 스크립트(pre-commit이 호출, 4절)
+.githooks/              ✅ pre-commit(문서·주석·fmt·tflint·trivy) · pre-push(각 루트 validate)
 ```
 
 같은 repo 안에서 `live/hub/*`와 `live/dev/*`는 **각자 별도 state**를 쓴다(같은 배포 루트
@@ -92,12 +93,29 @@ CIDR 배치(hub/dev VNet, Pod secondary 대역)는 `Name`처럼 재조합하는 
 루트의 `main.tf` locals 주석이 실물 SSOT다. 왜 스포크마다 Pod 대역이 다른가, Azure CNI
 Pod Subnet을 택한 이유도 그 주석에 있다.
 
-## 4. 로컬 게이트 (⏳ 아직 이식 안 됨)
+## 4. 로컬 게이트 (git hook)
 
-원본(`eks-reference-infra`)은 `scripts/validate-doc-conventions.py` +
-`tofu fmt`/`tflint`/`trivy`를 `.githooks/`(pre-commit/pre-push)로 강제한다. 이 repo는
-`scripts/`·`.githooks/`를 아직 포팅하지 않아 이 게이트가 없다. 다음 후속 작업이다.
-그때까지는 사람이 직접 `tofu fmt`·문서 규칙을 지킨다.
+```
+pre-commit: 문서 변경 시 scripts/validate-doc-conventions.py → 코드 변경 시 scripts/validate-comment-conventions.py → backend.hcl 유출 검사 → tofu fmt -check → tflint → trivy config
+pre-push:   live/**/*.tf 변경 시 각 루트 tofu init -backend=false + validate (모듈 계약 테스트는 module repo가 담당, 여기 없음)
+```
+
+clone마다 1회 활성화: `git config core.hooksPath .githooks` + `tflint --init`. 우회
+(`--no-verify`)는 긴급 시에만, 사유를 커밋 메시지에 남긴다. CI는 이 게이트를 돌리지 않는다
+(plan/apply만). 그래서 이 훅이 fmt·lint·문서 규칙의 유일한 강제 지점이다.
+
+두 검증 스크립트는 `iac-module-library` `docs/conventions.md`의 규칙을 이 repo 안에서
+pre-commit으로 즉시 돌리기 위해 원본(`eks-reference-infra`)에서 그대로 **이식**한 것이다
+(규칙 텍스트의 SSOT는 여전히 module repo). 기계로 잡는 것:
+
+- 주석(`live/**/*.tf`·`bootstrap/*.sh`·`scripts/`·`.githooks/`·스킬 `.sh`·워크플로):
+  날짜·문서 절 번호·결정 식별자·"실측" 같은 좌표, em-dash. 0절 ⛔의 기계 판정본이다
+- 문서(`docs/*.md`·`README.md`·`AGENTS.md`·이 파일): 문서 간 절 번호 인용(섹션 기호),
+  7종 외 이모지, 400줄 초과, em-dash
+
+`.tflint.hcl`의 azurerm ruleset 핀은 `iac-module-library`와 같게 유지한다(다르면 같은 코드에
+다른 지적이 나온다). `.trivyignore`에 모듈 내부 지적을 넣지 않는다(훅이
+`--tf-exclude-downloaded-modules`로 애초에 제외한다. 모듈 쪽 위험 수락은 모듈 repo가 한다).
 
 ## 5. 브랜치·PR 규칙
 
@@ -116,10 +134,9 @@ push였다.** 과거 커밋을 소급 정정하지 않는다.
 
 `docs/*.md`·`README.md`·이 파일은 원본과 동일하게 `iac-module-library`의
 `docs/conventions.md`가 정하는 규칙을 따른다: 문서 간 절 번호 인용 금지, 이모지는
-`✅⏳❌⚠️⛔🔴🔑` 7종만, 문서당 400줄 제한, em-dash(유니코드 U+2014) 금지. 검증
-스크립트(`scripts/validate-doc-conventions.py`)는 아직 이식하지 않아(4절) 지금은
-수동으로 지킨다. `docs/` 디렉토리 자체(`hub-lifecycle.md` 등 운영 절차)도 원본에서
-기계적으로 이식할 대상이다.
+`✅⏳❌⚠️⛔🔴🔑` 7종만, 문서당 400줄 제한, em-dash(유니코드 U+2014) 금지. 기계로 판정
+가능한 이 네 가지는 pre-commit의 `scripts/validate-doc-conventions.py`가 잡는다(4절).
+나머지("읽는 사람" 첫 줄, 변경 이력 금지, 정정 서술 금지 등)는 사람이 지킨다.
 
 ## 7. 새 리소스·모듈 인자를 쓰기 전에
 
