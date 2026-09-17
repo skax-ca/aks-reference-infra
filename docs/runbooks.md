@@ -295,7 +295,7 @@ az resource list --resource-group "$NODE_RG" -o table
 | 층 | 무엇이 | 누가 만드나 | 크기 |
 |----|--------|-----------|------|
 | 시스템 풀(기본 풀) | AKS addon(coredns·metrics-server·CSI 등) | `live/*/aks` `system_node_pool` | 고정 2대, `auto_scaling_enabled = false` |
-| NAP(Karpenter) 노드 | 나머지 전부 | `NodePool`·`AKSNodeClass` CR(`aks-platform-gitops` `addons/catalog/karpenter.yaml`) | pending 파드에 따라 |
+| NAP(Karpenter) 노드 | 나머지 전부 | `NodePool`·`AKSNodeClass` CR(`aks-platform-gitops` `applicationsets/catalog/karpenter.yaml`) | pending 파드에 따라 |
 
 **시스템 풀에 taint가 없다.** 모듈이 기본 풀의 taint(`only_critical_addons_enabled`)를
 노출하지 않는다(추가 풀의 `node_taints`만 있다). EKS 원본의 "taint로 밀어내고 nodeSelector로
