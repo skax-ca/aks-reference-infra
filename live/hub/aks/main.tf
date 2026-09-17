@@ -99,7 +99,7 @@ module "aks_cluster" {
   # 루트마다 따로 봐야 하고, 다음 업그레이드를 한 PR 로 못 올린다. dev 만 쓰는 인자
   # (entra_integration_enabled·private_cluster_public_fqdn_enabled)는 기본값 false 라
   # hub 에서 태그만 올려도 plan 은 No changes 다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.9.0&depth=1"
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.10.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다. 모듈이 조합한다(모듈 repo 규약).
   # {demo, hub, krc} → aks-demo-hub-krc-main-01
@@ -190,14 +190,20 @@ module "aks_cluster" {
   # ⚠️ auto_scaling_enabled = false 는 규모 결정이자 위 enable_karpenter 의 향후 in-place
   #    전환 조건이다. true 로 바꾸면 나중에 NAP 을 켤 때 시스템 풀을 다시 고정 크기로
   #    되돌려야 하는 지뢰가 된다.
-  # ⚠️ vm_size·max_pods 를 바꾸면 AKS 가 시스템 풀을 순환한다(모듈이 temporary_name_for_rotation
-  #    을 넘겨 둔 이유다). 그 순환은 cordon·drain 을 하지 않아 돌던 파드가 그대로 끊긴다.
-  #    클러스터가 선 상태에서 바꾸지 않는다.
+  # ⚠️ vm_size·max_pods·only_critical_addons_enabled 를 바꾸면 AKS 가 시스템 풀을 순환한다
+  #    (모듈이 temporary_name_for_rotation 을 넘겨 둔 이유다). 그 순환은 cordon·drain 을 하지
+  #    않아 돌던 파드가 그대로 끊긴다. 클러스터가 선 상태에서 바꾸지 않는다.
+  #
+  # only_critical_addons_enabled 로 밀려난 파드를 받는 것은 위 enable_karpenter 의 NAP 노드다.
+  # ⚠️ 그 NAP 노드를 띄우는 NodePool CR 을 배포하는 것이 ArgoCD 자신이라, ArgoCD 만
+  #    toleration 을 갖는다(aks-platform-gitops 의 bootstrap/argocd-values.yaml). 그 값이 없는
+  #    상태로 이걸 켜면 seed 가 첫 파드에서 멈춘다. 두 저장소를 함께 올린다.
   system_node_pool = {
-    vm_size              = "Standard_D4s_v5"
-    node_count           = 2
-    auto_scaling_enabled = false
-    max_pods             = 30
+    vm_size                      = "Standard_D4s_v5"
+    node_count                   = 2
+    auto_scaling_enabled         = false
+    max_pods                     = 30
+    only_critical_addons_enabled = true
   }
 
   # workload = demo 레퍼런스 목적이라 Uptime SLA 가 필요 없다. Standard 로의 전환은

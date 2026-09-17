@@ -294,26 +294,44 @@ az resource list --resource-group "$NODE_RG" -o table
 
 | 층 | 무엇이 | 누가 만드나 | 크기 |
 |----|--------|-----------|------|
-| 시스템 풀(기본 풀) | AKS addon(coredns·metrics-server·CSI 등) | `live/*/aks` `system_node_pool` | 고정 2대, `auto_scaling_enabled = false` |
+| 시스템 풀(기본 풀) | AKS 관리형 addon(coredns·metrics-server·CSI 등)과 ArgoCD | `live/*/aks` `system_node_pool` | `Standard_D4s_v5` 고정 2대, `auto_scaling_enabled = false` |
 | NAP(Karpenter) 노드 | 나머지 전부 | `NodePool`·`AKSNodeClass` CR(`aks-platform-gitops` `applicationsets/catalog/karpenter.yaml`) | pending 파드에 따라 |
 
-**시스템 풀에 taint가 없다.** 모듈이 기본 풀의 taint(`only_critical_addons_enabled`)를
-노출하지 않는다(추가 풀의 `node_taints`만 있다). EKS 원본의 "taint로 밀어내고 nodeSelector로
-끌어당긴다" 전략은 **이 repo에 없다**: app 파드가 시스템 풀에 여유가 있으면 거기 먼저 앉고,
-없을 때만 NAP가 노드를 띄운다. 시스템 풀이 2대 고정이라 대부분의 app 파드는 NAP 노드로 간다.
+**시스템 풀은 `CriticalAddonsOnly=true:NoSchedule`로 잠겨 있다.** `live/*/aks`의
+`system_node_pool.only_critical_addons_enabled`가 켜고, AKS는 이 키만 받는다(임의 taint를
+시스템 풀에 걸 수 없다). 그 taint를 견디지 않는 파드는 전부 NAP 노드로 간다.
 
-이 상태가 문제가 되는 경우는 하나다: 시스템 풀에 앉은 app 파드가 addon(coredns 등)의
-자리를 잠식해 addon이 `Pending`이 되는 것. 확인:
+toleration을 가진 것은 둘뿐이다. AKS 관리형 addon은 AKS가 자기 파드에 넣고, 플랫폼 addon
+중에는 ArgoCD만 받는다(`aks-platform-gitops`의 `bootstrap/argocd-values.yaml`). ArgoCD가
+예외인 이유는 NAP 노드를 띄우는 `NodePool` CR을 배포하는 것이 ArgoCD 자신이기 때문이다.
+Kyverno를 비롯한 나머지가 NAP 노드로 밀려나는 것은 의도한 결과다.
+
+NAP `NodePool`에는 taint를 두지 않는다. 두면 모든 app Deployment가 toleration을 알아야
+하는 마찰만 생긴다(EKS 원본과 같은 판단).
+
+시스템 노드에 무엇이 앉아 있는지 본다:
 
 ```bash
 kubectl get pods -A -o wide --field-selector spec.nodeName=<시스템 노드 이름>
 ```
 
-kube-system 밖의 파드가 많이 보이면 taint 도입을 검토한다. 그 변경은 모듈 계약
-(`iac-module-library` `modules/azure/aks-cluster`)에 기본 풀 taint 변수를 추가하는 일이라
-이 repo 혼자서는 못 한다. NAP `NodePool`에 taint를 두지 않는 것은 EKS 원본과 같은
-이유로 의도적이다: 모든 app Deployment가 toleration을 알아야 하는 마찰만 생긴다.
+🔑 taint를 건 뒤 여기 보이는 것은 `kube-system`의 관리형 addon과 `argocd` 네임스페이스뿐이어야
+한다. 그 밖의 파드가 보이면 그 워크로드가 `CriticalAddonsOnly` toleration을 갖고 있다는
+뜻이므로, 넣은 이유를 확인한다.
 
-NAP가 시스템 풀 파드 때문에 불필요한 노드를 만들지 않는지는 `kubectl get nodeclaims`로
-본다. 시스템 풀에 taint가 없으므로 이 방향의 오작동은 생기지 않는다(addon 파드는 어느
-노드든 앉을 수 있다).
+addon이 `Pending`으로 멈춰 있으면 toleration이 아니라 NAP 노드가 없는 것이 원인일 때가 많다.
+`NodePool` CR이 떴는지부터 본다:
+
+```bash
+kubectl get nodepool,aksnodeclass
+kubectl get nodeclaims
+```
+
+⚠️ 관리형 addon 중 KEDA는 toleration 보유가 확인되지 않았다. 재구축 뒤 한 번 읽어 둔다.
+
+```bash
+kubectl -n kube-system get pod -o custom-columns=NAME:.metadata.name,TOLERATIONS:.spec.tolerations[*].key
+```
+
+빠져 있으면 그 addon은 NAP 노드로 가고, NAP 노드가 없는 구간에서 `Pending`으로 기다린다.
+영구 실패가 아니라 `NodePool` CR이 뜨면 해소된다.

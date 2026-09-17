@@ -103,7 +103,7 @@ module "aks_cluster" {
   # hub 구독의 ArgoCD 가 크로스 구독으로 접근해야 해서 필요하다.
   # ⚠️ 태그를 내리면 아래 인자가 "Unsupported argument"로 깨진다. 태그를 올릴 때는 모듈
   #    CHANGELOG(태그 메시지)로 ForceNew 축 변경 여부를 먼저 본다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.9.0&depth=1"
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.10.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다. 모듈이 조합한다(모듈 repo 규약).
   # {demo, dev, krc} → aks-demo-dev-krc-main-01
@@ -227,14 +227,20 @@ module "aks_cluster" {
   #    30 은 AKS 가 시스템 풀에 요구하는 최소 파드 수이자 이 데모 규모에 필요한 선이다.
   # ⚠️ auto_scaling_enabled = false 는 규모 결정이자 위 enable_karpenter 의 전제조건이다.
   #    true 로 바꾸면 시스템 풀을 다시 고정 크기로 되돌려야 하는 지뢰가 된다.
-  # ⚠️ vm_size·max_pods 를 바꾸면 AKS 가 시스템 풀을 순환한다(모듈이 temporary_name_for_rotation
-  #    을 넘겨 둔 이유다). 그 순환은 cordon·drain 을 하지 않아 돌던 파드가 그대로 끊긴다.
-  #    클러스터가 선 상태에서 바꾸지 않는다.
+  # ⚠️ vm_size·max_pods·only_critical_addons_enabled 를 바꾸면 AKS 가 시스템 풀을 순환한다
+  #    (모듈이 temporary_name_for_rotation 을 넘겨 둔 이유다). 그 순환은 cordon·drain 을 하지
+  #    않아 돌던 파드가 그대로 끊긴다. 클러스터가 선 상태에서 바꾸지 않는다.
+  #
+  # only_critical_addons_enabled 로 밀려난 파드를 받는 것은 위 enable_karpenter 의 NAP 노드다.
+  # ⚠️ 이 스포크에는 ArgoCD 가 없다. hub 의 ArgoCD 가 크로스 구독으로 매니페스트를 밀어
+  #    NodePool CR 을 만들고, 그 CR 이 뜨기 전까지 addon 파드는 Pending 으로 기다린다.
+  #    hub 와 달리 seed 가 멈추는 경로는 없지만, NAP 노드가 설 때까지 시간이 걸린다.
   system_node_pool = {
-    vm_size              = "Standard_D4s_v5"
-    node_count           = 2
-    auto_scaling_enabled = false
-    max_pods             = 30
+    vm_size                      = "Standard_D4s_v5"
+    node_count                   = 2
+    auto_scaling_enabled         = false
+    max_pods                     = 30
+    only_critical_addons_enabled = true
   }
 
   # workload = demo 레퍼런스 목적이라 Uptime SLA 가 필요 없다. Standard 로의 전환은
