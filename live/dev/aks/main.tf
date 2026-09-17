@@ -103,7 +103,7 @@ module "aks_cluster" {
   # hub 구독의 ArgoCD 가 크로스 구독으로 접근해야 해서 필요하다.
   # ⚠️ 태그를 내리면 아래 인자가 "Unsupported argument"로 깨진다. 태그를 올릴 때는 모듈
   #    CHANGELOG(태그 메시지)로 ForceNew 축 변경 여부를 먼저 본다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.9.0&depth=1"
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.10.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다. 모듈이 조합한다(모듈 repo 규약).
   # {demo, dev, krc} → aks-demo-dev-krc-main-01
@@ -212,25 +212,35 @@ module "aks_cluster" {
     default_nginx_controller = "None"
   }
 
-  # 시스템 노드 풀. vm_size·node_count 는 hub 와 동일 값(모듈 examples/basic·README
-  # Usage 예시값)이다.
+  # 시스템 노드 풀. vm_size·node_count 는 hub 와 같은 값이다.
+  #
+  # AKS 가 시스템 풀에 거는 조건은 세 층으로 갈린다. 노드 2대 이상과 B 시리즈 금지는 강제다.
+  # vCPU 4 이상·메모리 4 GiB 이상은 Microsoft 가 제약으로 적지만 API 가 막지는 않는다(더 작은
+  # SKU 로도 클러스터는 생성된다). 노드 3대는 권고다. 이 값은 앞의 둘을 충족하고 3대 권고만
+  # 따르지 않는다 — 레퍼런스 규모에 맞춘 선택이고, 실 워크로드를 올릴 때 대수를 함께 본다.
   #
   # ⚠️ dev 구독의 vCPU 쿼터는 hub 구독과 별개다. 첫 apply 전에
   #    `az vm list-usage --location koreacentral`로 Standard DSv5 Family 여유를
-  #    확인한다. 부족하면 apply 가 쿼터 오류로 실패한다.
+  #    확인한다. 부족하면 apply 가 쿼터 오류로 실패한다. 이 풀 하나가 8 vCPU 를 쓴다.
   # ⚠️ max_pods 를 명시하지 않으면 Overlay 기본값 250 이 그대로 적용되는데,
-  #    Standard_D2s_v5(2 vCPU / 8 GiB)에 250 은 비현실적이다(kubelet 예약만으로도 부족).
-  #    데모 규모에 맞춰 30 으로 낮춘다.
+  #    Standard_D4s_v5(4 vCPU / 16 GiB)에 250 은 비현실적이다(kubelet 예약만으로도 부족).
+  #    30 은 AKS 가 시스템 풀에 요구하는 최소 파드 수이자 이 데모 규모에 필요한 선이다.
   # ⚠️ auto_scaling_enabled = false 는 규모 결정이자 위 enable_karpenter 의 전제조건이다.
   #    true 로 바꾸면 시스템 풀을 다시 고정 크기로 되돌려야 하는 지뢰가 된다.
-  # ⚠️ Microsoft 는 시스템 노드 풀에 vCPU 4 이상, 노드 3대를 권고한다. 이 값(2 vCPU · 2대)은 그
-  #    아래이고 레퍼런스 규모에 맞춘 선택이다. 강제가 아니라 권고라 클러스터는 정상 생성된다.
-  #    ⇒ 실 워크로드를 올릴 때 함께 올린다. B 시리즈는 시스템 풀에 쓸 수 없다.
+  # ⚠️ vm_size·max_pods·only_critical_addons_enabled 를 바꾸면 AKS 가 시스템 풀을 순환한다
+  #    (모듈이 temporary_name_for_rotation 을 넘겨 둔 이유다). 그 순환은 cordon·drain 을 하지
+  #    않아 돌던 파드가 그대로 끊긴다. 클러스터가 선 상태에서 바꾸지 않는다.
+  #
+  # only_critical_addons_enabled 로 밀려난 파드를 받는 것은 위 enable_karpenter 의 NAP 노드다.
+  # ⚠️ 이 스포크에는 ArgoCD 가 없다. hub 의 ArgoCD 가 크로스 구독으로 매니페스트를 밀어
+  #    NodePool CR 을 만들고, 그 CR 이 뜨기 전까지 addon 파드는 Pending 으로 기다린다.
+  #    hub 와 달리 seed 가 멈추는 경로는 없지만, NAP 노드가 설 때까지 시간이 걸린다.
   system_node_pool = {
-    vm_size              = "Standard_D2s_v5"
-    node_count           = 2
-    auto_scaling_enabled = false
-    max_pods             = 30
+    vm_size                      = "Standard_D4s_v5"
+    node_count                   = 2
+    auto_scaling_enabled         = false
+    max_pods                     = 30
+    only_critical_addons_enabled = true
   }
 
   # workload = demo 레퍼런스 목적이라 Uptime SLA 가 필요 없다. Standard 로의 전환은
