@@ -223,6 +223,9 @@ module "aks_cluster" {
   #    데모 규모에 맞춰 30 으로 낮춘다.
   # ⚠️ auto_scaling_enabled = false 는 규모 결정이자 위 enable_karpenter 의 전제조건이다.
   #    true 로 바꾸면 시스템 풀을 다시 고정 크기로 되돌려야 하는 지뢰가 된다.
+  # ⚠️ Microsoft 는 시스템 노드 풀에 vCPU 4 이상, 노드 3대를 권고한다. 이 값(2 vCPU · 2대)은 그
+  #    아래이고 레퍼런스 규모에 맞춘 선택이다. 강제가 아니라 권고라 클러스터는 정상 생성된다.
+  #    ⇒ 실 워크로드를 올릴 때 함께 올린다. B 시리즈는 시스템 풀에 쓸 수 없다.
   system_node_pool = {
     vm_size              = "Standard_D2s_v5"
     node_count           = 2
