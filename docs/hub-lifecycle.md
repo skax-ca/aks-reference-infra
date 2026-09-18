@@ -164,24 +164,21 @@ kubectl get nodes            # sudo 없이 동작해야 한다
 hub만 자기 `argocd-seed.sh`를 돈다.
 
 ```bash
-gh repo create <org>/<project>-platform-gitops --private
+gh repo create <org>/<project>-platform-gitops --public
 ```
 
-`eks-platform-gitops`의 레이아웃을 그대로 본뜬다(self-managed ArgoCD + App-of-Apps). **이 저장소에 `.tf`를 두지 않는다.** Terraform은 identity·federated credential·role assignment까지만 만들고(위 5절의 hub ArgoCD workload identity), helm 설치·CR은 전부 GitOps 소관이다.
+`eks-platform-gitops`의 레이아웃을 그대로 본뜬다(self-managed ArgoCD + App-of-Apps). **이 저장소에 `.tf`를 두지 않는다.** Terraform은 identity·federated credential·role assignment까지만 만들고(위 5절의 hub ArgoCD workload identity), helm 설치·CR은 전부 GitOps 소관이다. public이어야 한다: ArgoCD가 repository Secret 없이 익명으로 읽고, workbench도 자격증명 없이 클론한다. private이면 seed의 preflight가 익명 `ls-remote`에서 멈춘다.
 
-`argocd-seed.sh`는 `<project>-platform-gitops`의 `bootstrap/`에 있다(이 저장소의 `bootstrap/`과는 다른 디렉토리 - 혼동 주의). workbench에 이 저장소를 **클론할 자격증명이 미리 심어져 있지 않다**(cloud-init이 credential을 VM 상태에 남기지 않는 설계) - private repo라 `git clone https://github.com/...`는 인증 없이 실패한다. `gh api orgs/<org>/installations --jq '.installations[] | {app_slug, id, app_id}'`로 `GH_APP_ID`·`GH_APP_INSTALLATION_ID`를 조회하고, private key(`.pem`, 로컬에 이미 있어야 한다 - 발급 경로는 `bootstrap/README.md`의 GitHub App 절 참고)를 `scp`로 workbench에 올려 쓴다:
+`argocd-seed.sh`는 `<project>-platform-gitops`의 `bootstrap/`에 있다(이 저장소의 `bootstrap/`과는 다른 디렉토리 - 혼동 주의). workbench에는 **자격증명이 미리 심어져 있지 않다**(cloud-init이 credential을 VM 상태에 남기지 않는 설계). 저장소가 public이라 그 상태로 클론이 된다:
 
 ```bash
-# workbench에서 실행한다(저장소는 로컬에서 scp로 복사, 자격증명이 없어 클론 불가)
+# workbench에서 실행한다
 export GITOPS_REPO_DIR=$HOME/<project>-platform-gitops
 export CLUSTER_DIR=clusters/hub/<cluster-name>
-export GITOPS_REPO_URL=https://github.com/<org>/<project>-platform-gitops.git
-export GH_APP_ID=<위에서 조회한 app_id>
-export GH_APP_INSTALLATION_ID=<위에서 조회한 id>
-export GH_APP_PRIVATE_KEY=$HOME/<app>.pem
+git clone https://github.com/<org>/<project>-platform-gitops.git "$GITOPS_REPO_DIR"
 cd "$GITOPS_REPO_DIR/bootstrap"
 ./argocd-seed.sh --dry-run
-./argocd-seed.sh --to 5        # root Application까지 - argocd-app.yaml은 root-app의
+./argocd-seed.sh               # root Application까지 - argocd-app.yaml은 root-app의
                                 # 재귀 스캔으로 자동 흡수되어 별도 단계가 없다
 argocd app diff argocd --core  # 출력 없음·exit 0이 기대값(무해한 diff도 없어야 한다)
 ```
