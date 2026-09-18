@@ -39,3 +39,22 @@ updates:
     # ⚠️ 이 상한은 directories 전체가 아니라 **디렉토리마다** 걸린다. 한 루트가 여는 PR 은
     #    그 루트의 모듈 수 + provider 라 많아야 두세 건이다. 5 면 잘리지 않는다.
     open-pull-requests-limit: 5
+
+  # 액션은 커밋 SHA 로 고정돼 있고(.github/workflows/), 태그는 뒤따르는 주석이 갖는다.
+  # SHA 는 사람이 읽고 올릴 수 없는 값이라 이 생태계 없이 고정하면 보안 패치가 끊긴다.
+  # Dependabot 은 SHA 와 주석의 버전을 함께 바꾼다.
+  #
+  # ⚠️ 액션을 SHA 로 고정한 이유는 태그가 옮겨질 수 있어서다. 2025 년 tj-actions/changed-files
+  #    침해에서 공격자가 기존 버전 태그들을 악성 커밋으로 되돌려 붙였고, SHA 로 고정한
+  #    저장소만 영향을 받지 않았다. 이 저장소는 id-token: write 를 쓰는 job 이 14 개이고
+  #    그 토큰이 맡는 신원이 구독 전체 Owner 라 폭발 반경이 최대다.
+  # ⛔ uses: 를 태그로 되돌리지 않는다. 되돌리면 이 고정이 무의미해진다.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore(deps)"
+    # 액션 5 종이라 한 주에 최대 5 건이다. 위 opentofu 상한과 달리 이쪽은 디렉토리가 하나다.
+    open-pull-requests-limit: 5
