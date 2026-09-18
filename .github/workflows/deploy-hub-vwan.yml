@@ -19,9 +19,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "apply = 생성·수정 / destroy = 파기"
+        description: "apply = 생성·수정 / destroy = 파기 / plan = 확인만(적용하지 않는다)"
         type: choice
-        options: [apply, destroy]
+        options: [apply, destroy, plan]
         default: apply
       confirm:
         description: "destroy일 때만 필수. 정확히 `destroy live/hub/vwan`를 입력한다"
@@ -56,6 +56,9 @@ jobs:
   plan:
     name: plan
     runs-on: ubuntu-latest
+    outputs:
+      # apply 가드가 읽는다. plan 스텝이 -detailed-exitcode 로 판정한 값이다.
+      changes: ${{ steps.plan.outputs.changes }}
     permissions:
       id-token: write
       contents: read
@@ -78,14 +81,18 @@ jobs:
 
       - name: backend 설정 조립
         working-directory: ${{ env.TF_ROOT }}
+        # 값의 SSOT 는 커밋된 backend.hcl.example 이다. 여기서 다시 적지 않는다 — key 가 두 곳에
+        # 있으면 한쪽만 고쳤을 때 다른 root 의 state 를 덮어쓴다. git 밖 값인 Storage Account
+        # 이름만 치환한다.
+        # ⛔ 조립한 backend.hcl 을 출력하지 않는다. vars 는 secrets 와 달리 로그에서 마스킹되지
+        #    않고, 이 저장소는 public 이라 Actions 로그가 공개된다.
         run: |
-          cat > backend.hcl <<EOF
-          resource_group_name  = "rg-demo-hub-krc-tfstate-01"
-          storage_account_name = "${{ vars.HUB_TF_STATE_ACCOUNT }}"
-          container_name       = "tfstate"
-          key                  = "hub/vwan.tfstate"
-          use_azuread_auth     = true
-          EOF
+          sed 's|^storage_account_name .*|storage_account_name = "${{ vars.HUB_TF_STATE_ACCOUNT }}"|' \
+            backend.hcl.example > backend.hcl
+          if grep -q 'XXXXXXXX' backend.hcl; then
+            echo "::error::backend.hcl 치환 실패. backend.hcl.example 의 storage_account_name 줄을 확인한다"
+            exit 1
+          fi
 
       - name: tofu init
         working-directory: ${{ env.TF_ROOT }}
@@ -134,6 +141,10 @@ jobs:
             fi
             echo
             echo "변경 있음: **${{ steps.plan.outputs.changes }}**"
+            if [ "${{ inputs.action }}" = "plan" ]; then
+              echo
+              echo "> 확인 전용 실행이다(\`action=plan\`). 변경이 있어도 apply 하지 않는다."
+            fi
             echo
             echo "#### ⚠️ destroy / replace 대상"
             echo "> hub 구독이다. 이 목록은 승인 전에 사람이 읽는다."
@@ -170,7 +181,12 @@ jobs:
     # ⚠️ 브랜치 조건: workflow_dispatch는 임의 브랜치에서 눌릴 수 있다. Environment의 deployment
     #    branch policy(main 하나)가 최종 방어선이지만, job 조건으로도 막아 두면 실패가 아니라
     #    skip으로 끝난다.
-    if: github.ref == 'refs/heads/main'
+    # ⚠️ changes 가드: 변경 0건이면 apply 를 건너뛴다. 빈 승인 클릭을 없애고, 승인 게이트가
+    #    섰다는 사실 자체를 "적용할 것이 있다"는 신호로 만든다. destroy 는 항상 changes=true 다.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && needs.plan.outputs.changes == 'true'
+      && inputs.action != 'plan'
     runs-on: ubuntu-latest
     environment: hub
     permissions:
@@ -186,14 +202,18 @@ jobs:
 
       - name: backend 설정 조립
         working-directory: ${{ env.TF_ROOT }}
+        # 값의 SSOT 는 커밋된 backend.hcl.example 이다. 여기서 다시 적지 않는다 — key 가 두 곳에
+        # 있으면 한쪽만 고쳤을 때 다른 root 의 state 를 덮어쓴다. git 밖 값인 Storage Account
+        # 이름만 치환한다.
+        # ⛔ 조립한 backend.hcl 을 출력하지 않는다. vars 는 secrets 와 달리 로그에서 마스킹되지
+        #    않고, 이 저장소는 public 이라 Actions 로그가 공개된다.
         run: |
-          cat > backend.hcl <<EOF
-          resource_group_name  = "rg-demo-hub-krc-tfstate-01"
-          storage_account_name = "${{ vars.HUB_TF_STATE_ACCOUNT }}"
-          container_name       = "tfstate"
-          key                  = "hub/vwan.tfstate"
-          use_azuread_auth     = true
-          EOF
+          sed 's|^storage_account_name .*|storage_account_name = "${{ vars.HUB_TF_STATE_ACCOUNT }}"|' \
+            backend.hcl.example > backend.hcl
+          if grep -q 'XXXXXXXX' backend.hcl; then
+            echo "::error::backend.hcl 치환 실패. backend.hcl.example 의 storage_account_name 줄을 확인한다"
+            exit 1
+          fi
 
       - name: tofu init
         working-directory: ${{ env.TF_ROOT }}
