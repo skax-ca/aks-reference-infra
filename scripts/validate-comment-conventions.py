@@ -8,7 +8,8 @@
 #     왜 바꿨는지는 git blame과 커밋 메시지가 답한다.
 #
 #  적용 범위: live/**/*.tf · bootstrap/*.sh · scripts/*.{sh,py} · .githooks/* ·
-#  .claude/skills/**/*.sh · .github/workflows/*.yml. .terraform/ 아래는 upstream 코드라 제외한다.
+#  .claude/skills/**/*.sh · .github/workflows/*.yml · .github/dependabot.yml.
+#  .terraform/ 아래는 upstream 코드라 제외한다.
 #
 #  실행 (repo 루트에서): python3 scripts/validate-comment-conventions.py [파일...]
 #  인자를 안 주면 적용 범위 전체를 스캔한다.
@@ -44,6 +45,7 @@ def default_targets() -> list[str]:
         ".githooks/*",
         ".claude/skills/**/*.sh",
         ".github/workflows/*.yml",
+        ".github/dependabot.yml",
     ):
         targets |= set(glob.glob(pattern, recursive=True))
     return sorted(t for t in targets if "/.terraform/" not in t and t not in VALIDATORS)
