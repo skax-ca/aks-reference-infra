@@ -50,7 +50,7 @@ az aks command invoke -g <rg> -n <cluster> --command "kubectl get nodes -o wide"
 ## 2. ArgoCD 웹 UI 접속: 2홉
 
 ArgoCD `Service`는 `ClusterIP`다. 노출을 만들지 않고 기존 SSH 채널 위에 스트림만 얹는다.
-평소에는 `argocd-tunnel-connect` 스킬(`.claude/skills/`, 멱등·자동 재연결)을 쓴다. 아래는
+평소에는 `aks-argocd-tunnel-connect` 스킬(`.claude/skills/`, 멱등·자동 재연결)을 쓴다. 아래는
 같은 일을 손으로 한다.
 
 ```bash

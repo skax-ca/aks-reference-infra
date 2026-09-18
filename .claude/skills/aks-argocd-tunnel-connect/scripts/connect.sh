@@ -4,7 +4,7 @@
 # 멱등성: 이미 같은 포트로 정상 연결돼 있으면 아무것도 하지 않고 끝난다.
 #         연결이 끊겨 있으면(프로세스 죽음·curl 실패) 정리 후 새로 연결한다.
 #
-# eks-reference-infra의 argocd-tunnel-connect를 대조해 포팅. AWS SSM 대응물이 Azure에
+# eks-reference-infra의 eks-argocd-tunnel-connect를 대조해 포팅. AWS SSM 대응물이 Azure에
 # 없어 1단(로컬↔workbench) 구간만 ssh -L로 대체했다. SKILL.md 참고.
 #
 # 사용: AZURE_HUB_SUBSCRIPTION_ID=<GUID> scripts/connect.sh [LOCAL_PORT]  (기본 18080)
@@ -22,7 +22,7 @@ SSH_USER="azureuser"
 SSH_KEY="${HOME}/.ssh/workbench_ed25519"
 LOCAL_PORT="${1:-18080}"
 
-# 이 스킬 디렉토리(argocd-tunnel-connect) 밑에 전용 상태 폴더를 둔다. AI 어시스턴트
+# 이 스킬 디렉토리(aks-argocd-tunnel-connect) 밑에 전용 상태 폴더를 둔다. AI 어시스턴트
 # 도구의 세션 상태 디렉토리는 세션·워크트리 생명주기에 묶여 있어(worktree 삭제 시
 # 함께 지워질 수 있음) PID 추적 파일을 두기에 부적절하다. scripts/ 의 부모(스킬 루트)
 # 밑에 .state/를 둔다.

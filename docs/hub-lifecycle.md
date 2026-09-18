@@ -161,7 +161,7 @@ ssh -i ~/.ssh/workbench_ed25519 azureuser@<workbench 공인 IP>
 kubectl get nodes            # sudo 없이 동작해야 한다
 ```
 
-콘솔 접속은 `argocd-tunnel-connect` 스킬(2단 SSH 터널)을 쓴다. Azure Portal 그래픽 뷰는 private cluster 특성상 원천적으로 안 되고, 관리형 우회는 Portal 내장 `Run command` 또는 `az aks command invoke`뿐이다(workbench보다 약하다. kubectl 직접 실행이 아니라 명령 하나씩 던지는 방식이다).
+콘솔 접속은 `aks-argocd-tunnel-connect` 스킬(2단 SSH 터널)을 쓴다. Azure Portal 그래픽 뷰는 private cluster 특성상 원천적으로 안 되고, 관리형 우회는 Portal 내장 `Run command` 또는 `az aks command invoke`뿐이다(workbench보다 약하다. kubectl 직접 실행이 아니라 명령 하나씩 던지는 방식이다).
 
 ### 7. GitOps 씨딩 (L3)
 

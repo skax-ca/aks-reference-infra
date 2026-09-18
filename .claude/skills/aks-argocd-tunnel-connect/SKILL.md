@@ -1,5 +1,5 @@
 ---
-name: argocd-tunnel-connect
+name: aks-argocd-tunnel-connect
 description: hub ArgoCD 콘솔(https://localhost:18080, 기본값)에 접속하기 위한 2단 SSH 터널을 연다(로컬 SSH 포트포워딩 → hub workbench(공인 IP) → kubectl port-forward → argocd-server). 사용자가 "argocd 터널 연결", "argocd 콘솔 접속", "argocd UI 보고 싶다"고 할 때 사용한다. 멱등적이다. 이미 정상 연결돼 있으면 아무것도 하지 않는다.
 ---
 
@@ -22,7 +22,7 @@ description: hub ArgoCD 콘솔(https://localhost:18080, 기본값)에 접속하�
 
 ## eks-reference-infra 대응 스킬과의 차이
 
-이 스킬 쌍은 AWS 자매 프로젝트 `eks-reference-infra`의 `argocd-tunnel-connect`/
+이 스킬 쌍은 AWS 자매 프로젝트 `eks-reference-infra`의 `eks-argocd-tunnel-connect`/
 `-disconnect`를 1:1 대조해 포팅했다. 다만 Azure에는 AWS SSM(Session Manager)의 정확한
 대응물이 없고, 이 프로젝트는 이미 workbench 접속 모델을 **SSH가 일상 경로, Run Command가
 브레이크글래스**로 확정해 뒀다(`live/hub/workbench/main.tf` 주석 참고).
@@ -36,7 +36,7 @@ IP가 바뀔 수 있어서다. 하드코딩 금지 원칙은 AWS와 동일하게
 ## 실행
 
 ```bash
-AZURE_HUB_SUBSCRIPTION_ID=<hub 구독 GUID> bash .claude/skills/argocd-tunnel-connect/scripts/connect.sh [LOCAL_PORT]
+AZURE_HUB_SUBSCRIPTION_ID=<hub 구독 GUID> bash .claude/skills/aks-argocd-tunnel-connect/scripts/connect.sh [LOCAL_PORT]
 ```
 
 `AZURE_HUB_SUBSCRIPTION_ID`는 필수다(기본값 없음. `bootstrap/config.sh`의
@@ -62,7 +62,7 @@ AZURE_HUB_SUBSCRIPTION_ID=<hub 구독 GUID> bash .claude/skills/argocd-tunnel-co
 ## 멱등성 판단 방식
 
 스크립트가 매번 다음을 확인한다:
-1. `.claude/skills/argocd-tunnel-connect/.state/local-watchdog.pid`에 기록된 프로세스가 살아있는가
+1. `.claude/skills/aks-argocd-tunnel-connect/.state/local-watchdog.pid`에 기록된 프로세스가 살아있는가
 2. `https://localhost:<PORT>/`가 실제로 HTTP 200을 주는가(터널 전 구간이 살아있어야 통과)
 
 둘 다 참이면 **재연결하지 않는다.** 하나라도 거짓이면(프로세스가 죽었거나, 로컬 SSH 세션은
@@ -83,9 +83,9 @@ AZURE_HUB_SUBSCRIPTION_ID=<hub 구독 GUID> bash .claude/skills/argocd-tunnel-co
 
 ## 상태 파일
 
-`.claude/skills/argocd-tunnel-connect/.state/`(git에 커밋되지 않는다, `.gitignore` 참고):
+`.claude/skills/aks-argocd-tunnel-connect/.state/`(git에 커밋되지 않는다, `.gitignore` 참고):
 `local-watchdog.pid` · `public-ip.txt` · `local-port.txt` · `local-watchdog.log`.
-`argocd-tunnel-disconnect` 스킬이 이 파일들로 무엇을 정리해야 하는지 찾는다. 직접 지우지 않는다.
+`aks-argocd-tunnel-disconnect` 스킬이 이 파일들로 무엇을 정리해야 하는지 찾는다. 직접 지우지 않는다.
 
 ⚠️ AWS 원본(`eks-reference-infra`)의 대응 스킬은 AI 어시스턴트 도구의 세션 상태
 디렉토리를 썼지만, 이 저장소는 스킬 자체 디렉토리 밑에 둔다. 그런 디렉토리는 세션·

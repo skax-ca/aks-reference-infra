@@ -1,22 +1,22 @@
 ---
-name: argocd-tunnel-disconnect
-description: argocd-tunnel-connect로 연 hub ArgoCD 콘솔 터널(로컬 SSH -L + workbench의 kubectl port-forward watchdog)을 전부 정리한다. 사용자가 "argocd 터널 해제", "argocd 연결 끊어줘", "터널 정리해줘"라고 할 때 사용한다. argocd-tunnel-connect와 짝을 이루는 스킬이다.
+name: aks-argocd-tunnel-disconnect
+description: aks-argocd-tunnel-connect로 연 hub ArgoCD 콘솔 터널(로컬 SSH -L + workbench의 kubectl port-forward watchdog)을 전부 정리한다. 사용자가 "argocd 터널 해제", "argocd 연결 끊어줘", "터널 정리해줘"라고 할 때 사용한다. aks-argocd-tunnel-connect와 짝을 이루는 스킬이다.
 ---
 
 # ArgoCD Tunnel Disconnect
 
-`argocd-tunnel-connect`가 연 2단 SSH 터널(로컬 watchdog + 원격 kubectl port-forward
+`aks-argocd-tunnel-connect`가 연 2단 SSH 터널(로컬 watchdog + 원격 kubectl port-forward
 watchdog)을 양쪽 다 종료하고 상태 파일을 지운다. `eks-reference-infra`의
-`argocd-tunnel-disconnect`를 그대로 대조해 포팅했다. SSM 세션 대신 SSH 프로세스를
-정리한다는 점만 다르다(SKILL.md 쌍인 `argocd-tunnel-connect`의 「차이」절 참고).
+`eks-argocd-tunnel-disconnect`를 그대로 대조해 포팅했다. SSM 세션 대신 SSH 프로세스를
+정리한다는 점만 다르다(SKILL.md 쌍인 `aks-argocd-tunnel-connect`의 「차이」절 참고).
 
 ## 실행
 
 ```bash
-bash .claude/skills/argocd-tunnel-disconnect/scripts/disconnect.sh
+bash .claude/skills/aks-argocd-tunnel-disconnect/scripts/disconnect.sh
 ```
 
-인자 없음. `argocd-tunnel-connect/.state/`(짝 스킬의 상태 폴더)의 파일에서 무엇을
+인자 없음. `aks-argocd-tunnel-connect/.state/`(짝 스킬의 상태 폴더)의 파일에서 무엇을
 종료해야 하는지 전부 읽는다.
 
 ## 출력
@@ -48,8 +48,8 @@ bash .claude/skills/argocd-tunnel-disconnect/scripts/disconnect.sh
 
 - ArgoCD 콘솔 확인 작업이 끝났을 때. 터널을 열어둔 채로 세션을 끝내면 workbench에서
   불필요한 프로세스가 계속 돈다.
-- `argocd-tunnel-connect`를 다른 포트로 다시 열기 전에 정리가 필요할 때.
+- `aks-argocd-tunnel-connect`를 다른 포트로 다시 열기 전에 정리가 필요할 때.
 
-`argocd-tunnel-connect`가 멱등적이라 재연결 전에 항상 disconnect를 먼저 부를 필요는
+`aks-argocd-tunnel-connect`가 멱등적이라 재연결 전에 항상 disconnect를 먼저 부를 필요는
 없다. 이미 정상 연결돼 있으면 connect가 알아서 아무것도 안 한다. disconnect는
 **정말로 닫고 싶을 때만** 쓴다.
