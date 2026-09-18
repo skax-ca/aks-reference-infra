@@ -7,11 +7,10 @@ state Storage Account, App Registration, 커스텀 RBAC 역할 2종, 리소스 �
 문제가 있어서, 이 한 겹만 IaC 밖에 둔다(원본 `eks-reference-infra`와 동일한 이유).
 
 CI 신원(App Registration)은 **구독 전체 스코프의 `Owner` 등가 커스텀 역할**을 갖는다.
-AWS 원본의 실행 Role(`AdministratorAccess`)과 권한 스코프 축에서 완전히 대칭이다.
-방어선은 권한 크기가 아니라 이 신원에 도달할 수 있는 경로(FIC subject)를 정확히 이
-repo 하나로 좁히는 것뿐이다(Azure Entra ID에는 AWS `AssumeRole` 같은 2단 체인이 없어,
-FIC의 `subject` 완전 일치 검사가 그 역할을 대신한다). 설계 근거 전문은 `config.sh`의
-관련 주석 참고.
+AWS 원본의 실행 Role(`AdministratorAccess`)과 권한 스코프 축에서 대칭이다.
+방어선은 권한 크기가 아니라 이 신원에 도달할 수 있는 경로(FIC subject)를 이 repo 하나로
+좁히는 것이다(Azure Entra ID에는 AWS `AssumeRole` 같은 2단 체인이 없어, FIC의 `subject`
+완전 일치 검사가 그 역할을 대신한다). 설계 근거 전문은 `config.sh`의 주석에 있다.
 
 ## 1. 실행
 
@@ -44,8 +43,8 @@ spoke 실행의 `az` 컨텍스트는 spoke 자신의 구독이라, hub 구독에
 ID는 git에 남기지 않는다. 값은 Azure 구독 관리자에게 확인한다. 미설정이면 스크립트가
 즉시 중단한다(`exit 2`, drift가 아니라 실행 불가로 분류된다).
 
-⚠️ **대상 구독은 실행마다 명시한다.** hub와 spoke(dev)는 서로 다른 구독이다(설계
-계획 문서에서 hub/dev 별도 구독으로 확정). 스크립트가 `az account show`로 실제 구독·테넌트와
+⚠️ **대상 구독은 실행마다 명시한다.** hub와 spoke(dev)는 서로 다른 구독이다.
+스크립트가 `az account show`로 실제 구독·테넌트와
 `EXPECTED_SUBSCRIPTION`/`EXPECTED_TENANT`를 대조하고 다르면 즉시 중단한다. 공용
 테넌트에서 조용히 다른 구독을 건드리지 않게 하는 장치다. App Registration·FIC·Entra
 역할은 테넌트 스코프 객체라 구독 대조만으로는 부족해 테넌트도 함께 대조한다.
@@ -83,7 +82,7 @@ hub는 구독 하나의 단일 고정 거처이고, spoke는 별도 구독에 �
 | 이름 | `st<workload><env><8자리 hex>`(3~24자, 소문자+숫자만, 하이픈 불가, Azure 물리 제약. `st` 약어는 CAF 표에서 그대로 채택) |
 | 이름의 소재 | git에 없다. GitHub repo 변수 또는 로컬 `backend.hcl`(gitignore됨) |
 | 인증 | `use_azuread_auth = true`. `allowSharedKeyAccess = false` 강제(계정 키로 RBAC 우회 차단) |
-| 내구성 | blob 버전 관리 + blob soft delete(30일) + **컨테이너 소프트 삭제**(30일, blob soft delete와 별개 기능이라 반드시 함께 켠다) |
+| 내구성 | blob 버전 관리 + blob soft delete(30일) + **컨테이너 소프트 삭제**(30일, blob soft delete와 별개 기능이라 함께 켠다) |
 | 컨테이너 | `tfstate` 1개. **동일 이름으로 재사용 금지**(소프트 삭제된 컨테이너와 같은 이름으로 새로 만들면 그 소프트 삭제분은 영구 복구 불가) |
 
 ### CI 신원 권한 (워크로드 역할=구독 전체 Owner 등가)
@@ -98,26 +97,22 @@ CI 신원(App Registration) 하나에 **커스텀 역할 2종**을 부여한다.
 | state 데이터 역할 | state 컨테이너 | Storage Blob Data Contributor에서 `containers/delete`만 제외한 고정 델타 |
 
 ⚠️ **워크로드 역할의 스코프는 구독 전체다.** AWS 원본(`eks-reference-infra`)의 실행
-Role이 이미 `AdministratorAccess`를 쓰고, 방어선은 "권한 크기를 좁힌다"가 아니라
-"이 신원에 도달할 수 있는 경로를 하나로 좁힌다"(입구 Role 신뢰 정책, Azure에서는 FIC
-subject)에 있다는 것이 근거다. Azure도 이미 그 "도달 경로 하나" 방어선을 FIC subject
-완전 일치 검사로 동등하게 갖고 있어, 워크로드 역할을 RG로 좁히는 것은 AWS 원본에
-없는 과잉설계로 본다. 전체 근거는 `config.sh`의 관련 주석 참고.
+Role이 `AdministratorAccess`를 쓰고, 방어선은 권한 크기가 아니라 이 신원에 도달할 수
+있는 경로 하나(입구 Role 신뢰 정책, Azure에서는 FIC subject)에 있다. Azure도 그 방어선을
+FIC subject 완전 일치 검사로 갖고 있으므로, 워크로드 역할을 RG로 좁히는 것은 AWS 원본에
+없는 과잉설계로 본다. 전체 근거는 `config.sh`의 주석에 있다.
 
-⛔ **state 데이터 역할은 워크로드 역할과 별개로 반드시 유지한다.** Azure RBAC는
-control-plane(`Actions`)과 storage blob data-plane(`DataActions`)이 완전히 분리된
-축이다. `az role definition list --name Owner`로 확인한 결과 `Owner`도
-`dataActions: []`다. 이 backend는 `use_azuread_auth = true`를 쓰므로, 워크로드
-역할이 아무리 넓어도 state 데이터 역할 없이는 `tofu init`/`plan`/`apply`가 tfstate
-blob 접근 자체에서 실패한다(모든 live root가 이 backend를 공유하므로 영향 범위가
-전체다). control-plane 권한이 넓다고 data-plane 접근이 자동으로 딸려오지는 않는다.
-Azure RBAC에서는 항상 별개다.
+⛔ **state 데이터 역할은 워크로드 역할과 별개로 유지한다.** Azure RBAC는
+control-plane(`Actions`)과 storage blob data-plane(`DataActions`)이 분리된 축이고,
+`az role definition list --name Owner`로 보면 `Owner`도 `dataActions: []`다. 이 backend는
+`use_azuread_auth = true`를 쓰므로, 워크로드 역할이 넓어도 state 데이터 역할 없이는
+`tofu init`/`plan`/`apply`가 tfstate blob 접근에서 실패한다(모든 live root가 이 backend를
+공유하므로 영향 범위가 전체다).
 
-⚠️ `NotActions`는 deny 규칙이 아니다. 워크로드 역할의 `resourceGroups/delete`
-제외는 이제 **보안 경계가 아니라 사고 방지 안전망**이다. 이 역할은 Owner와 거의
-동등하므로 RG 안의 다른 모든 리소스는 어차피 지울 수 있다. 이 역할의 실제
-안전성은 전적으로 아래 「GitHub OIDC」절의 FIC subject 완전 일치·정적 자격증명
-0건·그룹 멤버십 0건 검사가 항상 참이라는 것에 의존한다.
+⚠️ `NotActions`는 deny 규칙이 아니다. 워크로드 역할의 `resourceGroups/delete` 제외는
+**보안 경계가 아니라 사고 방지 안전망**이다. 이 역할은 Owner와 거의 동등하므로 RG 안의
+다른 리소스는 지울 수 있다. 이 역할의 안전성은 아래 「GitHub OIDC」절의 FIC subject 완전
+일치·정적 자격증명 0건·그룹 멤버십 0건 검사가 참이라는 것에 의존한다.
 
 ### 리소스 잠금
 
@@ -137,10 +132,10 @@ Azure RBAC에서는 항상 별개다.
 ⚠️ state RG에 잠금이 걸려 있으면 **사람 관리자도 예외 없이** 그 RG 안의 role
 assignment를 다시 만들 수 없다(`CannotDelete`가 RBAC 할당 삭제까지 막는다). 정당한
 변경이 필요하면: (1) 사람이 잠금 해제 → (2) `bootstrap.sh` 재실행으로 수렴 → (3) 잠금
-재적용. 자동화하지 않는다. 진짜 사고와 정상 변경을 자동으로 구분할 수 없다. **CI
-신원도 이제 이 잠금을 스스로 풀 수 있다**(Owner 등가라 `Microsoft.Authorization/
-locks/delete`를 갖는다). 이 잠금은 이제 CI 신원 압축 시나리오의 방어선이 아니라
-사람의 실수(`tofu destroy`가 이 RG를 잘못 겨냥하는 등) 방지용 안전망이다.
+재적용. 자동화하지 않는다. 사고와 정상 변경을 자동으로 구분할 수 없다. **CI 신원도 이
+잠금을 스스로 풀 수 있다**(Owner 등가라 `Microsoft.Authorization/locks/delete`를 갖는다).
+그래서 이 잠금은 CI 신원 탈취 시나리오의 방어선이 아니라 사람의 실수(`tofu destroy`가 이
+RG를 잘못 겨냥하는 등) 방지용 안전망이다.
 
 ### GitHub OIDC (Federated Identity Credential)
 
@@ -159,14 +154,14 @@ locks/delete`를 갖는다). 이 잠금은 이제 CI 신원 압축 시나리오�
 found`로 실패한다. `config.sh`가 `gh api`로 실제 ID를 조회해 자동으로 조합하므로
 사람이 직접 계산할 필요는 없다.
 
-⛔ 와일드카드를 쓰지 않는다. Entra ID의 Federated Identity Credential은 애초에
-와일드카드를 지원하지 않는다(생성 자체가 거부된다). 실제 위험은 문법적으로 유효하지만
-잘못된 subject(다른 repo, `pull_request:` 트리거 등)나 issuer/audience 오설정이며,
-이는 **오류 없이 생성**되고 토큰 교환 시점에야 실패한다. `verify.sh`가 subject·issuer·
-audience 전 필드 완전 일치를 검사해 이를 잡는다.
+⛔ 와일드카드를 쓰지 않는다. Entra ID의 Federated Identity Credential은 와일드카드를
+지원하지 않는다(생성 자체가 거부된다). 위험은 문법적으로 유효하지만 잘못된
+subject(다른 repo, `pull_request:` 트리거 등)나 issuer/audience 오설정이며, 이는 **오류 없이
+생성**되고 토큰 교환 시점에야 실패한다. `verify.sh`가 subject·issuer·audience 전 필드 완전
+일치를 검사해 이를 잡는다.
 
 ⛔ App Registration/Service Principal에 정적 자격증명(client secret·certificate)을
-절대 만들지 않는다. GitHub OIDC(FIC)만이 유일한 인증 경로다.
+만들지 않는다. GitHub OIDC(FIC)가 유일한 인증 경로다.
 
 ### 크로스 구독 연결
 
@@ -181,7 +176,7 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 | 역할 | `aks-ref-bootstrap-spoke-peer-<env>`(`virtualNetworks/peer/action`·`virtualNetworks/read` 2액션) |
 | assignable scope / 할당 스코프 | 스포크 **워크로드 RG**(`rg-<workload>-<env>-krc-workload-01`) |
 | 할당 대상 | hub App Registration(`entapp-<workload>-hub-krc-gha-01`)의 SP |
-| 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때만 자동 포함(「크로스 구독 스포크 연결 권한」절). CI가 아니라 `bootstrap.sh`를 실행하는 사람이 만든다 |
+| 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때만 포함한다. CI가 아니라 `bootstrap.sh`를 실행하는 사람이 만든다 |
 
 `virtualNetworks/read`는 `live/hub/vwan`이 스포크 VNet을 태그 조회(`azurerm_resources`)로
 찾는 데 쓴다. VNet ID를 CI 변수(workflow_dispatch input)로 주입하면 push로 도는 plan이나
@@ -198,17 +193,16 @@ ARM이 원격(스포크) VNet에 대한 `Microsoft.Network/virtualNetworks/peer/
 잡지 못한다. hub ArgoCD의 스포크 클러스터 권한은 스포크 자신의 `live/<env>/aks`가
 만든다(아래 hub-peer).
 
-⚠️ **`Contributor` 안내는 이 시나리오의 근거가 아니다.** 검색에서 자주 나오는 "원격 VNet
-구독의 Contributor가 필요하다"는 문장은 크로스 **테넌트** 문서의 것이다. 이 설계는 동일
-테넌트의 크로스 **구독**이고, 위 roles-permissions 문서가 액션 단위로 정확히 답한다.
+⚠️ **"원격 VNet 구독의 Contributor가 필요하다"는 안내는 크로스 테넌트 문서의 것이다.** 이
+설계는 동일 테넌트의 크로스 **구독**이고, 위 roles-permissions 문서가 액션 단위로 답한다.
 
 ⚠️ **AWS 원본과 소유 방향이 다르다.** AWS(`eks-reference-infra`)는 AWS RAM으로 hub가 TGW를
 계정/OU 단위로 공유하면 스포크가 자기 계정의 전권으로 attachment를 직접 만든다. hub 계정에
 새 IAM 권한이 필요 없다. Azure vWAN에는 RAM의 정확한 대응물이 없다. 반대 방향(스포크 CI가
 연결을 소유)을 택하면 스포크 CI가 hub의 공유 컨트롤 플레인 쓰기 권한
-(`hubVirtualNetworkConnections/write`)을 가져야 해 위 두 액션보다 훨씬 위험하다.
-그래서 이 설계는 hub가 연결을 소유하는 방향을 유지한다. 대가로 **새 스포크를 추가할
-때마다 `bootstrap.sh`(스포크 대상)를 한 번 더 실행해야 한다.** 자동으로 상속되지 않는다.
+(`hubVirtualNetworkConnections/write`)을 가져야 해 위 두 액션보다 위험하다.
+그래서 이 설계는 hub가 연결을 소유한다. 대가로 **새 스포크를 추가할 때마다
+`bootstrap.sh`(스포크 대상)를 한 번 더 실행해야 한다.** 자동으로 상속되지 않는다.
 
 ⛔ `verify.sh`는 스포크 워크로드 RG 스코프에서 "이 대상 자신의 SP를 제외한" role
 assignment가 정확히 이 1건(hub SP + `spoke-peer` 역할)과 완전히 일치하는지 검사한다
@@ -223,28 +217,18 @@ hub ArgoCD의 스포크 클러스터 접근 role assignment는 스포크 자신�
 | 역할 | `aks-ref-bootstrap-hub-peer`(env 접미사 없음, hub 구독에 1회만 존재. UAMI/RG read 3액션) |
 | 할당 스코프 | **hub 워크로드 RG**(`rg-<workload>-hub-krc-workload-01`) |
 | 할당 대상 | 각 spoke App Registration의 SP(외부 신원 조회 없이 spoke 자기 자신의 CI 신원) |
-| 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때 `HUB_SUBSCRIPTION`(신규 필수 env, 1절)으로 hub 구독에 만든다 |
+| 실행 주체 | `bootstrap.sh`가 `BOOTSTRAP_TARGET=spoke`일 때 `HUB_SUBSCRIPTION`(1절의 필수 env)으로 hub 구독에 만든다 |
 
 hub-peer는 read 전용이다. spoke-peer가 hub SP에게 스포크 VNet의 `peer/action`을 주는 것과 달리 쓰기 액션이 없다.
 역할 정의는 멱등 재사용, spoke가 늘 때마다 할당만 그 spoke SP에 새로 추가된다.
 
 ### AKS 클러스터용 identity·권한 (bootstrap이 아니라 Terraform이 만든다)
 
-`aks-cluster` 모듈은 identity도 role assignment도 스스로 만들지 않고 **입력으로만
-받는다**(모듈 경계 원칙, `iac-module-library`의 `docs/decisions.md` ADR 소관, 그대로
-유지). **소비자인 이 repo는 그 identity·role assignment를 `live/hub/aks`의
-Terraform으로 만든다.** bootstrap(IaC 밖)이 아니다. CI 신원이 구독 전체 Owner
-등가가 되면서 "CI에 `roleAssignments/write`를 주지 않는다"던 옛 방어선이 사라져,
-bootstrap에 둘 구조적 이유가 없어졌기 때문이다(`config.sh`의 관련 주석 참고).
-
-이관 방식은 **live 재배포**다. 기존 클러스터를 destroy(GitHub Actions
-`workflow_dispatch`, `action=destroy`) → bootstrap이 만들었던 구식 identity·role
-assignment를 사람이 정리(`az identity delete`·`az role assignment delete`) →
-`live/hub/aks`가 `azurerm_user_assigned_identity`·`azurerm_role_assignment`를
-직접 만들도록 Terraform 수정 → 재배포. (대안이었던 `import` 블록으로 기존 리소스를
-그대로 편입하는 방식은, MS 공식 문서가 "identity 전환 시 컨트롤 플레인이 새
-identity로 넘어가는 데 수 시간 걸릴 수 있다"고 경고해 이번엔 채택하지 않았다. 이미
-GitOps 워크로드가 없는 데모 클러스터라 destroy 비용이 낮았다.)
+`aks-cluster` 모듈은 identity도 role assignment도 만들지 않고 **입력으로만 받는다**(모듈
+경계 원칙, `iac-module-library`의 `docs/decisions.md`). **소비자인 이 repo는 그
+identity·role assignment를 `live/hub/aks`의 Terraform으로 만든다.** CI 신원이 구독 전체
+Owner 등가라 `roleAssignments/write`를 이미 가지므로 bootstrap(IaC 밖)에 둘 이유가
+없다(`config.sh`의 주석 참고).
 
 | 항목 | 값 | 관리 주체 |
 |------|-----|-----------|
@@ -252,28 +236,25 @@ GitOps 워크로드가 없는 데모 클러스터라 destroy 비용이 낮았다
 | identity의 거처 | 워크로드 RG(`rg-<workload>-hub-krc-workload-01`) | 〃 |
 | role assignment | built-in `Network Contributor` | `live/hub/aks`(Terraform, `azurerm_role_assignment.aks_node_subnet`) |
 | role assignment 스코프 | `aks-node` 서브넷 리소스 하나 | 〃 |
-| 리소스 프로바이더 | `Microsoft.ContainerService`·`Microsoft.Compute`·`Microsoft.ManagedIdentity`가 `Registered` | **여전히 bootstrap**(아래 참고) |
+| 리소스 프로바이더 | `Microsoft.ContainerService`·`Microsoft.Compute`·`Microsoft.ManagedIdentity`가 `Registered` | bootstrap(아래 참고) |
 
-⚠️ 스코프가 노드 RG 전체가 아니라 서브넷 하나로 좁은 건 실수가 아니다. MS 공식
+⚠️ 스코프를 노드 RG 전체가 아니라 서브넷 하나로 좁힌 값은 MS 공식
 문서(`concepts-network-cni-overview`)가 BYO-VNet 시나리오(이 root처럼 VNet을
 `live/hub/networking`이 별도 소유하는 경우)의 최소 권고로 명시하는 값이다. "노드
-리소스 그룹 전체 Contributor"는 AKS가 네트워킹까지 자동 관리하는 기본 시나리오의
-기본값이라 여기엔 해당하지 않는다.
+리소스 그룹 전체 Contributor"는 AKS가 네트워킹까지 관리하는 기본 시나리오의 값이라
+여기에 해당하지 않는다.
 
 ⚠️ `skip_service_principal_aad_check = true`를 쓴다. 방금 만든 identity에 role을
-붙이는 것이라 AAD 복제 지연으로 `PrincipalNotFound`가 날 수 있는데, bootstrap.sh가
-예전에 bash 재시도(`retry_on_replication_delay`)로 흡수하던 문제를 이제 provider가
-대신 흡수한다.
+붙이는 것이라 AAD 복제 지연으로 `PrincipalNotFound`가 날 수 있고, 이 옵션이 그 검사를
+건너뛴다.
 
 ⚠️ **RP 등록 3종(`Microsoft.ContainerService`·`Microsoft.Compute`·
-`Microsoft.ManagedIdentity`)만 bootstrap에 남아있다.** CI가 이제 구독 스코프
-`*/register/action`도 가지므로 이것도 Terraform으로 옮길 수 있지만, 사람이
-부트스트랩 시점에 한 번 처리하면 되는 저빈도 작업이라 옮길 실익이 낮다고 판단해
-남겨 뒀다(별개 판단, identity·role assignment 이관과 묶지 않았다). 등록은 비동기라
-`bootstrap.sh`는 `--wait`로 완료까지 기다린다. 이 등록·검사는 `BOOTSTRAP_TARGET`과
-무관하게 hub·spoke 양쪽에서 실행된다. 스포크 구독도 `live/<env>/aks` apply에 이 RP들이
-필요하고, 구독 단위 상태 조회라 대상과 무관하게 멱등이고 비용이 없다. 목록은
-`live/<env>/aks`가 실제로 만드는 리소스 기준 최소 집합이다(AKS, user-assigned identity,
+`Microsoft.ManagedIdentity`)은 bootstrap이 한다.** CI도 구독 스코프 `*/register/action`을
+가져 Terraform으로 옮길 수 있지만, 부트스트랩 시점에 한 번 처리하면 되는 저빈도 작업이라
+여기 둔다. 등록은 비동기라 `bootstrap.sh`는 `--wait`로 완료까지 기다린다. 이 등록·검사는
+`BOOTSTRAP_TARGET`과 무관하게 hub·spoke 양쪽에서 실행된다. 스포크 구독도 `live/<env>/aks`
+apply에 이 RP들이 필요하고, 구독 단위 상태 조회라 대상과 무관하게 멱등이고 비용이 없다.
+목록은 `live/<env>/aks`가 만드는 리소스 기준 최소 집합이다(AKS, user-assigned identity,
 VMSS 노드). 새 구독은 셋 다 `NotRegistered`일 수 있다.
 
 ## 3. 검증
@@ -289,11 +270,10 @@ Registration이 없으면 검사 자체가 무의미하기 때문이다). "모�
 absent로 보고된다"는 뜻이 아니다. drift 1건 보고 + exit 1이면 수용 기준을 충족한
 것이다.
 
-### 3-2. 음성 테스트: verify.sh가 실제로 drift를 잡는지 증명한다
+### 3-2. 음성 테스트: verify.sh가 drift를 잡는지 확인한다
 
-drift 감지가 있다고 주장하려면 그것이 동작하는 것을 직접 보여야 한다. 서로 다른 코드
-경로 2개에 고의로 drift를 주입한 뒤 `exit 1`이 나오는지 확인하지 않으면 "완화책이
-있다"는 착각만 남는다.
+서로 다른 코드 경로 2개에 일부러 drift를 주입한 뒤 `verify.sh`가 `exit 1`을 내는지 본다.
+이 확인 없이는 drift 감지가 있다고 말할 수 없다.
 
 ```bash
 source ./config.sh   # ⚠️ bash로 실행할 것
@@ -312,23 +292,16 @@ az storage account blob-service-properties update \
 ./bootstrap.sh  # → 변경 0건
 ```
 
-이 순서대로 결과가 나오면 `verify.sh`는 소음이 아니라 실제 탐지기임이 증명된 것이다.
-
-✅ **hub 대상으로 실제 Azure에서 3-1·3-2 전 과정을 실행해 확인했다.** 위 순서 그대로
-DRIFT 2건 → 변경 2건 → drift 없음 → 변경 0건이 재현됐다. 이 과정에서 버그 3건(역할
-정의 생성 직후·역할 정의 재조회·role assignment 조회의 ARM 캐시/조인 지연 미대응)을
-발견해 고쳤고, 불변식 (b)(관리 그룹 스코프)를 제거했다. 상세 경위는 `config.sh`의
-관련 주석 참고. dev(spoke) 인스턴스는 별도 구독이 필요해 이번에는 검증하지 않았다.
+이 순서대로 나오면 `verify.sh`가 drift를 잡는다는 것을 확인한 것이다. spoke
+대상(`BOOTSTRAP_TARGET=spoke`)은 별도 구독이 필요해 이 순서를 아직 돌리지 않았다.
 
 ### 검증 실행 권한의 한계
 
 ⛔ **`verify.sh` 전체를 CI 파이프라인의 공용 자격증명으로 무인 실행할 수 없다.** 구독
-스코프 검사(a)는 Reader 권한으로 CI 분리 실행이 가능하지만, Entra 디렉터리·Graph
-앱 권한 검사((c)~(g))는 `Application.Read.All`/`Directory.Read.All` 같은 Microsoft
-Graph 디렉터리 읽기 권한을 요구하는데, 이 설계의 원칙 1이 CI 신원에 그런 Graph 권한
-자체를 0건으로 금지한다. 따라서 Entra/Graph 관련 검사는 **사람 관리자가 수동으로
-실행**해야 한다. 이것은 이 설계의 결함이 아니라 Azure 구조의 귀결이지만, 원본 AWS
-설계(같은 자격증명 평면에서 IAM read 가능)와의 명확한 차이다.
+스코프 검사는 Reader 권한으로 CI에서 돌릴 수 있지만, Entra 디렉터리·Graph 앱 권한 검사는
+`Application.Read.All`/`Directory.Read.All` 같은 Microsoft Graph 디렉터리 읽기 권한을
+요구하고, 이 설계는 CI 신원에 Graph 권한을 0건으로 둔다. 그래서 Entra/Graph 검사는 **사람
+관리자가 실행**한다. AWS 원본은 같은 자격증명 평면에서 IAM read가 가능해 이 제약이 없다.
 
 ## 4. IaC 승격 경로 (`import` 초안)
 
@@ -352,10 +325,9 @@ import {
 }
 ```
 
-⚠️ 진짜 문제는 import 문법이 아니라, state 저장소를 관리하는 루트의 state를 그
-저장소 자신에 두면 파괴 시 자기 발을 쏘게 된다는 점이다(원본과 동일한 경고). 승격할
-때는 별도 backend 또는 그에 준하는 보호를 함께 설계해야 한다. 지금 올리지 않는
-이유가 이것이다.
+⚠️ state 저장소를 관리하는 루트의 state를 그 저장소 자신에 두면 `destroy`가 자기 state를
+지운다(원본과 같은 경고). 승격할 때는 별도 backend 또는 그에 준하는 보호를 함께
+설계한다. 지금 올리지 않는 이유가 이것이다.
 
 ## 5. 출력값의 행선지
 
