@@ -74,21 +74,6 @@ jobs:
 
       - uses: actions/checkout@v7.0.1
 
-      - name: 모듈 repo 읽기 토큰 발급
-        id: app-token
-        uses: actions/create-github-app-token@v3.2.0
-        with:
-          client-id: ${{ vars.MODULE_READER_CLIENT_ID }}
-          private-key: ${{ secrets.MODULE_READER_KEY }}
-          owner: skax-ca
-          repositories: iac-module-library
-
-      - name: git insteadOf 주입
-        run: |
-          git config --global \
-            url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf \
-            "https://github.com/"
-
       - uses: opentofu/setup-opentofu@v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
@@ -194,21 +179,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7.0.1
-
-      - name: 모듈 repo 읽기 토큰 발급
-        id: app-token
-        uses: actions/create-github-app-token@v3.2.0
-        with:
-          client-id: ${{ vars.MODULE_READER_CLIENT_ID }}
-          private-key: ${{ secrets.MODULE_READER_KEY }}
-          owner: skax-ca
-          repositories: iac-module-library
-
-      - name: git insteadOf 주입
-        run: |
-          git config --global \
-            url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf \
-            "https://github.com/"
 
       - uses: opentofu/setup-opentofu@v2.0.2
         with:
