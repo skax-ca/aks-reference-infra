@@ -68,6 +68,11 @@ dev와 일치해야 한다** - `az account set --subscription <dev GUID>`로 먼
 gh workflow run deploy-dev-network.yml --ref main -f action=apply
 ```
 
+run은 plan까지 돌고 apply job은 environment 승인을 기다린다. run의 Summary 탭에서 plan 요약을
+읽고 **Review deployments**로 승인하면 같은 run이 저장된 plan을 적용한다(`gh run watch <run-id>`로
+따라간다). main push가 만든 run도 같은 경로라, 이미 승인 대기 중인 run이 있으면 dispatch 없이
+그것을 승인한다. 이 문서의 모든 apply 명령이 같다.
+
 🔑 **AWS 원본과 소유 방향이 다르다.** AWS(`eks-reference-infra`)는 spoke가 RAM 초대를
 수락하고 자기 계정 권한으로 TGW attachment를 직접 만든다(AWS 원본 `spoke-lifecycle.md`). Azure
 vWAN에는 RAM의 정확한 대응물이 없어 이 저장소는 **hub가 연결을 소유하는 반대 방향**을

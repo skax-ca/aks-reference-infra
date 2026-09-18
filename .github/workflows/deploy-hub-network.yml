@@ -1,9 +1,8 @@
-# live/hub/networking: plan → (사람이 dispatch) → plan → apply
+# live/hub/networking: plan → (사람이 그 run의 요약을 읽고 승인) → apply
 #
 # AWS 원본(skax-ca/eks-reference-infra의 deploy-hub-network.yml)과 같은 구조다. plan은
-# push에서 자동으로, apply는 workflow_dispatch로만 돈다. 같은 조직의 free 플랜이라 private
-# repo의 environment에 required reviewers를 걸 수 없으므로 workflow_dispatch를 누르는 행위가
-# 승인을 대신한다.
+# push에서 자동으로 돌고, apply는 environment의 required reviewers 승인 뒤 같은 run에서 돈다.
+# 승인자는 그 run의 plan 요약을 읽고 누른다. dispatch는 destroy·replace와 재-plan 경로다.
 #
 # ⚠️ **AWS 원본과 인증 구조가 다르다.** 원본은 OIDC 2단 Role 체인(입구 Role → 실행 Role)이라
 #    provider와 backend 양쪽에 assume_role을 배선했다. 이 repo의 CI 신원은 그 체인 없이 구독
@@ -176,21 +175,23 @@ jobs:
         with:
           name: tfplan-${{ github.run_id }}
           path: ${{ env.TF_ROOT }}/tfplan
-          retention-days: 1
+          retention-days: 7
           if-no-files-found: error
 
   # ──────────────────────────────────────────────────────────────────────────
-  # apply: workflow_dispatch에서만. main push에서는 skip된다.
+  # apply: plan 뒤 environment 승인을 기다린다. push·dispatch 모두 같은 경로다.
   # ──────────────────────────────────────────────────────────────────────────
   apply:
     name: apply
     needs: plan
-    if: >-
-      github.event_name == 'workflow_dispatch'
-      && github.ref == 'refs/heads/main'
+    # 승인 게이트는 environment의 required reviewers다. push든 dispatch든 plan 뒤에 멈춘다.
+    # ⚠️ 브랜치 조건: workflow_dispatch는 임의 브랜치에서 눌릴 수 있다. Environment의 deployment
+    #    branch policy(main 하나)가 최종 방어선이지만, job 조건으로도 막아 두면 실패가 아니라
+    #    skip으로 끝난다.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # environment: hub가 OIDC sub를 ...:environment:hub로 바꾼다(FIC의 gha-hub-environment
-    # 패턴). free 플랜이라 required reviewers가 없어 dispatch 자체가 승인이다.
+    # 패턴)와 required reviewers 승인 게이트, 두 가지를 동시에 한다.
     environment: hub
     permissions:
       id-token: write

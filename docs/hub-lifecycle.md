@@ -84,6 +84,11 @@ tofu -chdir=live/hub/networking validate
 gh workflow run deploy-hub-network.yml --ref main -f action=apply
 ```
 
+run은 plan까지 돌고 apply job은 environment 승인을 기다린다. run의 Summary 탭에서 plan 요약을
+읽고 **Review deployments**로 승인하면 같은 run이 저장된 plan을 적용한다(`gh run watch <run-id>`로
+따라간다). main push가 만든 run도 같은 경로라, 이미 승인 대기 중인 run이 있으면 dispatch 없이
+그것을 승인한다. 이 문서의 모든 apply 명령이 같다.
+
 같은 방식으로 `live/hub/vwan`을 초기화한다(`key = "hub/vwan.tfstate"`). 스포크(dev) VNet은
 `azurerm_resources`(태그 `Workload` 기준, `Environment` 값이 연결 키)로 **자동 발견**한다
 (bootstrap.sh `BOOTSTRAP_TARGET=spoke`가 부여하는 `virtualNetworks/read`+`peer/action`
@@ -317,7 +322,7 @@ gh workflow run deploy-hub-network.yml --ref main \
 
 `confirm`에 루트 이름을 손으로 정확히 적어야 한다. **vwan은 networking보다 먼저 지운다.** vwan의 hub 연결(`azurerm_virtual_hub_connection.hub`)이 networking의 VNet ID를 참조하므로, VNet을 먼저 지우면 vwan destroy가 존재하지 않는 리소스를 찾다 실패한다.
 
-> 🔴 **"읽고 누른다"의 "누른다"는 이미 지나간 뒤다.** `plan` job이 끝나자마자 `apply` job이 자동으로 이어진다: 진짜 승인 지점은 **dispatch 자체를 누르기 전**이다. `confirm` 문자열은 잘못된 루트를 파괴하는 사고만 막지 예상 밖 자원은 못 막는다. dispatch 전에 14절의 `teardown-verify.sh`로 태그 기준 현황을 먼저 본다(철거 전에 돌리면 현황 목록으로 쓸 수 있다).
+> 🔴 **승인 지점은 plan 뒤다.** `plan` job이 `-destroy`로 끝나면 `apply` job이 승인을 기다린다. Summary의 파기 목록(`must be destroyed`)을 읽고 승인한다. `confirm` 문자열은 잘못된 루트를 파괴하는 사고만 막지 예상 밖 자원은 못 막는다. 승인 전에 14절의 `teardown-verify.sh`로 태그 기준 현황을 대조한다(철거 전에 돌리면 현황 목록으로 쓸 수 있다).
 
 ```bash
 az aks list --query "[?tags.Workload=='demo' && tags.Environment=='hub']"
