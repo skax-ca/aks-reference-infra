@@ -77,9 +77,15 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # ⚠️ tofu_wrapper: false 다. 기본값 true 는 tofu 호출을 래퍼로 감싸 stdout·stderr·exitcode 를
+      #    스텝 출력으로 내보내는데, 그 과정에서 -detailed-exitcode 의 2 가 스텝 종료 코드로
+      #    전달되지 않는다. 아래 plan 스텝이 code=0 으로 읽어 changes=false 를 내보내고, 변경이
+      #    있어도 apply 가 skipped 로 끝난다. 액션 문서도 exit code 가 이상하면 이 값을 false 로
+      #    두라고 적는다. verify.yml 이 같은 값을 쓴다.
       - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
 
       - name: backend 설정 조립
         working-directory: ${{ env.TF_ROOT }}
@@ -198,9 +204,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # ⚠️ tofu_wrapper: false 다(plan job 과 같은 근거). 이 job 의 apply 후 수렴 검증도
+      #    -detailed-exitcode 로 판정하므로, 래퍼가 켜져 있으면 미수렴을 잡지 못한다.
       - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
 
       - name: backend 설정 조립
         working-directory: ${{ env.TF_ROOT }}
