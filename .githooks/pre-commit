@@ -4,6 +4,16 @@
 # 의도적 우회는 git commit --no-verify (사유를 커밋 메시지에 남길 것)
 set -euo pipefail
 
+# 시크릿 게이트. staged 내용을 gitleaks 규칙으로 본다. 이력에 들어간 시크릿은 force-push로도
+# 원격에서 지워지지 않으므로(PR ref가 옛 커밋을 붙든다) 커밋 전이 유일하게 싼 지점이다.
+# CI의 verify.yml이 같은 도구로 전체 이력을 다시 본다.
+command -v gitleaks >/dev/null || {
+  echo "  ✗ gitleaks 가 없다: brew install gitleaks (clone마다 1회)" >&2
+  exit 1
+}
+echo "[pre-commit] 시크릿 검사(gitleaks)"
+gitleaks git --staged --redact --no-banner --exit-code 1 .
+
 changed=$(git diff --cached --name-only --diff-filter=ACMR)
 
 # 문서 작성 규칙(iac-module-library docs/conventions.md에서 이식). 절 번호 인용·비표준 이모지·

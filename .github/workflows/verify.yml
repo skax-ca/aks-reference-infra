@@ -27,8 +27,26 @@ env:
   TFLINT_VERSION: "v0.63.1"
   TRIVY_VERSION: "v0.72.0"
   SHELLCHECK_VERSION: "v0.11.0"
+  GITLEAKS_VERSION: "v8.30.1"
 
 jobs:
+  secrets:
+    name: 시크릿 검사
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # gitleaks git은 받아온 커밋만 본다. 전체 이력을 받아 옛 커밋에 든 것까지 본다.
+          fetch-depth: 0
+
+      - name: gitleaks
+        run: |
+          # gitleaks-action은 org 저장소에 라이선스 키(시크릿)를 요구한다. 시크릿 0을 지키려고
+          # 바이너리를 직접 받는다. 훅(.githooks/pre-commit)과 같은 도구, 같은 버전이다.
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+          gitleaks git --redact --no-banner --exit-code 1 .
   conventions:
     name: 문서·주석·셸 게이트
     runs-on: ubuntu-latest
