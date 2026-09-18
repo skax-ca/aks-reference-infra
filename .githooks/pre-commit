@@ -29,7 +29,7 @@ fi
 # 주석 규칙(iac-module-library docs/conventions.md 「주석」에서 이식). 주석 줄의 외부 참조
 # (절 번호·결정 식별자)와 이력 서술(날짜·사건 서술)을 기계로 잡는다. staged된 파일만 검사한다.
 code_staged=$(printf '%s\n' "$changed" | grep -v '/\.terraform/' |
-  grep -E '^live/.*\.tf$|^bootstrap/.*\.sh$|^scripts/.*\.(sh|py)$|^\.githooks/|^\.claude/skills/.*\.sh$|^\.github/workflows/.*\.yml$' || true)
+  grep -E '^live/.*\.tf$|^bootstrap/.*\.sh$|^scripts/.*\.(sh|py)$|^\.githooks/|^\.claude/skills/.*\.sh$|^\.github/workflows/.*\.yml$|^\.github/dependabot\.yml$' || true)
 if [ -n "$code_staged" ]; then
   echo "[pre-commit] 코드 변경 감지. 주석 규칙 검사"
   # shellcheck disable=SC2086

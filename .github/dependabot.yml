@@ -1,0 +1,41 @@
+# Dependabot — iac-module-library 모듈 태그의 새 릴리스를 PR로 알린다.
+#
+# 이 저장소는 모듈을 git 소스로 소싱한다(source = "git::...//modules/azure/vnet?ref=vnet-v0.2.0&depth=1").
+# git 소스에는 version 제약을 쓸 수 없어 태그가 코드에 박히고, 새 태그가 나온 것을 사람이
+# 기억해야 알 수 있었다. Dependabot은 module 블록의 "?ref=<태그>"를 새 태그로 바꾼 PR을 올린다.
+# 접두사가 붙은 태그(vnet-v0.2.0)도 접두사를 벗겨 버전만 비교한다.
+#
+# 생태계는 opentofu다. 이 저장소의 엔진이 tofu 단독이라서다(terraform 값도 같은 .tf 를 읽지만
+# 엔진과 이름을 맞춘다). 버전 업데이트만 지원하고 보안 업데이트는 지원하지 않는다.
+#
+# provider 도 함께 본다. 모듈 PR 은 main.tf 의 source 한 줄만, provider PR 은 그 루트의
+# .terraform.lock.hcl 만 건드린다(version 과 hashes 를 바꾸고 constraints 는 그대로 둔다).
+# 둘이 다른 PR 로 갈리는 것이 이 설정의 이점이다. tofu init -upgrade 는 모듈 태그만 올리려는
+# 커밋에 lock 갱신을 끼워 넣는데, CI 는 lock 을 존중해 증상이 바로 뜨지 않는다.
+#
+# ⚠️ 이 저장소의 모듈은 전부 개발 단계(0.y.z)라 마이너 올림에 파괴적 변경이 들어 있을 수 있다.
+#    Dependabot PR을 읽지 않고 머지하지 않는다. PR에서 verify.yml 이 돌고, 머지 뒤 그 루트를
+#    건드린 push 가 plan 을 띄우고, apply 는 environment 승인을 기다린다.
+#
+# ⚠️ AWS 원본 eks-reference-infra 가 같은 설정을 갖는다. 한쪽을 고치면 다른 쪽도 함께 고친다.
+#    드리프트를 검사하는 장치는 없다.
+version: 2
+updates:
+  - package-ecosystem: "opentofu"
+    # 배포 루트 7개가 각각 독립 state 다. 루트마다 태그를 따로 올릴 수 있어야 한다.
+    directories:
+      - "/live/hub/networking"
+      - "/live/hub/vwan"
+      - "/live/hub/aks"
+      - "/live/hub/workbench"
+      - "/live/dev/networking"
+      - "/live/dev/aks"
+      - "/live/dev/workbench"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore(deps)"
+    # ⚠️ 이 상한은 directories 전체가 아니라 **디렉토리마다** 걸린다. 한 루트가 여는 PR 은
+    #    그 루트의 모듈 수 + provider 라 많아야 두세 건이다. 5 면 잘리지 않는다.
+    open-pull-requests-limit: 5
