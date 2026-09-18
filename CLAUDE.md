@@ -1,7 +1,8 @@
 # CLAUDE.md
 
-Azure hub-spoke AKS 배포 루트(`eks-reference-infra`의 Azure 대응). `iac-module-library`의 모듈을 소비해
-세우고 걷어낸다. 규칙(엔진·실행 모델·브랜치·네이밍·주석·문서·모듈 계약 확인)은
+Azure hub-spoke AKS 배포 루트(`eks-reference-infra`의 Azure 대응). `iac-module-library`의 모듈을
+소비해 인프라를 구축하고 철거한다. 저장소 소개와 문서 라우팅은 `README.md`가 소유한다.
+규칙(엔진·실행 모델·브랜치·네이밍·주석·문서·모듈 계약 확인)은
 `iac-module-library/CLAUDE.md`의 「배포 루트 공통」이 갖는다. 이 파일은 이 repo의 값과 문서 위치,
 그리고 Azure에만 있는 규칙 하나(CI 신원 ⛔)를 갖는다.
 
