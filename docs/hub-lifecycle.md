@@ -15,7 +15,6 @@
 | Azure 구독 + Owner 또는 User Access Administrator 권한 | `az account show` |
 | GitHub org + 저장소 생성 권한 | |
 | 로컬 도구 | `tofu`(1.12.5) · `az` · `gh` · `jq` |
-| `iac-module-library`가 private이면 | 배포 저장소가 클론할 GitHub App이 필요하다(`MODULE_READER_CLIENT_ID`) |
 
 ```bash
 brew install opentofu azure-cli gh jq
