@@ -72,14 +72,18 @@ jobs:
 
       - name: backend 설정 조립
         working-directory: ${{ env.TF_ROOT }}
+        # 값의 SSOT 는 커밋된 backend.hcl.example 이다. 여기서 다시 적지 않는다 — key 가 두 곳에
+        # 있으면 한쪽만 고쳤을 때 다른 root 의 state 를 덮어쓴다. git 밖 값인 Storage Account
+        # 이름만 치환한다.
+        # ⛔ 조립한 backend.hcl 을 출력하지 않는다. vars 는 secrets 와 달리 로그에서 마스킹되지
+        #    않고, 이 저장소는 public 이라 Actions 로그가 공개된다.
         run: |
-          cat > backend.hcl <<EOF
-          resource_group_name  = "rg-demo-dev-krc-tfstate-01"
-          storage_account_name = "${{ vars.DEV_TF_STATE_ACCOUNT }}"
-          container_name       = "tfstate"
-          key                  = "dev/networking.tfstate"
-          use_azuread_auth     = true
-          EOF
+          sed 's|^storage_account_name .*|storage_account_name = "${{ vars.DEV_TF_STATE_ACCOUNT }}"|' \
+            backend.hcl.example > backend.hcl
+          if grep -q 'XXXXXXXX' backend.hcl; then
+            echo "::error::backend.hcl 치환 실패. backend.hcl.example 의 storage_account_name 줄을 확인한다"
+            exit 1
+          fi
 
       - name: tofu init
         working-directory: ${{ env.TF_ROOT }}
@@ -186,14 +190,18 @@ jobs:
 
       - name: backend 설정 조립
         working-directory: ${{ env.TF_ROOT }}
+        # 값의 SSOT 는 커밋된 backend.hcl.example 이다. 여기서 다시 적지 않는다 — key 가 두 곳에
+        # 있으면 한쪽만 고쳤을 때 다른 root 의 state 를 덮어쓴다. git 밖 값인 Storage Account
+        # 이름만 치환한다.
+        # ⛔ 조립한 backend.hcl 을 출력하지 않는다. vars 는 secrets 와 달리 로그에서 마스킹되지
+        #    않고, 이 저장소는 public 이라 Actions 로그가 공개된다.
         run: |
-          cat > backend.hcl <<EOF
-          resource_group_name  = "rg-demo-dev-krc-tfstate-01"
-          storage_account_name = "${{ vars.DEV_TF_STATE_ACCOUNT }}"
-          container_name       = "tfstate"
-          key                  = "dev/networking.tfstate"
-          use_azuread_auth     = true
-          EOF
+          sed 's|^storage_account_name .*|storage_account_name = "${{ vars.DEV_TF_STATE_ACCOUNT }}"|' \
+            backend.hcl.example > backend.hcl
+          if grep -q 'XXXXXXXX' backend.hcl; then
+            echo "::error::backend.hcl 치환 실패. backend.hcl.example 의 storage_account_name 줄을 확인한다"
+            exit 1
+          fi
 
       - name: tofu init
         working-directory: ${{ env.TF_ROOT }}
