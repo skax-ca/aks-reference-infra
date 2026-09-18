@@ -111,7 +111,9 @@ networking → spoke eks → **hub networking 재적용**"과 정확히 같은 �
 
 ### 5. AKS 클러스터 (L2)
 
-같은 방식으로 `live/hub/aks`를 초기화한다(`key = "hub/aks.tfstate"`). 이 root는 `data.azurerm_subnet`으로 `aks-node` 서브넷을 Name 기반 조회하므로 networking이 먼저 있어야 한다. vWAN과는 직접 의존이 없지만, 관례상 networking → vwan → aks 순서로 진행한다.
+같은 방식으로 `live/hub/aks`를 초기화한다(`key = "hub/aks.tfstate"`). 이 root는 `data.azurerm_subnet`으로 `aks-node` 서브넷을 Name 기반 조회하므로 networking이 먼저 있어야 한다.
+
+**`vwan`과 `aks`는 서로를 읽지도 쓰지도 않는다.** 순서를 정하는 것은 각 root의 `data` 조회뿐이고 둘 다 networking만 읽으므로, 이 문서가 networking → vwan → aks로 적어도 **둘을 병렬로 돌릴 수 있다**(먼저 끝나는 쪽을 기다릴 이유가 없다). ⚠️ 다만 apply를 동시에 걸었을 때 Azure가 같은 VNet에 대한 쓰기를 직렬화해 한쪽을 `AnotherOperationInProgress`로 떨어뜨리는지는 실측하지 않았다. 병렬로 돌린다면 실패 시 `gh run rerun`으로 재시도할 수 있다는 전제에서 한다.
 
 identity·role assignment는 **이 root가 Terraform으로 직접 만든다**(bootstrap이 아니다. CI가 구독 전체 Owner 등가라 그 구조적 제약이 없다). `aks-cluster` 모듈 자체는 identity도 role assignment도 만들지 않는 경계 원칙을 유지한다.
 
@@ -142,7 +144,7 @@ Container Insights(`omsagent` addon)를 켜면 Log Analytics workspace도 이 RG
 
 ### 6. workbench: private 클러스터의 유일한 일상 접근 지점 (L2.5)
 
-같은 방식으로 `live/hub/workbench`를 초기화한다(`key = "hub/workbench.tfstate"`). 이 root는 `data.azurerm_kubernetes_cluster`로 AKS 클러스터를 Name 기반 조회하므로 **아래가 먼저 있어야 한다**: AKS 클러스터. identity·role assignment는 aks와 같은 패턴으로 이 root가 직접 만든다.
+같은 방식으로 `live/hub/workbench`를 초기화한다(`key = "hub/workbench.tfstate"`). 이 root는 `data`로 **networking과 aks 양쪽을 읽으므로 둘 다 먼저 있어야 한다**: `vm` 서브넷과 그 NSG(`azurerm_network_security_rule`을 그 NSG에 붙인다), AKS 클러스터(`azurerm_kubernetes_cluster`). vwan은 읽지 않는다. identity·role assignment는 aks와 같은 패턴으로 이 root가 직접 만든다.
 
 ```hcl
 # GitHub repo 변수로 주입, git에 값을 남기지 않는다
