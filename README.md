@@ -42,19 +42,6 @@ dispatch는 새 plan이라 승인을 다시 받는다. plan artifact는 7일 보
 
 로컬에서는 `tofu init`·`validate`까지 된다. apply·destroy는 `var.ci_run` 검사가 막는다.
 
-## CI 신원 ⛔
-
-GitHub OIDC로 App Registration 하나에 연합하고, 그 신원은 구독 전체 스코프 `Owner`를 갖는다.
-방어선은 권한 크기가 아니라 FIC(Federated Identity Credential) `subject` 하나로 좁힌 도달
-경로다.
-
-⛔ **FIC `subject`에 와일드카드를 넣거나, 그 `subject`가 가리키는 GitHub repo·브랜치 보호 규칙을
-완화하지 않는다.** 경로가 넓어지는 변경(subject 완화, 정적 자격증명 추가, Entra 그룹 편입)은
-설계 자체를 다시 여는 트리거다. 권한을 좁히는 대안(RG 스코프 커스텀 역할)을 기각한 근거는
-`iac-module-library`의
-[`docs/architectures/gitops-hub-spoke/azure/README.md`](https://github.com/skax-ca/iac-module-library/blob/main/docs/architectures/gitops-hub-spoke/azure/README.md)
-「하지 않는 것」이 갖는다.
-
 ## 문서
 
 | 하려는 것 | 읽을 것 |
@@ -62,7 +49,7 @@ GitHub OIDC로 App Registration 하나에 연합하고, 그 신원은 구독 전
 | hub를 구축·철거한다 | [`docs/hub-lifecycle.md`](docs/hub-lifecycle.md) |
 | spoke를 구축·철거한다 | [`docs/spoke-lifecycle.md`](docs/spoke-lifecycle.md) |
 | 이미 구축된 환경을 운영한다 | [`docs/runbooks.md`](docs/runbooks.md) |
-| state 저장소·App Registration·역할을 만든다(IaC 밖) | [`bootstrap/README.md`](bootstrap/README.md) |
+| state 저장소·CI 신원(App Registration·FIC)·역할을 만든다(IaC 밖) | [`bootstrap/README.md`](bootstrap/README.md) |
 | 왜 이 패턴인가 | `iac-module-library`의 [`docs/architectures/gitops-hub-spoke/azure/`](https://github.com/skax-ca/iac-module-library/tree/main/docs/architectures/gitops-hub-spoke/azure) |
 
 이 저장소 고유의 판단(Pod CIDR 배치, 2단 조회가 필요한 이유 등)은 해당 `.tf`·`.sh`의 인라인
@@ -78,3 +65,9 @@ GITHUB_TOKEN=$(gh auth token) tflint --init
 
 `.tf`·워크플로·셸 변경은 브랜치 → PR이다. `verify.yml`이 훅과 같은 게이트를 PR에서 다시 돌아
 훅이 꺼진 클론과 fork PR을 막는다. 문서만 바뀌는 커밋은 `main` 직접이다.
+
+---
+
+## 라이선스
+
+[MIT](LICENSE).
