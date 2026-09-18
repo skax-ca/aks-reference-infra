@@ -241,9 +241,9 @@ fatal: unable to access 'https://github.com/...': ...
 gh run rerun <run-id> --failed
 ```
 
-> 🔴 **새로 `workflow run`을 누르지 않는다.** dispatch는 plan을 처음부터 다시 돌려
-> **승인한 것과 다른 계획**을 만든다. `--failed`는 같은 run의 저장된 plan을 그대로 쓴다.
-> 실패한 것이 plan job이면 어느 쪽이든 같지만, **apply job이면 이 구분이 승인 게이트 그 자체다.**
+> 🔴 **새로 `workflow run`을 누르지 않는다.** dispatch는 plan을 처음부터 다시 돌려 새 승인
+> 대상을 만든다. `--failed`는 같은 run의 **이미 승인한** 저장된 plan을 그대로 쓴다. 실패한 것이
+> plan job이면 어느 쪽이든 같지만, **apply job이면 이 구분이 승인 게이트 그 자체다.**
 
 ### 인프라가 없는 상태에서 push CI가 실패한다
 

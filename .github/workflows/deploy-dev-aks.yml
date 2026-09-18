@@ -1,6 +1,6 @@
-# live/dev/aks: plan → (사람이 dispatch) → plan → apply
+# live/dev/aks: plan → (사람이 그 run의 요약을 읽고 승인) → apply
 #
-# deploy-hub-aks.yml과 같은 구조(plan은 push에서 자동, apply는 workflow_dispatch로만)다.
+# deploy-hub-aks.yml과 같은 구조(plan은 push에서 자동, apply는 environment 승인 뒤)다.
 # dev 구독, dev CI 신원(environment: dev)을 쓴다. FIC subject 패턴은 bootstrap이
 # gha-dev-main(ref:refs/heads/main)·gha-dev-environment(environment:dev)로 만든다.
 #
@@ -162,18 +162,20 @@ jobs:
         with:
           name: tfplan-${{ github.run_id }}
           path: ${{ env.TF_ROOT }}/tfplan
-          retention-days: 1
+          retention-days: 7
           if-no-files-found: error
 
   # ──────────────────────────────────────────────────────────────────────────
-  # apply: workflow_dispatch에서만. main push에서는 skip된다.
+  # apply: plan 뒤 environment 승인을 기다린다. push·dispatch 모두 같은 경로다.
   # ──────────────────────────────────────────────────────────────────────────
   apply:
     name: apply
     needs: plan
-    if: >-
-      github.event_name == 'workflow_dispatch'
-      && github.ref == 'refs/heads/main'
+    # 승인 게이트는 environment의 required reviewers다. push든 dispatch든 plan 뒤에 멈춘다.
+    # ⚠️ 브랜치 조건: workflow_dispatch는 임의 브랜치에서 눌릴 수 있다. Environment의 deployment
+    #    branch policy(main 하나)가 최종 방어선이지만, job 조건으로도 막아 두면 실패가 아니라
+    #    skip으로 끝난다.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: dev
     permissions:

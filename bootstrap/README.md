@@ -149,7 +149,7 @@ locks/delete`를 갖는다). 이 잠금은 이제 CI 신원 압축 시나리오�
 | issuer | `https://token.actions.githubusercontent.com` |
 | audience | `api://AzureADTokenExchange` |
 | subject 패턴 | `repo:<org>@<org_id>/<repo>@<repo_id>:ref:refs/heads/main`, `repo:<org>@<org_id>/<repo>@<repo_id>:environment:<env>` |
-| 배포 승인 방식 | **배포 브랜치 정책만**(사용자 확정, 필수 리뷰어 없음, 무인 자동화 유지) |
+| 배포 승인 방식 | environment의 **required reviewers**(apply job이 plan 뒤 승인을 기다린다) + 배포 브랜치 정책 `main`. FIC subject는 이 설정과 무관하게 같다 |
 
 `<org>/<repo>`는 `skax-ca/aks-reference-infra`다(`bootstrap/config.sh`의 `GH_ORG_REPO`).
 
