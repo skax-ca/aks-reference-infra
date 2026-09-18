@@ -26,6 +26,7 @@ env:
   TOFU_VERSION: "1.12.5"
   TFLINT_VERSION: "v0.63.1"
   TRIVY_VERSION: "v0.72.0"
+  SHELLCHECK_VERSION: "v0.11.0"
 
 jobs:
   conventions:
@@ -42,7 +43,11 @@ jobs:
 
       - name: 셸 문법·정적 검사
         run: |
-          sudo apt-get install -y -qq shellcheck >/dev/null
+          # apt의 shellcheck는 구버전이라 판정이 다르다(0.11은 `A && B || true`의 SC2015를 특례로
+          # 본다). 훅과 같은 결과여야 하므로 로컬과 같은 버전을 릴리스 바이너리로 받는다.
+          curl -sSfL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" \
+            | tar -xJ --strip-components=1 -C /usr/local/bin "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+          shellcheck --version | grep version:
           for f in bootstrap/*.sh scripts/*.sh .githooks/pre-commit .githooks/pre-push .claude/skills/*/scripts/*.sh; do
             [ -f "$f" ] || continue
             bash -n "$f"
