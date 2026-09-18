@@ -107,6 +107,12 @@ jobs:
           trivy config --quiet --exit-code 1 --severity MEDIUM,HIGH,CRITICAL \
             --skip-dirs '**/.terraform' --tf-exclude-downloaded-modules .
 
+      # ⚠️ 실패시키지 않는다(스크립트가 항상 0 으로 끝난다). 갈린 상태가 의도일 때
+      #    (한 루트만 먼저 올려 보는 스테이지드 승격) 게이트가 막으면 그 방식을 못 쓴다.
+      #    Summary 에 표를 남겨 "갈려 있다는 사실을 몰랐다" 만 없앤다.
+      - name: 모듈 태그 드리프트 보고
+        run: python3 scripts/report-module-tag-drift.py
+
       # 모듈 소싱(git tag)이 여기서 실제로 일어난다. 저장소가 public이라 인증이 없다.
       - name: validate
         run: |
