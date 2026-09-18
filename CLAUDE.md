@@ -29,7 +29,7 @@ Azure hub-spoke AKS 배포 루트(`eks-reference-infra`의 Azure 대응). `iac-m
 | 네이밍 | `workload=demo`(hub·dev 동일 필수) · `env=hub|dev` · `region=krc` |
 | 루트 간 결합 예외 | 크로스 구독은 `data` 조회 대신 CI 변수로 리소스 ID를 주입한다(`live/hub/vwan`의 `spoke_connections`) |
 | dev workbench | `vm_size = Standard_B2s_v2` 오버라이드(이 구독의 `Standard_B2s` 용량 제약) |
-| 로컬 게이트 | `git config core.hooksPath .githooks` + `tflint --init` + `brew install shellcheck`(clone마다 1회). azurerm ruleset 핀 `0.32.0`. 셸 게이트 상세는 `eks-reference-infra`의 `scripts/README.md` |
+| 로컬 게이트 | `git config core.hooksPath .githooks` + `tflint --init` + `brew install shellcheck gitleaks`(clone마다 1회). azurerm ruleset 핀 `0.32.0`. 셸 게이트 상세는 `eks-reference-infra`의 `scripts/README.md` |
 
 ## CI 신원 ⛔
 
