@@ -1,0 +1,95 @@
+# verify: 로컬 게이트(.githooks/pre-commit·pre-push)를 서버에서 다시 돈다.
+#
+# 훅은 클론마다 사람이 켜야 하고 fork PR에서는 돌지 않는다. 이 워크플로가 그 두 경로를 막는다.
+# 클라우드 인증이 없다. plan은 PR에서 돌리지 않는다: PR run의 OIDC subject는 pull_request라
+# FIC subject(main·environment)에 걸리지 않고, 넓히면 fork PR이 state를 읽는다.
+# ⚠️ 명령은 훅과 한 글자도 다르지 않아야 한다. 훅이 통과한 커밋이 여기서 막히면 둘 중 하나가
+#    틀린 것이고, 그 차이가 새 규칙이 되어서는 안 된다. 검사기 2개는 인자 없이 저장소 전체를 본다.
+
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 읽기 전용이라 앞선 run을 취소해도 안전하다. deploy-*.yml의 apply와 반대다.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TOFU_VERSION: "1.12.5"
+  TFLINT_VERSION: "v0.63.1"
+  TRIVY_VERSION: "v0.72.0"
+
+jobs:
+  conventions:
+    name: 문서·주석·셸 게이트
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: 문서 작성 규칙
+        run: python3 scripts/validate-doc-conventions.py
+
+      - name: 주석 규칙
+        run: python3 scripts/validate-comment-conventions.py
+
+      - name: 셸 문법·정적 검사
+        run: |
+          sudo apt-get install -y -qq shellcheck >/dev/null
+          for f in bootstrap/*.sh scripts/*.sh .githooks/pre-commit .githooks/pre-push .claude/skills/*/scripts/*.sh; do
+            [ -f "$f" ] || continue
+            bash -n "$f"
+            shellcheck -x "$f"
+          done
+
+  tofu:
+    name: OpenTofu 게이트
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: opentofu/setup-opentofu@v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+
+      - name: tofu fmt
+        run: tofu fmt -recursive -check
+
+      - uses: terraform-linters/setup-tflint@v6.3.0
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      - name: tflint
+        env:
+          # ruleset 플러그인을 GitHub 릴리스에서 받는다. 익명 호출은 rate limit에 걸린다.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tflint --init
+          tflint --recursive
+
+      - name: trivy config
+        run: |
+          # 바이너리를 직접 설치한다. trivy-action은 플래그를 자기 입력으로 번역해 훅과 같은
+          # 명령을 만들 수 없다.
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin "${TRIVY_VERSION}"
+          trivy config --quiet --exit-code 1 --severity MEDIUM,HIGH,CRITICAL \
+            --skip-dirs '**/.terraform' --tf-exclude-downloaded-modules .
+
+      # 모듈 소싱(git tag)이 여기서 실제로 일어난다. 저장소가 public이라 인증이 없다.
+      - name: validate
+        run: |
+          for root in live/*/*/; do
+            [ -n "$(find "$root" -maxdepth 1 -name '*.tf' -print -quit 2>/dev/null)" ] || continue
+            echo "  validate: $root"
+            tofu -chdir="$root" init -backend=false -input=false > /dev/null
+            tofu -chdir="$root" validate
+          done
