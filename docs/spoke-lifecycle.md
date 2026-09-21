@@ -285,32 +285,37 @@ AKS는 `deletion_protection`이 이미 `false`라 이 단계가 필요 없다(`h
 보는 한, dev 안의 LB·PVC·NodePool을 지워도 hub가 되살린다(대상만 원격일 뿐 hub와
 같은 메커니즘).
 
-🔴 **`cluster-secret.yaml`을 한 번에 통째로 지우지 않는다 - 지울 때도
-`argocd.argoproj.io/secret-type: cluster`는 남긴다.** 이 Secret은 두 역할을 겸한다:
-①ArgoCD가 이 클러스터에 접속할 자격증명, ②ApplicationSet cluster generator가 fan-out
-대상으로 판단하는 라벨(secret-type이 "등록된 클러스터" 인식 필수 키, `environment`·
-`addon-*`가 실제 매칭 키). secret-type까지 지우면 ApplicationSet이 Application을 정상
-prune해도 그 finalizer(`resources-finalizer.argocd.argoproj.io`)가 대상 클러스터에
-접속할 방법을 잃어 cascade delete가 조용히 실패한다 - Application은 사라지지만 실제
-addon 파드·Gateway/LB·NAP NodePool은 orphan으로 남는다(`argoproj/argo-cd#5817`과 같은
-원리. `eks-platform-gitops`가 먼저 검증해 둔 패턴).
-**secret-type과 접속 정보(`stringData.server`·`config`)는 남기고, fan-out 매칭
-라벨만 지운다.**
+🔴 **`cluster-secret.yaml`을 한 번에 통째로 지우지 않는다.** 이 Secret은 두 역할을 겸한다:
+①ArgoCD가 이 클러스터에 접속할 자격증명(`secret-type: cluster`·`server`·`config`),
+②ApplicationSet이 fan-out 대상으로 판단하는 라벨(실제 매칭 키는 `environment`·`tier`·
+`addon-*`). 접속 정보까지 지우면 finalizer(`resources-finalizer.argocd.argoproj.io`)가
+대상 클러스터에 접속하지 못해 cascade delete가 조용히 실패하고, addon 파드·Gateway/LB·NAP
+NodePool이 orphan으로 남는다(`argoproj/argo-cd#5817`과 같은 원리). **접속 정보는 남기고
+fan-out 매칭 라벨만 지운다.**
 
 순서: ① fan-out 매칭 라벨만 지운다 → ② hub `root-app`의 반영 확인(`kubectl -n argocd
 get application root-app -o jsonpath='{.status.sync.revision}'` - multi-source가
-아니라 `revision` 단수 필드다) → ③ ApplicationSet 재평가 확인(`kubectl -n argocd get
+아니라 `revision` 단수 필드다. 3분 넘게 옛 SHA면 `kubectl -n argocd annotate application
+root-app argocd.argoproj.io/refresh=hard --overwrite`) → ③ ApplicationSet 재평가 확인(`kubectl -n argocd get
 applications` - **라벨 update 이벤트만으로는 재평가가 트리거되지 않을 수 있다.**
 Secret 생성 이벤트에는 즉시 반응하나 라벨 제거 update에는 반응하지 않는 경우가 있다.
 안 바뀌면 `kubectl -n argocd rollout restart deployment
 argocd-applicationset-controller`로 강제) → ④ dev 자신에서 addon 파드·Gateway/LB·NAP
 NodePool/AKSNodeClass 소멸 확인 → ⑤ 그제서야 `cluster-secret.yaml`을 통째로 삭제한다.
+root-app은 `prune=false`라 파일을 지워도 hub의 라이브 Secret은 `OutOfSync`로 남는다.
+머지 뒤 `kubectl -n argocd delete secret <이름>`으로 직접 지운다.
 
-⚠️ **④의 cascade delete가 이미 실패한 뒤에 라벨을 정정해도 소급되지 않는다** -
-Application이 이미 삭제됐으면 finalizer도 함께 사라진 뒤라, 남은 자원은
-hub-lifecycle.md 「IaC 밖 자원 선처리」와 같은 방식으로 workbench에서 직접 kubectl로 지운다(①ArgoCD
-컨트롤러 정지는 hub 쪽이라 해당 없음 ②Gateway/Ingress/LB Service ③PVC ④NAP
-NodePool/AKSNodeClass).
+⚠️ **④의 cascade delete가 이미 실패한 뒤에 라벨을 정정해도 소급되지 않는다.** 남은 자원은
+hub-lifecycle.md 「IaC 밖 자원 선처리」처럼 dev workbench에서 kubectl로 지운다(ArgoCD
+컨트롤러 정지는 hub 쪽이라 해당 없음).
+
+🔴 **`karpenter-nodepool`이 `kyverno`보다 먼저 prune되면 kyverno 삭제가 멈춘다.** kyverno 파드와
+삭제 훅 Job(`scale-to-zero`·`rm-webhooks`)은 시스템 노드의 `CriticalAddonsOnly` taint를 견디지
+못해 NAP 노드에서만 뜬다. 노드가 사라지면 그 Job이 `Pending`에 걸리고 kyverno·kyverno-policies
+Application이 `deletionTimestamp`를 낀 채 남는다. dev 클러스터는 곧 destroy되므로 잔재는
+같이 사라지지만, hub의 Application이 접속 대상을 잃고 영구히 걸리지 않게 **클러스터가 살아 있는
+동안** 그 Application의 finalizer만 비운다(`kubectl -n argocd patch application <이름> --type merge
+-p '{"metadata":{"finalizers":[]}}'`).
 
 ### 11. 2단계 · 3단계: destroy(workbench → aks → networking)
 
@@ -354,13 +359,13 @@ connection.spoke["dev"]`는 **살아있는 데이터소스**(`azurerm_resources`
 - Azure는 그 연결을 즉시 지우지 않는다. hub의 Terraform state는 dev VNet이 사라진 걸
   스스로 알아채지 못한다 - `for_each`가 참조하는 데이터소스가 그 VNet을 더 이상 반환하지
   않게 됐을 뿐이라, **다음 hub vwan plan/apply를 실제로 돌려야** 그 연결이 destroy
-  대상으로 잡히고 정리된다. **코드 수정은 필요 없다.**
+  대상으로 잡히고 정리된다. **코드 수정은 필요 없다.** `action=plan`이 잡는 것은 그 연결
+  1건의 destroy뿐이고 그 밖의 변경은 0건이다.
 - hub를 재적용하지 않고 방치해도 즉시 에러는 안 난다. 다만 Azure 쪽에 대상 없는 연결
   객체가 남아있는 상태이므로, 다음 dev가 재배포되기 전에 정리하는 걸 권장한다.
 
-이 메커니즘은 AWS 원본 `spoke-lifecycle.md`의 "spoke attachment 소멸 시 blackhole
-라우트로 전환, 다음 hub apply가 정리"와 원리가 같다 - 다만 Azure는 라우트가 아니라
-연결 리소스 자체가 대상이라는 차이가 있다.
+AWS 원본의 blackhole 라우트 정리와 원리가 같다. 다만 Azure는 라우트가 아니라 연결 리소스 자체가
+대상이다.
 
 ### 14. 재배포 시 GitOps 재등록
 
