@@ -45,6 +45,35 @@ az aks command invoke -g <rg> -n <cluster> --command "kubectl get nodes -o wide"
 > `az aks command result`로 다시 꺼낼 수 있다. 값을 봐야 하면 **대화형 SSH 세션**에서
 > 사람이 직접 읽는다.
 
+### dev workbench에서 kubeconfig가 아예 안 만들어졌다
+
+위 표(391행 계열)의 IMDS 타임아웃과는 다른 실패다. `cloud-init-output.log`에
+`E: Unable to locate package azure-cli`가 있으면 이 경우다 — `apt-get update`가 apt lock
+경합으로 실패해 azure-cli 자체가 설치되지 않았고, 이후 `az login`·`az aks get-credentials`·
+`kubelogin convert-kubeconfig`가 전부 연쇄 실패한다. 원인(`AADSSHLoginForLinux` 확장이 잡는
+`unattended-upgrades.service` lock과 azure-cli 설치용 apt-get의 경합)은
+`spoke-lifecycle.md` 5절에 있다 — `aks_entra_rbac_enabled=false`인 hub에는 이 확장이 없어
+드러나지 않는다.
+
+```bash
+sudo apt-get -o DPkg::Lock::Timeout=600 update -y
+sudo apt-get -o DPkg::Lock::Timeout=600 install -y azure-cli=2.88.0-1~noble
+
+sudo az login --identity --resource-id <workbench UAMI ID>
+sudo az aks get-credentials --resource-group <rg> --name <cluster> --overwrite-existing
+sudo kubelogin convert-kubeconfig -l msi --client-id <workbench UAMI clientId> \
+  --kubeconfig /root/.kube/config
+
+sudo mkdir -p /home/azureuser/.kube
+sudo cp /root/.kube/config /home/azureuser/.kube/config
+sudo chown -R azureuser:azureuser /home/azureuser/.kube
+sudo chmod 600 /home/azureuser/.kube/config
+```
+
+`apt-get update` 전에 `ps aux | grep apt`로 남은 프로세스가 없는지 먼저 본다(있으면 lock이
+아직 잡혀 있다). VM 교체(6절)로도 고쳐지지 않는다 — 같은 조건으로 다시 부팅하면 같은 경합이
+재현된다. 근본 수정은 `iac-module-library`의 cloud-init 템플릿 쪽이고 이 저장소 범위 밖이다.
+
 ---
 
 ## 2. ArgoCD 웹 UI 접속: 2홉
