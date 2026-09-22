@@ -4,6 +4,7 @@
 
 > ⚠️ **hub가 먼저 구축되어 있어야 한다.** spoke의 vWAN 연결은 hub 쪽(`live/hub/vwan`)이
 > 태그 기반으로 자동 발견해 소유한다 - `hub-lifecycle.md`부터 본다.
+> ⏳ 10절의 wave 역순 해제(부모 Application cascade)는 아직 실환경에서 돌려 보지 않았다.
 
 레퍼런스 구현은 이 저장소의 `bootstrap/`·`live/dev/`에 있다.
 
@@ -190,8 +191,9 @@ metadata:
   namespace: argocd
   labels:
     argocd.argoproj.io/secret-type: cluster
-    environment: <SPOKE_ENV>        # baseline ApplicationSet이 존재만 검사
-    addon-karpenter: enabled        # opt-in 카탈로그 - 필요한 addon만
+    environment: <SPOKE_ENV>        # ApplicationSet platform이 존재로 부모 Application을 만든다
+    tier: nonprd                    # 부모 차트가 버전 표의 줄을 고른다. prd·nonprd 밖이면 렌더 실패
+    addon-karpenter: enabled        # opt-in - NAP을 켠 클러스터만. 없으면 Kyverno가 뜰 노드가 없다
 type: Opaque
 stringData:
   name: <cluster-name>
@@ -237,8 +239,9 @@ kubectl patch application root-app -n argocd --type merge \
   -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
 ```
 
-**완료 조건**: baseline/opt-in ApplicationSet이 이 클러스터를 대상으로 Application을
-자동 생성하고 `Synced`/`Healthy`로 수렴한다 - 7절 4·5번과 같은 기준, hub의 ArgoCD에서
+**완료 조건**: ApplicationSet `platform`이 이 클러스터의 부모 `<cluster>-platform`을 만들고,
+부모가 addon Application을 wave 순서(NodePool·Gateway → Kyverno → 정책)로 만들어 전부
+`Synced`/`Healthy`로 수렴한다. 부모가 `Healthy`면 마지막 wave까지 끝난 것이다 - 7절 4·5번과 같은 기준, hub의 ArgoCD에서
 확인한다. **재배포 시 재등록**은 14절.
 
 ### 7. 완료 판정
@@ -281,25 +284,26 @@ AKS는 `deletion_protection`이 이미 `false`라 이 단계가 필요 없다(`h
 ### 10. 1단계: IaC 밖 자원 선처리 (컨트롤러 정지 대상이 hub다)
 
 ⚠️ **`hub-lifecycle.md`와 다르다.** dev는 자체 ArgoCD가 없으므로 "컨트롤러를 scale
-0"할 대상이 dev 안에 없다. hub의 ApplicationSet이 이 dev 클러스터를 계속 fan-out 대상으로
-보는 한, dev 안의 LB·PVC·NodePool을 지워도 hub가 되살린다(대상만 원격일 뿐 hub와
-같은 메커니즘).
+0"할 대상이 dev 안에 없다. hub의 ApplicationSet이 이 dev 클러스터의 부모를 유지하는 한, dev 안의
+LB·PVC·NodePool을 지워도 hub가 되살린다(대상만 원격일 뿐 hub와 같은 메커니즘).
 
 🔴 **`cluster-secret.yaml`을 한 번에 통째로 지우지 않는다.** 이 Secret은 두 역할을 겸한다:
 ①ArgoCD가 이 클러스터에 접속할 자격증명(`secret-type: cluster`·`server`·`config`),
-②ApplicationSet이 fan-out 대상으로 판단하는 라벨(실제 매칭 키는 `environment`·`tier`·
-`addon-*`). 접속 정보까지 지우면 finalizer(`resources-finalizer.argocd.argoproj.io`)가
-대상 클러스터에 접속하지 못해 cascade delete가 조용히 실패하고, addon 파드·Gateway/LB·NAP
-NodePool이 orphan으로 남는다(`argoproj/argo-cd#5817`과 같은 원리). **접속 정보는 남기고
-fan-out 매칭 라벨만 지운다.**
+②ApplicationSet `platform`이 이 클러스터의 부모를 만드는 라벨(`environment`). 접속 정보까지
+지우면 ArgoCD가 목적지를 찾지 못해 Application 기록만 버리고(`Resource entries removed from
+undefined cluster`), addon 파드·Gateway/LB·NAP NodePool이 orphan으로 남는다. **접속 정보는 남기고
+`environment` 라벨만 지운다.** 삭제 순서를 부모의 wave가 거는 근거는 `iac-module-library`의
+`docs/architectures/gitops-hub-spoke/ordering.md`와 `azure/README.md`가 갖는다.
 
-순서: ① fan-out 매칭 라벨만 지운다 → ② hub `root-app`의 반영 확인(`kubectl -n argocd
-get application root-app -o jsonpath='{.status.sync.revision}'` - multi-source가
-아니라 `revision` 단수 필드다. 3분 넘게 옛 SHA면 `kubectl -n argocd annotate application
-root-app argocd.argoproj.io/refresh=hard --overwrite`) → ③ ApplicationSet 재평가 확인(`kubectl -n argocd get
-applications` - **라벨 update 이벤트만으로는 재평가가 트리거되지 않을 수 있다.**
-Secret 생성 이벤트에는 즉시 반응하나 라벨 제거 update에는 반응하지 않는 경우가 있다.
-안 바뀌면 `kubectl -n argocd rollout restart deployment
+순서: ① `environment` 라벨만 지운다. ApplicationSet이 부모 `<cluster>-platform`을 지우고, 부모의
+finalizer가 addon을 wave 역순으로 지운다: 정책 → Kyverno → NodePool·Gateway. 앞 wave의 삭제가
+끝나야 다음 wave로 넘어가므로 Kyverno와 그 삭제 훅 Job(`scale-to-zero`·`rm-webhooks`)은 NAP 노드가
+살아 있을 때 끝난다 → ② hub `root-app`의 반영 확인(`kubectl -n argocd get application root-app -o
+jsonpath='{.status.sync.revision}'` - multi-source가 아니라 `revision` 단수 필드다. 3분 넘게 옛
+SHA면 `kubectl -n argocd annotate application root-app argocd.argoproj.io/refresh=hard
+--overwrite`) → ③ 부모와 addon Application 소멸 확인(`kubectl -n argocd get applications |
+grep <cluster-name>` - 결과 없어야 함. **라벨 제거 update에는 ApplicationSet이 재평가하지 않는
+경우가 있다.** 부모가 그대로면 `kubectl -n argocd rollout restart deployment
 argocd-applicationset-controller`로 강제) → ④ dev 자신에서 addon 파드·Gateway/LB·NAP
 NodePool/AKSNodeClass 소멸 확인 → ⑤ 그제서야 `cluster-secret.yaml`을 통째로 삭제한다.
 root-app은 `prune=false`라 파일을 지워도 hub의 라이브 Secret은 `OutOfSync`로 남는다.
@@ -309,13 +313,9 @@ root-app은 `prune=false`라 파일을 지워도 hub의 라이브 Secret은 `Out
 hub-lifecycle.md 「IaC 밖 자원 선처리」처럼 dev workbench에서 kubectl로 지운다(ArgoCD
 컨트롤러 정지는 hub 쪽이라 해당 없음).
 
-🔴 **`karpenter-nodepool`이 `kyverno`보다 먼저 prune되면 kyverno 삭제가 멈춘다.** kyverno 파드와
-삭제 훅 Job(`scale-to-zero`·`rm-webhooks`)은 시스템 노드의 `CriticalAddonsOnly` taint를 견디지
-못해 NAP 노드에서만 뜬다. 노드가 사라지면 그 Job이 `Pending`에 걸리고 kyverno·kyverno-policies
-Application이 `deletionTimestamp`를 낀 채 남는다. dev 클러스터는 곧 destroy되므로 잔재는
-같이 사라지지만, hub의 Application이 접속 대상을 잃고 영구히 걸리지 않게 **클러스터가 살아 있는
-동안** 그 Application의 finalizer만 비운다(`kubectl -n argocd patch application <이름> --type merge
--p '{"metadata":{"finalizers":[]}}'`).
+🔴 **kyverno Application이 `deletionTimestamp`를 낀 채 남으면** wave 순서가 서지 않아(health Lua 누락
+등) NodePool이 먼저 지워져 삭제 훅 Job이 `Pending`에 걸린 것이다. **클러스터가 살아 있는 동안** 그
+Application의 finalizer만 비운다(`kubectl -n argocd patch application <이름> --type merge -p '{"metadata":{"finalizers":[]}}'`).
 
 ### 11. 2단계 · 3단계: destroy(workbench → aks → networking)
 
@@ -371,7 +371,7 @@ AWS 원본의 blackhole 라우트 정리와 원리가 같다. 다만 Azure는 �
 
 dev AKS를 destroy 후 재생성하면 클러스터 이름이 같아도 API endpoint·CA 인증서는 **반드시
 새로 발급**된다(FQDN의 무작위 접미사가 매 재구축마다 바뀐다). 재배포 시 `cluster-secret.yaml`의 `server`·`caData`만 갱신하고
-`argocd.argoproj.io/secret-type`·fan-out 매칭 라벨(`environment`·`addon-*`)은 그대로
+`argocd.argoproj.io/secret-type`·라벨(`environment`·`tier`·`addon-*`)은 그대로
 유지해야 한다(빠뜨리면 addon 구독이 조용히 빠진 채 재배포된다).
 
 ✅ **hub ArgoCD의 dev 클러스터 RBAC 권한은 새 AKS 리소스 ID로 자동 재생성된다.** 5절의

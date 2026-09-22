@@ -324,7 +324,7 @@ az resource list --resource-group "$NODE_RG" -o table
 | 층 | 무엇이 | 누가 만드나 | 크기 |
 |----|--------|-----------|------|
 | 시스템 풀(기본 풀) | AKS 관리형 addon(coredns·metrics-server·CSI 등)과 ArgoCD | `live/*/aks` `system_node_pool` | `Standard_D4s_v5` 고정 2대, `auto_scaling_enabled = false` |
-| NAP(Karpenter) 노드 | 나머지 전부 | `NodePool`·`AKSNodeClass` CR(`aks-platform-gitops` `applicationsets/catalog/karpenter.yaml`) | pending 파드에 따라 |
+| NAP(Karpenter) 노드 | 나머지 전부 | `NodePool`·`AKSNodeClass` CR(`aks-platform-gitops` `addons/platform/templates/karpenter-nodepool.yaml`) | pending 파드에 따라 |
 
 **시스템 풀은 `CriticalAddonsOnly=true:NoSchedule`로 잠겨 있다.** `live/*/aks`의
 `system_node_pool.only_critical_addons_enabled`가 켜고, AKS는 이 키만 받는다(임의 taint를
