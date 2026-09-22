@@ -195,7 +195,7 @@ module "aks_workbench" {
   az_cli_version  = "2.88.0-1~noble"
   kubectl_version = "v1.37.0"
   helm_version    = "v4.2.4"
-  argocd_version  = "v3.5.2"
+  argocd_version  = "v3.5.3"
 
   # ⚠️ krew_version을 넘기지 않으면 krew·aks-node-viewer가 설치되지 않는다(모듈이 이 값이
   #    있을 때만 설치한다). krew_plugins는 모듈 기본값(ctx·ns·neat·rbac-tool·view-secret·

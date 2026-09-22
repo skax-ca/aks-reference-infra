@@ -240,7 +240,7 @@ module "aks_workbench" {
   az_cli_version  = "2.88.0-1~noble"
   kubectl_version = "v1.37.0"
   helm_version    = "v4.2.4"
-  argocd_version  = "v3.5.2"
+  argocd_version  = "v3.5.3"
 
   # krew_plugins는 모듈 기본값(ctx·ns·neat·rbac-tool·view-secret·whoami)을 그대로 쓴다.
   krew_version = "v0.5.0"
