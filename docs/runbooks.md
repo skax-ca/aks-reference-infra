@@ -45,6 +45,11 @@ az aks command invoke -g <rg> -n <cluster> --command "kubectl get nodes -o wide"
 > `az aks command result`로 다시 꺼낼 수 있다. 값을 봐야 하면 **대화형 SSH 세션**에서
 > 사람이 직접 읽는다.
 
+> 비밀을 비대화형으로 넘겨야 하면(비밀번호 교체 스크립트 등) SSH 명령의 인자가 아니라 stdin
+> heredoc으로 보낸다: `ssh <host> bash -s <<'REMOTE' … REMOTE`. 인자는 원격의 `ps aux`에 보이지만
+> stdin 본문은 보이지 않고, 비대화형 `bash -s`는 `~/.bash_history`에도 남지 않는다. 구분자를
+> 따옴표로 감싸야(`<<'REMOTE'`) 값 안의 `$`를 로컬 셸이 변수로 치환하지 않는다.
+
 ### dev workbench에서 kubeconfig가 아예 안 만들어졌다
 
 위 표(391행 계열)의 IMDS 타임아웃과는 다른 실패다. `cloud-init-output.log`에
