@@ -191,7 +191,7 @@ metadata:
   namespace: argocd
   labels:
     argocd.argoproj.io/secret-type: cluster
-    environment: <SPOKE_ENV>        # ApplicationSet platform이 존재로 부모 Application을 만든다
+    environment: <SPOKE_ENV>        # ApplicationSet cluster-addons가 존재로 부모 Application을 만든다
     tier: nonprd                    # 부모 차트가 버전 표의 줄을 고른다. prd·nonprd 밖이면 렌더 실패
     addon-karpenter: enabled        # opt-in - NAP을 켠 클러스터만. 없으면 Kyverno가 뜰 노드가 없다
 type: Opaque
@@ -239,7 +239,7 @@ kubectl patch application root-app -n argocd --type merge \
   -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}'
 ```
 
-**완료 조건**: ApplicationSet `platform`이 이 클러스터의 부모 `<cluster>-platform`을 만들고,
+**완료 조건**: ApplicationSet `cluster-addons`가 이 클러스터의 부모 `<cluster>-addons`를 만들고,
 부모가 addon Application을 wave 순서(NodePool·Gateway → Kyverno → 정책)로 만들어 전부
 `Synced`/`Healthy`로 수렴한다. 부모가 `Healthy`면 마지막 wave까지 끝난 것이다 - 7절 4·5번과 같은 기준, hub의 ArgoCD에서
 확인한다. **재배포 시 재등록**은 14절.
@@ -289,13 +289,13 @@ LB·PVC·NodePool을 지워도 hub가 되살린다(대상만 원격일 뿐 hub�
 
 🔴 **`cluster-secret.yaml`을 한 번에 통째로 지우지 않는다.** 이 Secret은 두 역할을 겸한다:
 ①ArgoCD가 이 클러스터에 접속할 자격증명(`secret-type: cluster`·`server`·`config`),
-②ApplicationSet `platform`이 이 클러스터의 부모를 만드는 라벨(`environment`). 접속 정보까지
+②ApplicationSet `cluster-addons`가 이 클러스터의 부모를 만드는 라벨(`environment`). 접속 정보까지
 지우면 ArgoCD가 목적지를 찾지 못해 Application 기록만 버리고(`Resource entries removed from
 undefined cluster`), addon 파드·Gateway/LB·NAP NodePool이 orphan으로 남는다. **접속 정보는 남기고
 `environment` 라벨만 지운다.** 삭제 순서를 부모의 wave가 거는 근거는 `iac-module-library`의
 `docs/architectures/gitops-hub-spoke/ordering.md`와 `azure/README.md`가 갖는다.
 
-순서: ① `environment` 라벨만 지운다. ApplicationSet이 부모 `<cluster>-platform`을 지우고, 부모의
+순서: ① `environment` 라벨만 지운다. ApplicationSet이 부모 `<cluster>-addons`를 지우고, 부모의
 finalizer가 addon을 wave 역순으로 지운다: 정책 → Kyverno → NodePool·Gateway. 앞 wave의 삭제가
 끝나야 다음 wave로 넘어가므로 Kyverno와 그 삭제 훅 Job(`scale-to-zero`·`rm-webhooks`)은 NAP 노드가
 살아 있을 때 끝난다 → ② hub `root-app`의 반영 확인(`kubectl -n argocd get application root-app -o
@@ -381,7 +381,7 @@ dev AKS를 destroy 후 재생성하면 클러스터 이름이 같아도 API endp
 ⚠️ **hub 자신이 재구축되면 hub ArgoCD UAMI(`live/hub/aks`와 같은 root)가 새
 `principalId`·`clientId`로 바뀐다.** 스포크마다 `live/<env>/aks`를 다시 apply해 role
 assignment를 새 principal로 옮기고, `cluster-secret.yaml`의 `AZURE_CLIENT_ID`(리터럴
-값)를 `az identity show`로 재조회해 server·caData·platform.yaml과 함께 갱신한다.
+값)를 `az identity show`로 재조회해 server·caData·`projects/platform.yaml`과 함께 갱신한다.
 
 ⚠️ **`projects/platform.yaml`의 dev destination도 매 재배포마다 갱신한다.** 6절의 최초
 등록 때만 필요한 게 아니다. 빠뜨려도 즉시 에러는 안 나지만(기존 destination 항목이 여전히
