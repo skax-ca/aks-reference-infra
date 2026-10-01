@@ -357,7 +357,9 @@ helm -n argocd uninstall argocd
 kubectl delete ns argocd
 ```
 
-CRD는 남는다.
+CRD는 남는다. Kyverno를 빼면 webhook 설정도 남는다(`pre-delete` 훅 뒤 종료 중인 엔진이 다시 등록한다).
+`failurePolicy: Fail`이지만 대상은 Kyverno 정책 kind뿐이다. 클러스터를 계속 쓰면
+`kubectl delete validatingwebhookconfiguration,mutatingwebhookconfiguration -l webhook.kyverno.io/managed-by=kyverno`.
 
 **노드만 줄이기 / 야간 정지(비용 절감)**: AKS 컨트롤 플레인은 끌 수 없다. 노드만 줄이거나 workbench를 멈춘다.
 
