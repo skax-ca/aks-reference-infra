@@ -119,7 +119,7 @@ identity·role assignment는 **이 root가 Terraform으로 직접 만든다**(bo
 
 hub ArgoCD의 Workload Identity(GitOps 크로스 클러스터 인증용 UAMI+FIC)도 이 root가 만든다. FIC의 issuer가 *이 클러스터 자신의* OIDC issuer URL에 묶여야 해서다. 다른 root(vwan 등)에서 이 클러스터를 `data`로 재조회해 만들면 networking→vwan→aks 순서의 from-scratch 구축에서 AKS가 아직 없어 실패한다.
 
-⚠️ **hub를 재구축하면 이 UAMI도 새로 발급된다.** 스포크마다 `live/<env>/aks`를 다시 apply해 role assignment를 새 principal로 옮기고, `aks-platform-gitops`의 cluster Secret에 적힌 client ID를 갱신한다(`spoke-lifecycle.md` 재배포 절).
+⚠️ **hub를 재구축하면 이 UAMI도 새로 발급된다.** `aks-platform-gitops`의 `bootstrap/argocd-values.yaml` client-id(2곳)를 7절 seed **전에** 갱신한다(seed가 커밋된 values를 그대로 쓴다). 스포크마다 `live/<env>/aks`를 다시 apply해 role assignment를 새 principal로 옮기고, cluster Secret에 적힌 client ID도 갱신한다(`spoke-lifecycle.md` 재배포 절).
 
 ```bash
 gh workflow run deploy-hub-aks.yml --ref main -f action=apply
@@ -167,7 +167,7 @@ kubectl get nodes            # sudo 없이 동작해야 한다
 
 ### 7. GitOps 씨딩 (L3)
 
-hub만 자기 `argocd-seed.sh`를 돈다.
+hub만 자기 `argocd-seed.sh`를 돈다. hub를 재구축했으면 5절 ⚠️의 values client-id 갱신 PR을 먼저 머지한다.
 
 ```bash
 gh repo create <org>/<project>-platform-gitops --public
