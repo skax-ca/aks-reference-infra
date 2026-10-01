@@ -97,8 +97,8 @@ module "aks_cluster" {
   #    모듈 CHANGELOG(태그 메시지)로 ForceNew 축 변경 여부를 먼저 본다.
   # dev 와 같은 태그를 유지한다. 두 루트가 같은 모듈의 다른 버전을 쓰면 "어느 계약인가"를
   # 루트마다 따로 봐야 하고, 다음 업그레이드를 한 PR 로 못 올린다. dev 만 쓰는 인자
-  # (entra_integration_enabled·private_cluster_public_fqdn_enabled)는 기본값 false 라
-  # hub 에서 태그만 올려도 plan 은 No changes 다.
+  # (private_cluster_public_fqdn_enabled)는 기본값 false 라 hub 에서 태그만 올려도 plan 은
+  # No changes 다.
   source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.10.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다. 모듈이 조합한다(모듈 repo 규약).
@@ -139,6 +139,20 @@ module "aks_cluster" {
   # ForceNew 목록에 이 필드가 없고, HasChanges 시 in-place update 경로
   # (ManagedClusters.CreateOrUpdate)가 있다. 클러스터 재생성 승인 불필요.
   workload_identity_enabled = true
+
+  # ── 클러스터 인증: Entra 통합 + 로컬 계정 비활성화(dev 와 같은 값) ─────────────
+  #
+  # hub ArgoCD 는 ServiceAccount 로 이 클러스터를 다뤄 Entra 를 거치지 않는다. 그래도 켜는
+  # 이유는 workbench 다. 통합이 없는 클러스터에서는 Cluster User Role 이 관리자 인증서가 든
+  # kubeconfig 를 내려줘, live/hub/workbench 의 role assignment 가 dev 와 다른 권한이 된다.
+  #
+  # ⛔ entra_integration_enabled 는 비가역이다. Azure 가 통합 해제를 지원하지 않아 되돌리려면
+  #    클러스터를 재생성한다. local_account_disabled 는 false 로 되돌릴 수 있다.
+  # ⚠️ 이 둘을 켜면 kubectl 을 쓰는 주체마다 클러스터 스코프의 RBAC Cluster Admin
+  #    role assignment 가 필요하다. 빠뜨리면 인증은 성공하고 인가에서 거부된다.
+  #    접근을 전부 잃으면 구독 Owner 가 그 role assignment 를 추가해 복구한다.
+  entra_integration_enabled = true
+  local_account_disabled    = true
 
   # 모듈 기본값과 같지만 명시한다(위 cni_mode 와 같은 이유. 이 값도 ForceNew 다).
   # GitOps(pull) 전제라 공개 엔드포인트가 필요 없다. private 클러스터라도 검증은

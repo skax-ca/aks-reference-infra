@@ -41,6 +41,10 @@ workbench 없이 급히 명령 하나만 던져야 하면 `az aks command invoke
 az aks command invoke -g <rg> -n <cluster> --command "kubectl get nodes -o wide"
 ```
 
+⏳ 두 클러스터는 Entra 통합이고 로컬 계정을 껐다. 이 구성에서 `command invoke`가 호출자에게
+요구하는 권한은 아직 확인하지 않았다. 인가에서 거부되면 아래 「클러스터 접근을 전부 잃었다」의
+role assignment를 호출자에게 준 뒤 다시 던진다.
+
 > `az aks command invoke`로 비밀·자격증명을 조회하지 않는다. 출력이 ARM 경유로 저장되어
 > `az aks command result`로 다시 꺼낼 수 있다. 값을 봐야 하면 **대화형 SSH 세션**에서
 > 사람이 직접 읽는다.
@@ -50,15 +54,31 @@ az aks command invoke -g <rg> -n <cluster> --command "kubectl get nodes -o wide"
 > stdin 본문은 보이지 않고, 비대화형 `bash -s`는 `~/.bash_history`에도 남지 않는다. 구분자를
 > 따옴표로 감싸야(`<<'REMOTE'`) 값 안의 `$`를 로컬 셸이 변수로 치환하지 않는다.
 
-### dev workbench에서 kubeconfig가 아예 안 만들어졌다
+### 클러스터 접근을 전부 잃었다
+
+두 클러스터에는 로컬 계정(인증서 기반 관리자 kubeconfig)이 없다. `az aks get-credentials
+--admin`은 `Getting static credential isn't allowed`로 거부된다. 인가는 클러스터 스코프의
+role assignment가 하므로, 구독 Owner가 자신에게 역할을 부여해 들어간다.
+
+```bash
+az role assignment create \
+  --assignee <자신의 Entra object ID> \
+  --role "Azure Kubernetes Service RBAC Cluster Admin" \
+  --scope "$(az aks show -g <rg> -n <cluster> --query id -o tsv)"
+```
+
+API 서버가 private이라 `kubectl`은 여전히 VNet 안에서만 닿는다. workbench가 없으면 위
+`command invoke`로 던진다. 복구가 끝나면 그 role assignment를 지운다
+(`az role assignment delete`에 같은 세 인자).
+
+### workbench에서 kubeconfig가 아예 안 만들어졌다
 
 위 표(391행 계열)의 IMDS 타임아웃과는 다른 실패다. `cloud-init-output.log`에
 `E: Unable to locate package azure-cli`가 있으면 이 경우다 — `apt-get update`가 apt lock
 경합으로 실패해 azure-cli 자체가 설치되지 않았고, 이후 `az login`·`az aks get-credentials`·
 `kubelogin convert-kubeconfig`가 전부 연쇄 실패한다. 원인(`AADSSHLoginForLinux` 확장이 잡는
 `unattended-upgrades.service` lock과 azure-cli 설치용 apt-get의 경합)은
-`spoke-lifecycle.md` 5절에 있다 — `aks_entra_rbac_enabled=false`인 hub에는 이 확장이 없어
-드러나지 않는다.
+`spoke-lifecycle.md` 5절에 있다. 이 확장은 hub·dev workbench 양쪽에 있다.
 
 ```bash
 sudo apt-get -o DPkg::Lock::Timeout=600 update -y
