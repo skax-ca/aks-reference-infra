@@ -270,39 +270,31 @@ gh workflow run deploy-hub-vwan.yml    --ref main -f action=apply
 
 > 🔴 **VNet과 vWAN은 이 단계에서 다르게 반응한다.** VNet의 `deletion_protection`은 `prevent_destroy`(lifecycle 메타 인자)로 번역될 뿐 Azure 쪽 실제 속성이 아니다. `false`로 apply해도 `No changes.`가 정상이다. AKS는 `deletion_protection`이 이미 `false`라 이 단계가 필요 없다.
 
-### 12. 1단계: IaC 밖 자원 선처리
+### 12. 1단계: IaC 밖 자원 선처리 — addon 해제
 
-workbench에서 실행한다.
-
-**먼저 ArgoCD 컨트롤러를 멈춘다.** 살아 있으면 아래 ②③④를 지우는 족족 되살린다.
-
-```bash
-# ① 컨트롤러 정지
-kubectl -n argocd scale statefulset argocd-application-controller --replicas=0
-kubectl -n argocd scale deployment  argocd-applicationset-controller --replicas=0
-
-# ② LoadBalancer 타입 Service / AGFC가 만든 리소스
-kubectl delete gateway --all -A
-kubectl delete ingress --all -A
-kubectl delete svc -A --field-selector spec.type=LoadBalancer
-
-# ③ PVC
-kubectl delete pvc --all -A
-
-# ④ NAP(Karpenter) NodePool
-kubectl delete nodepool --all
-kubectl delete aksnodeclass --all
-```
-
-**순서가 중요하다.** ①을 건너뛰면 ArgoCD가 ②③④를 되살린다. ④를 건너뛰고 클러스터를 지우면 NAP 컨트롤러가 먼저 죽어 노드가 고아가 된다.
-
-확인: **지운 직후가 아니라 30초쯤 뒤에 본다.**
+hub의 addon도 spoke와 같은 라벨 해제로 지운다(`spoke-lifecycle.md` 10절, 순서 근거는
+`iac-module-library`의 `docs/architectures/gitops-hub-spoke/ordering.md`). 부모가 addon을 wave 역순으로
+지우므로 Gateway가 만든 내부 LB와 NodePool이 만든 NAP 노드가 엔진보다 먼저 정리된다.
 
 ```bash
-kubectl get nodes
-kubectl get nodepool -A
-az network lb list --query "[?contains(name, 'kubernetes')]"
+# ① GitOps 저장소에서 hub cluster Secret의 environment 라벨만 지우는 PR을 머지한다(spoke와 한 PR로 묶어도 된다).
+#    ApplicationSet이 부모 <cluster>-addons를 지우고, 부모가 addon을 wave 2 → 1 순으로 지운다.
+kubectl -n argocd get applications      # 1~2분 뒤 argocd·root-app 둘만 남아야 한다
+
+# ② addon 밖에서 만든 LB·PVC·NAP 노드가 없는지 본다(workbench에서). 있으면 지운다
+kubectl get svc -A --field-selector spec.type=LoadBalancer; kubectl get ingress,pvc -A
+kubectl get nodepool,aksnodeclass; kubectl get nodes      # 시스템 풀 노드만 남아야 한다
 ```
+
+`argocd`와 root-app은 부모 밖이라 남고, 2단계 destroy가 클러스터째 지운다.
+⚠️ 라벨은 git에서 뗀다. 라이브 Secret만 고치면 root-app의 selfHeal이 되돌린다.
+⚠️ 이 Secret은 다음 seed의 입력이다. destroy가 끝나면 라벨 제거 커밋을 되돌린다.
+
+cascade가 서지 않으면(부모가 남거나 CR이 `deletionTimestamp`를 낀 채 멈추면) 먼저 `argocd-cm`에
+Application health Lua가 있는지 본다. 그래도 안 되면 손으로 지운다. `argocd-application-controller`
+(statefulset)와 `argocd-applicationset-controller`(deployment)를 `scale --replicas=0`으로 멈추고
+Gateway·LB Service·Ingress → PVC → NodePool·AKSNodeClass 순으로 지운다. 컨트롤러를 멈추지 않으면
+ArgoCD가 지운 것을 되살리고, NodePool을 건너뛰고 클러스터를 지우면 NAP 노드가 고아가 된다.
 
 ### 13. 2단계 · 3단계: destroy(workbench → aks → vwan → networking)
 
@@ -394,5 +386,5 @@ az vm deallocate --ids <workbench-vm-id>
 | workbench SSH 접속 직후 `kubectl`이 `localhost:8080` 연결 거부 | cloud-init의 `az login --identity`가 부팅 초기 IMDS 타임아웃으로 실패(apt-daily·kubelogin $HOME과 같은 부팅 레이스 계열) | `cloud-init status`로 `done` 확인 후 `sudo az login --identity --resource-id <workbench UAMI ID>` 재시도(보통 즉시 성공) → `sudo az aks get-credentials ...` → `admin_username` 홈에 `/root/.kube/config` 복사 |
 | state lock이 풀리지 않는다 | apply가 중단됐다 | Storage Account의 blob lease를 확인 후 `az storage blob lease break`로 해제 |
 | 로컬 destroy가 `var.ci_run` 가드로 막힌다 | `require_oidc` 조건 | 로컬 경로는 없다: 워크플로로 파기한다 |
-| 지운 리소스가 되살아난다 | ArgoCD 컨트롤러가 살아 있다 | 12절: `patch`가 아니라 컨트롤러를 `scale 0` |
+| 지운 리소스가 되살아난다 | ArgoCD 컨트롤러가 살아 있다 | 12절: 라벨 해제를 쓰거나, 손으로 지울 때는 `patch`가 아니라 컨트롤러를 `scale 0` |
 | `tofu init`이 provider 다운로드에서 실패 | runner-registry 간 일시적 네트워크 지연 | 새 dispatch가 아니라 `gh run rerun <run-id> --failed`(`CLAUDE.md` 참고) |

@@ -4,8 +4,7 @@
 
 > ⚠️ **hub가 먼저 구축되어 있어야 한다.** spoke의 vWAN 연결은 hub 쪽(`live/hub/vwan`)이
 > 태그 기반으로 자동 발견해 소유한다 - `hub-lifecycle.md`부터 본다.
-> ⏳ 10절의 wave 역순 해제(부모 Application cascade)와 라벨만 떼고 파일을 남기는 철거, 그 파일을
-> 고쳐 되살리는 14절 재등록은 아직 실환경에서 돌려 보지 않았다.
+> ⏳ 10절에서 남긴 파일을 고쳐 되살리는 14절 재등록은 아직 실환경에서 돌려 보지 않았다.
 
 레퍼런스 구현은 이 저장소의 `bootstrap/`·`live/dev/`에 있다.
 
@@ -276,11 +275,11 @@ gh workflow run deploy-dev-network.yml --ref main -f action=apply
 AKS는 `deletion_protection`이 이미 `false`라 이 단계가 필요 없다(`hub-lifecycle.md`와 동일 근거).
 ⛔ 재구축한 뒤에는 `true`로 복원한다.
 
-### 10. 1단계: IaC 밖 자원 선처리 (컨트롤러 정지 대상이 hub다)
+### 10. 1단계: IaC 밖 자원 선처리 (해제 주체가 hub다)
 
-⚠️ **`hub-lifecycle.md`와 다르다.** dev는 자체 ArgoCD가 없으므로 "컨트롤러를 scale
-0"할 대상이 dev 안에 없다. hub의 ApplicationSet이 이 dev 클러스터의 부모를 유지하는 한, dev 안의
-LB·PVC·NodePool을 지워도 hub가 되살린다(대상만 원격일 뿐 hub와 같은 메커니즘).
+`hub-lifecycle.md` 12절과 같은 라벨 해제다. 다른 점은 cascade를 hub의 ArgoCD가 원격으로 돌린다는
+것뿐이다. dev는 자체 ArgoCD가 없어 멈출 컨트롤러가 dev 안에 없다. hub의 ApplicationSet이 이 dev의
+부모를 유지하는 한 dev 안의 LB·PVC·NodePool을 손으로 지워도 hub가 되살린다.
 
 🔴 **`cluster-secret.yaml`을 한 번에 통째로 지우지 않는다.** 이 Secret은 두 역할을 겸한다:
 ①ArgoCD가 이 클러스터에 접속할 자격증명(`secret-type: cluster`·`server`·`config`),
@@ -310,7 +309,7 @@ NodePool/AKSNodeClass 소멸 확인 → ⑤ `cluster-secret.yaml`은 지우지 �
 
 ⚠️ **④의 cascade delete가 이미 실패한 뒤에 라벨을 정정해도 소급되지 않는다.** 남은 자원은
 hub-lifecycle.md 「IaC 밖 자원 선처리」처럼 dev workbench에서 kubectl로 지운다(ArgoCD
-컨트롤러 정지는 hub 쪽이라 해당 없음).
+컨트롤러 정지는 hub 쪽이다).
 
 🔴 **kyverno Application이 `deletionTimestamp`를 낀 채 남으면** 삭제 훅 Job이 `Pending`인지 본다. 시스템
 풀 고정(`aks-platform-gitops`의 `addons/kyverno/values.yaml`)이 빠져 훅이 사라진 NAP 노드를 기다린다. **클러스터가 살아 있는 동안** 그
