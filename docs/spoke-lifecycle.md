@@ -4,7 +4,8 @@
 
 > ⚠️ **hub가 먼저 구축되어 있어야 한다.** spoke의 vWAN 연결은 hub 쪽(`live/hub/vwan`)이
 > 태그 기반으로 자동 발견해 소유한다 - `hub-lifecycle.md`부터 본다.
-> ⏳ 10절의 wave 역순 해제(부모 Application cascade)는 아직 실환경에서 돌려 보지 않았다.
+> ⏳ 10절의 wave 역순 해제(부모 Application cascade)와 라벨만 떼고 파일을 남기는 철거, 그 파일을
+> 고쳐 되살리는 14절 재등록은 아직 실환경에서 돌려 보지 않았다.
 
 레퍼런스 구현은 이 저장소의 `bootstrap/`·`live/dev/`에 있다.
 
@@ -46,6 +47,7 @@ live/dev/workbench/
 ```bash
 export EXPECTED_SUBSCRIPTION=<dev 구독 GUID>   # 필수. 기본값이 없다
 export EXPECTED_TENANT=<GUID>                  # 필수. 기본값이 없다
+export HUB_SUBSCRIPTION=<hub 구독 GUID>        # 필수. hub-peer 역할의 스코프다(verify.sh도 요구한다)
 
 cd bootstrap
 BOOTSTRAP_TARGET=spoke SPOKE_ENV=dev ./bootstrap.sh
@@ -74,13 +76,10 @@ run은 plan까지 돌고 apply job은 environment 승인을 기다린다. run의
 따라간다). main push가 만든 run도 같은 경로라, 이미 승인 대기 중인 run이 있으면 dispatch 없이
 그것을 승인한다. 이 문서의 모든 apply 명령이 같다.
 
-🔑 **AWS 원본과 소유 방향이 다르다.** AWS(`eks-reference-infra`)는 spoke가 RAM 초대를
-수락하고 자기 계정 권한으로 TGW attachment를 직접 만든다(AWS 원본 `spoke-lifecycle.md`). Azure
-vWAN에는 RAM의 정확한 대응물이 없어 이 저장소는 **hub가 연결을 소유하는 반대 방향**을
-택했다(`bootstrap/README.md` "크로스 구독 연결" 절 - 스포크 CI에 hub 컨트롤 플레인
-쓰기 권한을 주는 것보다 hub SP에 스포크 읽기 권한 2액션을 주는 쪽이 더 안전하다고 판단).
-그 결과 **이 root는 vWAN을 전혀 모른다**(`live/dev/networking/main.tf`: "이 root는 dev
-VNet만 만들고 vWAN을 전혀 모른다") - dev 쪽에서 apply·확인할 게 없다.
+🔑 **AWS 원본과 소유 방향이 다르다.** AWS는 spoke가 RAM 초대를 수락하고 TGW attachment를
+직접 만든다. Azure vWAN에는 RAM의 대응물이 없어 **hub가 연결을 소유한다**(근거는
+`bootstrap/README.md` "크로스 구독 연결" 절). 그래서 이 root는 vWAN을 전혀 모르고, dev 쪽에서
+apply·확인할 게 없다.
 
 > 🔑 **hub→dev 연결은 dev networking apply만으로 안 끝날 수 있다.** hub의 vwan이
 > dev networking보다 먼저 서 있었다면(예: hub 단독 재구축 직후) `azurerm_resources`
@@ -94,11 +93,7 @@ VNet만 만들고 vWAN을 전혀 모른다") - dev 쪽에서 apply·확인할 �
 같은 방식으로 `live/dev/aks`를 초기화한다(`key = "dev/aks.tfstate"`). hub의 모든 기능
 (Karpenter/NAP·KEDA·App Routing Gateway API/Istio)을 처음부터 켠 채 승계한다 -
 `enable_karpenter=true`(dev는 hub처럼 나중에 켜는 지뢰를 처음부터 피해간다 -
-`live/hub/aks/main.tf`의 관련 주석 참고), `system_node_pool.auto_scaling_enabled=false`. 모듈 ref는 최초 스캐폴딩
-시점엔 hub와 같은 태그였으나, 6절의 GitOps 등록 과정에서 `private_cluster_public_
-fqdn_enabled`가 필요해져 `aks-cluster-v0.9.0`으로 dev가 먼저 올라갔다(hub는 아직
-`v0.7.0`) - "hub 선행·dev 승계"가 항상 성립하는 건 아니고, dev 쪽 필요가 먼저
-생기면 dev가 앞서갈 수 있다는 사례다.
+`live/hub/aks/main.tf`의 관련 주석 참고), `system_node_pool.auto_scaling_enabled=false`.
 
 ```bash
 gh workflow run deploy-dev-aks.yml --ref main -f action=apply
@@ -305,9 +300,13 @@ SHA면 `kubectl -n argocd annotate application root-app argocd.argoproj.io/refre
 grep <cluster-name>` - 결과 없어야 함. **라벨 제거 update에는 ApplicationSet이 재평가하지 않는
 경우가 있다.** 부모가 그대로면 `kubectl -n argocd rollout restart deployment
 argocd-applicationset-controller`로 강제) → ④ dev 자신에서 addon 파드·Gateway/LB·NAP
-NodePool/AKSNodeClass 소멸 확인 → ⑤ 그제서야 `cluster-secret.yaml`을 통째로 삭제한다.
-root-app은 `prune=false`라 파일을 지워도 hub의 라이브 Secret은 `OutOfSync`로 남는다.
-머지 뒤 `kubectl -n argocd delete secret <이름>`으로 직접 지운다.
+NodePool/AKSNodeClass 소멸 확인 → ⑤ `cluster-secret.yaml`은 지우지 않는다. `environment`
+라벨만 뗀 채로 둔다. `tier`·`addon-*` 라벨도 남긴다(재구축 때 되살릴 것이 `environment` 하나로
+줄어든다). 파일을 지우면 root-app이 `prune=false`라 hub의 라이브 Secret이 남아 손으로 지워야 하고,
+지웠다 되살리는 재구축 커밋에 `addon-*` 라벨을 빠뜨릴 자리가 생긴다.
+
+⚠️ **철거 뒤 hub의 클러스터 목록에는 이 dev가 마지막 연결 상태로 남는다.** 대상 Application이
+없으면 ArgoCD가 연결을 다시 확인하지 않는다. 목록의 상태 표시는 클러스터의 실재를 뜻하지 않는다.
 
 ⚠️ **④의 cascade delete가 이미 실패한 뒤에 라벨을 정정해도 소급되지 않는다.** 남은 자원은
 hub-lifecycle.md 「IaC 밖 자원 선처리」처럼 dev workbench에서 kubectl로 지운다(ArgoCD
@@ -370,9 +369,14 @@ AWS 원본의 blackhole 라우트 정리와 원리가 같다. 다만 Azure는 �
 ### 14. 재배포 시 GitOps 재등록
 
 dev AKS를 destroy 후 재생성하면 클러스터 이름이 같아도 API endpoint·CA 인증서는 **반드시
-새로 발급**된다(FQDN의 무작위 접미사가 매 재구축마다 바뀐다). 재배포 시 `cluster-secret.yaml`의 `server`·`caData`만 갱신하고
-`argocd.argoproj.io/secret-type`·라벨(`environment`·`tier`·`addon-*`)은 그대로
-유지해야 한다(빠뜨리면 addon 구독이 조용히 빠진 채 재배포된다).
+새로 발급**된다(FQDN의 무작위 접미사가 매 재구축마다 바뀐다). 10절 ⑤에서 남겨 둔
+`cluster-secret.yaml`은 옛 값을 갖고 있다. 새 값은 6절의 수집 명령으로 얻는다.
+
+**한 커밋으로 한다**: `server` 교체, `caData` 교체, `environment` 라벨 복원, 그리고
+`projects/platform.yaml`의 dev destination을 새 `server`로 교체. hub도 재구축했으면
+`AZURE_CLIENT_ID`도 바꾼다(아래 ⚠️). 커밋 전에 `git diff`가 이 줄들뿐인지 본다. `tier`·`addon-*`
+라벨은 철거 때 남겨 두었으므로 손대지 않는다(빠뜨리면 addon 구독이 조용히 빠진 채 재배포된다).
+GitOps 매니페스트 변경이라 브랜치 → PR이다.
 
 ✅ **hub ArgoCD의 dev 클러스터 RBAC 권한은 새 AKS 리소스 ID로 자동 재생성된다.** 5절의
 `deploy-dev-aks.yml apply`가 role assignment 생성까지 포함하므로 `live/hub/vwan`을
@@ -383,9 +387,6 @@ dev AKS를 destroy 후 재생성하면 클러스터 이름이 같아도 API endp
 assignment를 새 principal로 옮기고, `cluster-secret.yaml`의 `AZURE_CLIENT_ID`(리터럴
 값)를 `az identity show`로 재조회해 server·caData·`projects/platform.yaml`과 함께 갱신한다.
 
-⚠️ **`projects/platform.yaml`의 dev destination도 매 재배포마다 갱신한다.** 6절의 최초
-등록 때만 필요한 게 아니다. 빠뜨려도 즉시 에러는 안 나지만(기존 destination 항목이 여전히
-유효한 패턴으로 남아있는 동안은) 다음 재구축 때 오래된 FQDN을 가리키는 채로 드러난다.
 
 ### 15. 되돌릴 수 없는 것 / 자주 막히는 지점
 
