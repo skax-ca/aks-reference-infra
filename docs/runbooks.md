@@ -328,7 +328,7 @@ az resource list --resource-group "$NODE_RG" -o table
 
 | 층 | 무엇이 | 누가 만드나 | 크기 |
 |----|--------|-----------|------|
-| 시스템 풀(기본 풀) | AKS 관리형 addon(coredns·metrics-server·CSI 등)과 ArgoCD | `live/*/aks` `system_node_pool` | `Standard_D4s_v5` 고정 2대, `auto_scaling_enabled = false` |
+| 시스템 풀(기본 풀) | AKS 관리형 addon(coredns·metrics-server·CSI 등)과 ArgoCD·Kyverno | `live/*/aks` `system_node_pool` | `Standard_D4s_v5` 고정 2대, `auto_scaling_enabled = false` |
 | NAP(Karpenter) 노드 | 나머지 전부 | `NodePool`·`AKSNodeClass` CR(`aks-platform-gitops` `addons/cluster-addons/templates/karpenter-nodepool.yaml`) | pending 파드에 따라 |
 
 **시스템 풀은 `CriticalAddonsOnly=true:NoSchedule`로 잠겨 있다.** `live/*/aks`의
@@ -336,9 +336,10 @@ az resource list --resource-group "$NODE_RG" -o table
 시스템 풀에 걸 수 없다). 그 taint를 견디지 않는 파드는 전부 NAP 노드로 간다.
 
 toleration을 가진 것은 둘뿐이다. AKS 관리형 addon은 AKS가 자기 파드에 넣고, 플랫폼 addon
-중에는 ArgoCD만 받는다(`aks-platform-gitops`의 `bootstrap/argocd-values.yaml`). ArgoCD가
-예외인 이유는 NAP 노드를 띄우는 `NodePool` CR을 배포하는 것이 ArgoCD 자신이기 때문이다.
-Kyverno를 비롯한 나머지가 NAP 노드로 밀려나는 것은 의도한 결과다.
+중에는 ArgoCD(`aks-platform-gitops`의 `bootstrap/argocd-values.yaml`)와 Kyverno(`addons/kyverno/values.yaml`,
+nodeSelector로 고정)만 받는다. 근거는 `iac-module-library`의
+`docs/architectures/gitops-hub-spoke/azure/README.md` 「노드 배치」. 그 밖의 파드가 NAP 노드로
+밀려나는 것은 의도한 결과다.
 
 NAP `NodePool`에는 taint를 두지 않는다. 두면 모든 app Deployment가 toleration을 알아야
 하는 마찰만 생긴다(EKS 원본과 같은 판단).
@@ -349,7 +350,7 @@ NAP `NodePool`에는 taint를 두지 않는다. 두면 모든 app Deployment가 
 kubectl get pods -A -o wide --field-selector spec.nodeName=<시스템 노드 이름>
 ```
 
-🔑 taint를 건 뒤 여기 보이는 것은 `kube-system`의 관리형 addon과 `argocd` 네임스페이스뿐이어야
+🔑 taint를 건 뒤 여기 보이는 것은 `kube-system`의 관리형 addon과 `argocd`·`kyverno` 네임스페이스뿐이어야
 한다. 그 밖의 파드가 보이면 그 워크로드가 `CriticalAddonsOnly` toleration을 갖고 있다는
 뜻이므로, 넣은 이유를 확인한다.
 

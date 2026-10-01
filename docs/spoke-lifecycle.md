@@ -188,7 +188,7 @@ metadata:
     argocd.argoproj.io/secret-type: cluster
     environment: <SPOKE_ENV>        # ApplicationSet cluster-addons가 존재로 부모 Application을 만든다
     tier: nonprd                    # 부모 차트가 버전 표의 줄을 고른다. prd·nonprd 밖이면 렌더 실패
-    addon-karpenter: enabled        # opt-in - NAP을 켠 클러스터만. 없으면 Kyverno가 뜰 노드가 없다
+    addon-karpenter: enabled        # opt-in - NAP을 켠 클러스터만. 없으면 앱이 뜰 NAP 노드가 없다
 type: Opaque
 stringData:
   name: <cluster-name>
@@ -235,7 +235,7 @@ kubectl patch application root-app -n argocd --type merge \
 ```
 
 **완료 조건**: ApplicationSet `cluster-addons`가 이 클러스터의 부모 `<cluster>-addons`를 만들고,
-부모가 addon Application을 wave 순서(NodePool·Gateway → Kyverno → 정책)로 만들어 전부
+부모가 addon Application을 wave 순서(Kyverno → NodePool·Gateway·정책)로 만들어 전부
 `Synced`/`Healthy`로 수렴한다. 부모가 `Healthy`면 마지막 wave까지 끝난 것이다 - 7절 4·5번과 같은 기준, hub의 ArgoCD에서
 확인한다. **재배포 시 재등록**은 14절.
 
@@ -291,9 +291,9 @@ undefined cluster`), addon 파드·Gateway/LB·NAP NodePool이 orphan으로 남�
 `docs/architectures/gitops-hub-spoke/ordering.md`와 `azure/README.md`가 갖는다.
 
 순서: ① `environment` 라벨만 지운다. ApplicationSet이 부모 `<cluster>-addons`를 지우고, 부모의
-finalizer가 addon을 wave 역순으로 지운다: 정책 → Kyverno → NodePool·Gateway. 앞 wave의 삭제가
-끝나야 다음 wave로 넘어가므로 Kyverno와 그 삭제 훅 Job(`scale-to-zero`·`rm-webhooks`)은 NAP 노드가
-살아 있을 때 끝난다 → ② hub `root-app`의 반영 확인(`kubectl -n argocd get application root-app -o
+finalizer가 addon을 wave 역순으로 지운다: NodePool·Gateway·정책 → Kyverno. 앞 wave의 삭제가
+끝나야 엔진이 지워진다. 엔진과 삭제 훅 Job(`scale-to-zero`·`rm-webhooks`)은 시스템 풀에 고정돼 NAP
+노드가 먼저 사라져도 돈다 → ② hub `root-app`의 반영 확인(`kubectl -n argocd get application root-app -o
 jsonpath='{.status.sync.revision}'` - multi-source가 아니라 `revision` 단수 필드다. 3분 넘게 옛
 SHA면 `kubectl -n argocd annotate application root-app argocd.argoproj.io/refresh=hard
 --overwrite`) → ③ 부모와 addon Application 소멸 확인(`kubectl -n argocd get applications |
@@ -312,8 +312,8 @@ NodePool/AKSNodeClass 소멸 확인 → ⑤ `cluster-secret.yaml`은 지우지 �
 hub-lifecycle.md 「IaC 밖 자원 선처리」처럼 dev workbench에서 kubectl로 지운다(ArgoCD
 컨트롤러 정지는 hub 쪽이라 해당 없음).
 
-🔴 **kyverno Application이 `deletionTimestamp`를 낀 채 남으면** wave 순서가 서지 않아(health Lua 누락
-등) NodePool이 먼저 지워져 삭제 훅 Job이 `Pending`에 걸린 것이다. **클러스터가 살아 있는 동안** 그
+🔴 **kyverno Application이 `deletionTimestamp`를 낀 채 남으면** 삭제 훅 Job이 `Pending`인지 본다. 시스템
+풀 고정(`aks-platform-gitops`의 `addons/kyverno/values.yaml`)이 빠져 훅이 사라진 NAP 노드를 기다린다. **클러스터가 살아 있는 동안** 그
 Application의 finalizer만 비운다(`kubectl -n argocd patch application <이름> --type merge -p '{"metadata":{"finalizers":[]}}'`).
 
 ### 11. 2단계 · 3단계: destroy(workbench → aks → networking)
