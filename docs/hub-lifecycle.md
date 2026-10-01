@@ -31,6 +31,7 @@ brew install opentofu azure-cli gh jq
 | hub VNet CIDR | `10.60.0.0/16` | VNet 재생성(`deletion_protection` 해제 필요, 11절) |
 | AKS `cni_mode`·`pod_cidr` | `overlay`·`10.244.0.0/16` | `network_profile` 블록 전체가 ForceNew(클러스터 재생성) |
 | AKS `private_cluster_enabled` | `true` | Portal 그래픽 뷰 접근이 원천 차단된다(우회는 workbench 또는 `az aks command invoke`뿐) |
+| AKS Entra 통합 | 켠다(로컬 계정은 끈다) | Azure가 통합 해제를 지원하지 않는다. `kubectl`을 쓰는 주체마다 클러스터 스코프의 `RBAC Cluster Admin` role assignment가 필요하다. 로컬 계정은 다시 켤 수 있다 |
 | hub·dev를 어디 둘지(같은 구독/분리 구독) | 분리 구독 | 크로스 구독 vWAN 권한(`peer/action`) 재설계 |
 
 ### 2. 배포 저장소 만들기
@@ -198,7 +199,7 @@ argocd app diff argocd --core  # 출력 없음·exit 0이 기대값(무해한 di
 | # | 확인 | 명령 |
 |---|------|------|
 | 1 | 부트스트랩 drift 없음 | `./bootstrap/verify.sh` |
-| 2 | 노드가 Ready | `az aks command invoke -g <rg> -n <cluster> --command "kubectl get nodes -o wide"` (또는 workbench에서 직접) |
+| 2 | 노드가 Ready | workbench에서 `kubectl get nodes -o wide` |
 | 3 | `network_profile`이 요청대로 적용 | `az aks show -g <rg> -n <cluster> --query networkProfile` |
 | 4 | root Application이 커밋 SHA를 읽음 | `kubectl -n argocd get application root-app -o jsonpath='{.status.sync.revision}'`(`root-app`은 single-source라 `revision` 단수 필드다. `revisions` 배열은 multi-source Application만 쓴다) |
 | 5 | 전 Application이 `Synced`/`Healthy` | `kubectl -n argocd get applications` |
@@ -383,7 +384,7 @@ az vm deallocate --ids <workbench-vm-id>
 | `prevent_destroy`로 plan이 실패한다 | 삭제 보호 | 11절: 코드를 고쳐 apply한다 |
 | destroy 후에도 노드가 살아 있다 | NAP 고아 | NodePool/AKSNodeClass를 먼저 지웠어야 한다(12절) |
 | 클러스터를 지웠는데 `MC_*` RG가 남았다 | IaC 밖 자원이 먼저 안 죽었다(12절) | 태그로 특정해 수동 삭제 |
-| workbench SSH 접속 직후 `kubectl`이 `localhost:8080` 연결 거부 | cloud-init의 `az login --identity`가 부팅 초기 IMDS 타임아웃으로 실패(apt-daily·kubelogin $HOME과 같은 부팅 레이스 계열) | `cloud-init status`로 `done` 확인 후 `sudo az login --identity --resource-id <workbench UAMI ID>` 재시도(보통 즉시 성공) → `sudo az aks get-credentials ...` → `admin_username` 홈에 `/root/.kube/config` 복사 |
+| workbench SSH 접속 직후 `kubectl`이 `localhost:8080` 연결 거부 | cloud-init의 `az login --identity`가 부팅 초기 IMDS 타임아웃으로 실패(apt-daily·kubelogin $HOME과 같은 부팅 레이스 계열) | `cloud-init status`로 `done` 확인 후 `sudo az login --identity --resource-id <workbench UAMI ID>` 재시도(보통 즉시 성공) → `sudo az aks get-credentials ...` → `sudo kubelogin convert-kubeconfig -l msi ...` → `admin_username` 홈에 `/root/.kube/config` 복사. 명령 전체는 `runbooks.md` 「자주 쓰는 조회」 |
 | state lock이 풀리지 않는다 | apply가 중단됐다 | Storage Account의 blob lease를 확인 후 `az storage blob lease break`로 해제 |
 | 로컬 destroy가 `var.ci_run` 가드로 막힌다 | `require_oidc` 조건 | 로컬 경로는 없다: 워크플로로 파기한다 |
 | 지운 리소스가 되살아난다 | ArgoCD 컨트롤러가 살아 있다 | 12절: 라벨 해제를 쓰거나, 손으로 지울 때는 `patch`가 아니라 컨트롤러를 `scale 0` |

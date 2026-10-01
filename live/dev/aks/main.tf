@@ -96,11 +96,10 @@ module "aks_cluster" {
   # ⛔ 소싱 URL 은 git::https:// 하나로 유지한다(모듈 repo 규약, AWS 원본과 동일 근거).
   # ⛔ ?ref= 는 정확 태그 핀이다. git 소싱에 ~> 는 동작하지 않는다.
   #
-  # hub 와 같은 태그를 유지한다. entra_integration_enabled·private_cluster_public_fqdn_enabled
-  # (아래)는 dev 고유 요구사항이라 hub 는 쓰지 않는다. hub 의 self-managed ArgoCD 는
-  # 자기 자신이 도는 클러스터를 가리키는 self-hosting 지름길(cluster-secret 의
-  # server: https://kubernetes.default.svc)만 쓰므로 Entra RBAC 노출이 필요 없고, dev 는
-  # hub 구독의 ArgoCD 가 크로스 구독으로 접근해야 해서 필요하다.
+  # hub 와 같은 태그를 유지한다. private_cluster_public_fqdn_enabled(아래)는 dev 고유
+  # 요구사항이라 hub 는 쓰지 않는다. hub 의 self-managed ArgoCD 는 자기 클러스터를
+  # cluster-secret 의 server: https://kubernetes.default.svc 로 가리켜 이름 해석이 필요 없고,
+  # dev 는 hub 구독의 ArgoCD 가 크로스 구독으로 접근해야 해서 필요하다.
   # ⚠️ 태그를 내리면 아래 인자가 "Unsupported argument"로 깨진다. 태그를 올릴 때는 모듈
   #    CHANGELOG(태그 메시지)로 ForceNew 축 변경 여부를 먼저 본다.
   source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.10.0&depth=1"
@@ -144,7 +143,7 @@ module "aks_cluster" {
   # (ManagedClusters.CreateOrUpdate)가 있다. 클러스터 재생성 승인 불필요.
   workload_identity_enabled = true
 
-  # ── Entra RBAC(크로스 구독 GitOps 접근) ────────────────────────────────────
+  # ── 클러스터 인증: Entra 통합 + 로컬 계정 비활성화(hub 와 같은 값) ─────────────
   #
   # ⛔ 비가역. Azure 공식 문서(managed-azure-ad): "Microsoft Entra integration
   # can't be disabled after it's enabled on a cluster." 되돌리려면 클러스터
@@ -154,14 +153,18 @@ module "aks_cluster" {
   # entra_admin_group_object_ids는 넘기지 않는다(모듈 기본값 [] 유지). 사람 admin
   # 그룹은 만들지 않는다. 접근 권한은 이 블록이 아니라 클러스터 리소스 ID 스코프의
   # azurerm_role_assignment로 개별 부여한다(workbench UAMI는 live/dev/workbench가,
-  # hub ArgoCD UAMI는 이 root 아래 절이 만든다). local_account_disabled 는 건드리지
-  # 않는다(모듈 기본값 false 유지). 로컬 admin kubeconfig(break-glass) 경로는 그대로 살려둔다.
+  # hub ArgoCD UAMI는 이 root 아래 절이 만든다).
+  #
+  # 로컬 계정(인증서 기반 관리자 kubeconfig)은 끈다. Entra ID 를 거치지 않아 그 인증서로 한
+  # 요청이 Entra 로그인 기록에 남지 않는다. false 로 되돌릴 수 있다. 접근을 전부 잃으면
+  # 구독 Owner 가 클러스터 스코프의 RBAC Cluster Admin role assignment 를 추가해 복구한다.
   #
   # ForceNew 아님. azurerm provider 소스(kubernetes_cluster_resource.go)에서
   # azure_active_directory_role_based_access_control 블록은 CustomizeDiff의 ForceNew
   # 목록에 없고 in-place 업데이트 경로(ResetAADProfileThenPoll)가 있다. 클러스터 재생성
   # 없이 반영된다.
   entra_integration_enabled = true
+  local_account_disabled    = true
 
   # 모듈 기본값과 같지만 명시한다(위 cni_mode 와 같은 이유. 이 값도 ForceNew 다).
   # GitOps(pull) 전제라 공개 엔드포인트가 필요 없다. private 클러스터라도 검증은

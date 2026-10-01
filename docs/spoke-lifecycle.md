@@ -126,11 +126,11 @@ gh workflow run deploy-dev-workbench.yml --ref main -f action=apply
 레이스에 취약하다(`apt-daily-upgrade.timer`와의 lists lock 경합, root `$HOME`이 `/`로
 잡혀 `/.kube/config`를 변환 대상으로 삼는 오인). `aks-workbench-v0.7.0`이 둘 다 고쳤다.
 
-⚠️ **`v0.7.0`의 apt lock 완화는 `apt-daily.service`류만 대상이다.** Entra RBAC용
+⚠️ **`v0.7.0`의 apt lock 완화는 `apt-daily.service`류만 대상이다.** Entra SSH 로그인용
 AADSSHLoginForLinux 확장이 `aadsshlogin` 패키지를 설치하며 잡는
 `unattended-upgrades.service`의 lock은 여전히 azure-cli 설치용 apt-get과 경합해 `az`
-명령 자체가 설치되지 않을 수 있다. hub는 `aks_entra_rbac_enabled=false`라 이 확장을 안
-써서 드러나지 않는다. 이 경합 상대는 필요한 작업이라 죽이면 안 되고,
+명령 자체가 설치되지 않을 수 있다. 이 확장은 모듈의 `entra_ssh_login_enabled`(기본 `true`)가
+만들어 hub·dev workbench 양쪽에 있다. 이 경합 상대는 필요한 작업이라 죽이면 안 되고,
 `DPkg::Lock::Timeout=600`이 왜 이 lock에는 안 먹히는지부터 봐야 한다.
 `iac-module-library`의 별도 조사·수정 대상이다(이 저장소 범위 밖).
 

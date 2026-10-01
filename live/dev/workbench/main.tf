@@ -3,8 +3,8 @@
 # iac-module-library 의 modules/azure/aks-workbench 를 소비한다.
 #
 # live/hub/workbench 를 템플릿으로 복제한 두 번째 인스턴스다. 기능 범위·모듈 버전·도구
-# 버전을 hub 와 동일하게 승계한다. hub 와 갈리는 것은 vm_size(구독 용량 제약)와 Entra
-# RBAC 경로(dev AKS가 Entra 통합이라 kubelogin 변환과 RBAC role assignment가 필요)다.
+# 버전·클러스터 인증 경로를 hub 와 동일하게 승계한다. hub 와 갈리는 것은 vm_size(구독 용량
+# 제약)다.
 #
 # ⚠️ 네트워킹은 live/dev/networking 이 소유한다. 이 root 는 이미 배포된 vm 서브넷을
 #    Name 기반 data 로 조회만 한다. 서브넷을 새로 만들지 않는다(⛔ terraform_remote_state
@@ -215,13 +215,9 @@ module "aks_workbench" {
 
   # ── AKS 연동: kubeconfig 부트스트랩 + kubelogin MSI 변환 ────────────────────────
   #
-  # ⚠️ 여기서 hub와 갈라진다(live/dev/aks/main.tf의 entra_integration_enabled 갈림과
-  # 같은 이유). hub의 self-managed ArgoCD는 자기 자신이 도는 클러스터를 가리키는
-  # self-hosting 지름길(kubernetes.default.svc)만 쓰므로 Entra RBAC 노출이 필요
-  # 없어 hub workbench는 aks_entra_rbac_enabled = false로 남는다. dev AKS는
-  # live/dev/aks가 entra_integration_enabled = true(비가역)라 Azure RBAC for Kubernetes
+  # dev AKS(live/dev/aks)가 Entra 통합이고 로컬 계정을 꺼서, Azure RBAC for Kubernetes
   # Authorization이 유일한 K8s API 인가 경로다. 이 workbench도 그 경로를 타야 kubectl이
-  # 동작한다.
+  # 동작한다. hub workbench와 같은 구성이다.
   #
   # az aks get-credentials가 --admin 없이 호출되므로(모듈 cloud-init 템플릿 확인)
   # 발급되는 kubeconfig는 AAD 로그인이 필요한 형태다. kubelogin convert-kubeconfig
