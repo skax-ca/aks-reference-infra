@@ -114,7 +114,7 @@ networking → spoke eks → **hub networking 재적용**"과 정확히 같은 �
 
 같은 방식으로 `live/hub/aks`를 초기화한다(`key = "hub/aks.tfstate"`). 이 root는 `data.azurerm_subnet`으로 `aks-node` 서브넷을 Name 기반 조회하므로 networking이 먼저 있어야 한다.
 
-**`vwan`과 `aks`는 서로를 읽지도 쓰지도 않는다.** 순서를 정하는 것은 각 root의 `data` 조회뿐이고 둘 다 networking만 읽으므로, 이 문서가 networking → vwan → aks로 적어도 **둘을 병렬로 돌릴 수 있다**(먼저 끝나는 쪽을 기다릴 이유가 없다). ⚠️ 다만 apply를 동시에 걸었을 때 Azure가 같은 VNet에 대한 쓰기를 직렬화해 한쪽을 `AnotherOperationInProgress`로 떨어뜨리는지는 실측하지 않았다. 병렬로 돌린다면 실패 시 `gh run rerun`으로 재시도할 수 있다는 전제에서 한다.
+**`vwan`과 `aks`는 서로를 읽지도 쓰지도 않는다.** 순서를 정하는 것은 각 root의 `data` 조회뿐이고 둘 다 networking만 읽으므로, 이 문서가 networking → vwan → aks로 적어도 **둘을 병렬로 돌릴 수 있다**(먼저 끝나는 쪽을 기다릴 이유가 없다). apply를 동시에 걸어도 둘 다 끝난다. Azure가 같은 VNet에 대한 쓰기를 직렬화해 한쪽을 `AnotherOperationInProgress`로 떨어뜨리면 `gh run rerun <run-id> --failed`로 재시도한다.
 
 identity·role assignment는 **이 root가 Terraform으로 직접 만든다**(bootstrap이 아니다. CI가 구독 전체 Owner 등가라 그 구조적 제약이 없다). `aks-cluster` 모듈 자체는 identity도 role assignment도 만들지 않는 경계 원칙을 유지한다.
 
