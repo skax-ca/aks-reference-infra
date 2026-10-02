@@ -93,21 +93,23 @@ apply·확인할 게 없다.
 `enable_karpenter=true`(dev는 hub처럼 나중에 켜는 지뢰를 처음부터 피해간다 -
 `live/hub/aks/main.tf`의 관련 주석 참고), `system_node_pool.auto_scaling_enabled=false`.
 
+🔑 **`live/hub/aks`의 apply가 끝난 뒤에 건다.** 이 root는 plan 시점에 hub ArgoCD
+UAMI(`id-demo-hub-krc-argocd-01`)를 `Role=argocd-hub` 태그로 조회해, hub ArgoCD의 dev 클러스터 RBAC
+권한(`Azure Kubernetes Service RBAC Cluster Admin`)을 자기 apply 안에서 만든다(AWS 원본의
+`live/dev/eks`가 `access_entries`를 자기 apply에 넣는 것과 같다. 근거는 `iac-module-library`
+`docs/architectures/gitops-hub-spoke/azure/README.md` 「클러스터 등록」). 그래서 `live/hub/vwan`을
+다시 적용할 필요가 없다. hub와 dev를 함께 구축할 때 기다리는 것은 이 root 하나다.
+`live/dev/networking`은 hub의 어느 root도 읽지 않으므로 hub networking과 동시에 건다.
+plan 요약에 `azurerm_role_assignment.argocd_hub_access[0]`이 있는지 보고 승인한다.
+
 ```bash
+az identity list --subscription <hub 구독 GUID> --query "[?tags.Role=='argocd-hub'].name" -o tsv  # 1건이면 건다
 gh workflow run deploy-dev-aks.yml --ref main -f action=apply
 ```
 
 > 🔴 **`cni_mode`·`pod_cidr`·`private_cluster_enabled`는 `network_profile` 블록 전체가
 > ForceNew라 첫 apply가 사실상 최종 선택이다.** hub와 동일 값을 그대로 쓰므로 1절에서
 > 이미 확정돼 있다.
-
-✅ **`live/hub/vwan`을 다시 적용할 필요가 없다.** hub ArgoCD의 dev 클러스터 RBAC
-권한(`Azure Kubernetes Service RBAC Cluster Admin`)은 `live/dev/aks` 자신이 hub ArgoCD
-UAMI(`id-demo-hub-krc-argocd-01`, `Role=argocd-hub` 태그로 발견)를 조회해 자기 apply
-안에서 직접 만든다(AWS 원본 `eks-reference-infra`의 `live/dev/eks`가 `access_entries`를
-자기 apply 안에 포함시키는 것과 같은 원리. 근거는 `iac-module-library`
-`docs/architectures/gitops-hub-spoke/azure/README.md` 「클러스터 등록」). 위
-`deploy-dev-aks.yml apply` 한 번으로 role assignment까지 함께 생긴다.
 
 같은 방식으로 `live/dev/workbench`를 초기화한다(`key = "dev/workbench.tfstate"`).
 `live/hub/workbench`를 템플릿으로 그대로 복제한다 - 도구 핀(az·kubectl·helm·argocd·
