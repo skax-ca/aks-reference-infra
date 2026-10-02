@@ -49,8 +49,8 @@ az aks command invoke -g <rg> -n <cluster> --command "kubectl get nodes -o wide"
 | 호출자가 클러스터 스코프의 `Azure Kubernetes Service RBAC Cluster Admin`을 갖는다 | 명령은 돌지만 출력이 `Forbidden ... User does not have access to the resource in Azure`다. 구독 `Owner`로는 부족하다(Kubernetes dataAction이 없다) | 아래 「클러스터 접근을 전부 잃었다」의 role assignment를 준다. 전파에 2~3분 걸리므로 그동안은 같은 `Forbidden`이 난다 |
 | 명령 파드가 뜰 노드가 있다 | `Operation returned an invalid status 'OK'`로 끝난다. `--debug`의 `reason`이 `Unschedulable ... untolerated taint(s)`다. 시스템 풀은 `CriticalAddonsOnly` taint라 이 파드를 받지 않는다 | 다시 던진다. 실패한 호출의 파드가 NAP 노드 프로비저닝을 일으켜 1~2분 뒤부터 통한다 |
 
-⚠️ NodePool은 GitOps가 만든다. seed 전이거나 `environment` 라벨을 뗀 뒤에는 NAP이 띄울 풀이 없어
-`command invoke`가 계속 `Unschedulable`로 끝난다. 그 구간의 접근 경로는 workbench뿐이다.
+⚠️ NodePool은 GitOps가 만든다. seed 전이거나 `environment` 라벨을 뗀 뒤에는 NodePool이 없어 다시
+던져도 `Unschedulable`이다. 그 구간에는 workbench로만 들어간다.
 
 > `az aks command invoke`로 비밀·자격증명을 조회하지 않는다. 출력이 ARM 경유로 저장되어
 > `az aks command result`로 다시 꺼낼 수 있다. 값을 봐야 하면 **대화형 SSH 세션**에서
@@ -75,7 +75,7 @@ az role assignment create \
 ```
 
 API 서버가 private이라 `kubectl`은 여전히 VNet 안에서만 닿는다. workbench가 없으면 위
-`command invoke`로 던진다. 복구가 끝나면 그 role assignment를 지운다
+`command invoke`로 던진다(NodePool이 있어야 한다). 복구가 끝나면 그 role assignment를 지운다
 (`az role assignment delete`에 같은 세 인자).
 
 ### workbench에서 kubeconfig가 아예 안 만들어졌다

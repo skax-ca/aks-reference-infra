@@ -114,7 +114,7 @@ networking → spoke eks → **hub networking 재적용**"과 정확히 같은 �
 
 같은 방식으로 `live/hub/aks`를 초기화한다(`key = "hub/aks.tfstate"`). 이 root는 `data.azurerm_subnet`으로 `aks-node` 서브넷을 Name 기반 조회하므로 networking이 먼저 있어야 한다.
 
-**`vwan`과 `aks`는 서로를 읽지도 쓰지도 않는다.** 순서를 정하는 것은 각 root의 `data` 조회뿐이고 둘 다 networking만 읽으므로, 이 문서가 networking → vwan → aks로 적어도 **둘을 병렬로 돌릴 수 있다**(먼저 끝나는 쪽을 기다릴 이유가 없다). apply를 동시에 걸어도 둘 다 끝난다. Azure가 같은 VNet에 대한 쓰기를 직렬화해 한쪽을 `AnotherOperationInProgress`로 떨어뜨리면 `gh run rerun <run-id> --failed`로 재시도한다.
+**`vwan`과 `aks`는 서로를 읽지도 쓰지도 않는다.** 순서를 정하는 것은 각 root의 `data` 조회뿐이고 둘 다 networking만 읽으므로, 이 문서가 networking → vwan → aks로 적어도 **둘을 병렬로 돌릴 수 있다**(먼저 끝나는 쪽을 기다릴 이유가 없다). apply도 동시에 건다. 한쪽이 `AnotherOperationInProgress`로 떨어지면 `gh run rerun <run-id> --failed`로 재시도한다.
 
 identity·role assignment는 **이 root가 Terraform으로 직접 만든다**(bootstrap이 아니다. CI가 구독 전체 Owner 등가라 그 구조적 제약이 없다). `aks-cluster` 모듈 자체는 identity도 role assignment도 만들지 않는 경계 원칙을 유지한다.
 
@@ -191,6 +191,8 @@ argocd app diff argocd --core  # 출력 없음·exit 0이 기대값(무해한 di
 ```
 
 스크립트는 매니페스트를 **생성하지 않는다.** GitOps 저장소에 커밋된 파일을 그대로 apply한다.
+
+⚠️ `argocd app diff`는 `argocd` Application이 `Synced`가 된 뒤에 본다. seed 직후에는 root-app이 아직 흡수 sync를 돌리지 않아 리소스마다 `tracking-id` annotation 한 줄이 diff로 나오고 exit 1이다.
 
 **완료 조건: 초기 admin 비밀번호 교체**는 선택이 아니다. 교체 후 `argocd-initial-admin-secret`을 삭제한다. 절차는 `runbooks.md` 「ArgoCD 관리자 비밀번호 교체」가 소유한다.
 
