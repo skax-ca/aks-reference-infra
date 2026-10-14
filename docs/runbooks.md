@@ -180,52 +180,36 @@ kubectl -n argocd get secret argocd-initial-admin-secret     # NotFound 여야 �
 
 ## 4. AKS 업그레이드
 
-### 하드 제약
+순서와 그 근거는 `iac-module-library`의 `docs/architectures/gitops-hub-spoke/azure/upgrade.md`가 갖는다.
 
-- **컨트롤플레인 마이너는 1단계씩만.** `1.35 -> 1.37` 직행은 불가하다. 두 번 돈다(LTS 채널 제외).
-- **컨트롤플레인이 항상 먼저다.** 노드 풀 버전은 컨트롤플레인보다 높을 수 없고, 최대
-  **3마이너**까지 뒤처질 수 있다. EKS와 순서가 반대다(EKS는 노드를 먼저 맞춘다).
-- 이 repo는 `automatic_upgrade_channel`을 쓰지 않는다(모듈이 노출하지 않아 `none`).
-  사람이 올리기 전까지 버전은 그대로다.
+### 제약
 
-### 지금 클러스터가 어느 버전인지
+| 제약 | 내용 |
+|------|------|
+| 마이너는 한 번에 하나 | `1.35 → 1.37` 직행은 안 된다. plan은 통과하고 apply에서 AKS가 거부한다 |
+| 컨트롤플레인이 먼저다 | 노드 풀은 컨트롤플레인보다 높을 수 없고, 3 마이너까지 뒤처질 수 있다 |
+| 컨트롤플레인은 내릴 수 없다 | 되돌릴 수 있는 것은 노드 풀뿐이다(`az aks nodepool rollback`, 7일) |
+| 자동 업그레이드는 없다 | `automatic_upgrade_channel`을 쓰지 않는다. 코드의 값을 올리기 전까지 버전은 그대로다 |
 
-`live/*/aks/main.tf`는 `kubernetes_version`을 넘기지 않는다. provider가 **생성 시점의 권장
-버전**을 고르고 이후 자동 업그레이드는 하지 않는다. 코드에 버전이 없으니 실물을 본다.
+### 버전의 자리
+
+| 대상 | 자리 |
+|------|------|
+| 컨트롤플레인 | `live/<env>/aks/main.tf`의 `kubernetes_version` |
+| 시스템 풀 | 같은 파일의 `system_node_pool.kubernetes_version` |
+| NAP 노드 | 없다. 컨트롤플레인의 버전을 따라간다 |
+| workbench의 `kubectl` | `live/<env>/workbench/main.tf`의 `kubectl_version`. 올릴 대상 마이너로 핀한다 |
+
+컨트롤플레인과 시스템 풀은 다른 커밋에서 올린다. 두 값에 같은 패치 버전을 적는다.
 
 ```bash
+# 실제 버전
 az aks show -g <rg> -n <cluster> \
   --query '{cp:currentKubernetesVersion, pools:agentPoolProfiles[].{name:name, ver:currentOrchestratorVersion}}'
-az aks get-upgrades -g <rg> -n <cluster> -o table     # 갈 수 있는 버전 목록
+
+# 갈 수 있는 버전
+az aks get-upgrades -g <rg> -n <cluster> -o table
 ```
-
-### apply를 둘로 나눈다
-
-| 단계 | 무엇을 | 누가 |
-|------|--------|------|
-| 사전 | deprecated API 스캔(`kubent`, workbench에서) + 컴퓨트 쿼터 확인 | 사람 |
-| **apply 1** | `module "aks_cluster"`에 `kubernetes_version = "<+1 마이너>"` 추가 → 워크플로 apply | IaC(컨트롤플레인만) |
-| **apply 2** | 시스템 노드 풀 업그레이드 | `az aks nodepool upgrade`(IaC 밖) |
-| (자동) | NAP(Karpenter) 노드 | 컨트롤플레인 버전을 자동 추종한다 |
-
-apply 1이 컨트롤플레인만 올리는 이유: azurerm은 `kubernetes_version`이 바뀌면 클러스터의
-`kubernetesVersion`만 바꿔 PUT하고, 기본 노드 풀의 `orchestratorVersion`은 기존 값을 그대로
-보낸다. 모듈이 `orchestrator_version`을 노출하지 않으니 시스템 풀을 올릴 IaC 레버가 없고,
-apply 2는 CLI로 한다.
-
-```bash
-az aks nodepool upgrade -g <rg> --cluster-name <cluster> -n <system pool> \
-  --kubernetes-version <apply 1과 같은 값>
-```
-
-`orchestrator_version`은 state에 Computed로 들어오므로 CLI로 올려도 다음 plan에 drift가
-생기지 않는다. apply 후 위 `az aks show`로 `cp`와 `pools[].ver`가 같은지 확인한다.
-
-**한 번에 여러 마이너를 코드에 적지 않는다.** `kubernetes_version`을 두 단계 올려 적으면
-plan은 통과하고 apply에서 AKS가 거부한다. 마이너마다 apply 1·2를 한 바퀴씩 돈다.
-
-> 🔑 `kubernetes_version`은 한 번 코드에 적으면 그 뒤로는 그 값이 SSOT다. 처음 적을 때
-> 현재 실물 버전(`currentKubernetesVersion`)보다 낮게 적으면 다운그레이드 시도로 실패한다.
 
 ---
 

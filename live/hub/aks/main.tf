@@ -99,7 +99,7 @@ module "aks_cluster" {
   # 루트마다 따로 봐야 하고, 다음 업그레이드를 한 PR 로 못 올린다. dev 만 쓰는 인자
   # (private_cluster_public_fqdn_enabled)는 기본값 false 라 hub 에서 태그만 올려도 plan 은
   # No changes 다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.10.0&depth=1"
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.11.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다. 모듈이 조합한다(모듈 repo 규약).
   # {demo, hub, krc} → aks-demo-hub-krc-main-01
@@ -191,12 +191,30 @@ module "aks_cluster" {
     default_nginx_controller = "None"
   }
 
+  # ── Kubernetes 버전 ──────────────────────────────────────────────────────────
+  #
+  # 컨트롤플레인의 버전이다. 시스템 풀의 버전은 아래 system_node_pool.kubernetes_version 이 따로 갖고,
+  # 두 값에 같은 패치 버전을 적는다. 마이너 별칭("1.35")은 apply 시점에 패치가 정해져 두 apply 에서
+  # 값이 갈릴 수 있다.
+  # 올릴 때는 이 값을 먼저 올리고, 컨트롤플레인을 확인한 뒤 다음 커밋에서 시스템 풀을 올린다. 한 커밋에
+  # 함께 올리면 되돌릴 수 없는 변경과 되돌릴 수 있는 변경이 한 승인에 묶인다.
+  # ⚠️ AKS 에는 이 값을 내리는 수단이 없다. 낮춰 적으면 apply 가 실패한다.
+  # ⚠️ 마이너는 한 번에 하나만 올린다. 둘을 건너뛰면 plan 은 통과하고 apply 에서 AKS 가 거부한다.
+  # 갈 수 있는 버전은 `az aks get-upgrades -g <rg> -n <cluster> -o table` 로 읽는다.
+  kubernetes_version = "1.35.8"
+
   # 시스템 노드 풀.
   #
   # AKS 가 시스템 풀에 거는 조건은 세 층으로 갈린다. 노드 2대 이상과 B 시리즈 금지는 강제다.
   # vCPU 4 이상·메모리 4 GiB 이상은 Microsoft 가 제약으로 적지만 API 가 막지는 않는다(더 작은
-  # SKU 로도 클러스터는 생성된다). 노드 3대는 권고다. 이 값은 앞의 둘을 충족하고 3대 권고만
-  # 따르지 않는다 — 레퍼런스 규모에 맞춘 선택이고, 실 워크로드를 올릴 때 대수를 함께 본다.
+  # SKU 로도 클러스터는 생성된다). 노드 3대는 권고다.
+  #
+  # node_count 3 은 그 권고가 아니라 ArgoCD 가 정한다. aks-platform-gitops 의 bootstrap/argocd-values.yaml
+  # 이 ArgoCD 를 HA 로 두고 이 풀에 고정하는데, redis-ha 의 redis 3개와 haproxy 3개가 각각 서로 다른
+  # 노드를 요구한다. 2 로 내리면 seed 가 시스템 풀 노드 수 검사에서 멈춘다.
+  # ⚠️ 이 풀 하나가 12 vCPU 를 쓰고, 업그레이드 때 surge 노드 한 대분(4 vCPU)이 더 필요하다. hub 구독은
+  #    다른 프로젝트와 공용이라 `az vm list-usage --location koreacentral` 로 Standard DSv5 Family 여유를
+  #    먼저 본다.
   #
   # ⚠️ max_pods 를 명시하지 않으면 Overlay 기본값 250 이 그대로 적용되는데,
   #    Standard_D4s_v5(4 vCPU / 16 GiB)에 250 은 비현실적이다(kubelet 예약만으로도 부족).
@@ -214,10 +232,12 @@ module "aks_cluster" {
   #    상태로 이걸 켜면 seed 가 첫 파드에서 멈춘다. 두 저장소를 함께 올린다.
   system_node_pool = {
     vm_size                      = "Standard_D4s_v5"
-    node_count                   = 2
+    node_count                   = 3
     auto_scaling_enabled         = false
     max_pods                     = 30
     only_critical_addons_enabled = true
+    # 위 kubernetes_version 과 같은 값으로 시작한다. 올릴 때는 컨트롤플레인 다음 커밋에서 올린다.
+    kubernetes_version = "1.35.8"
   }
 
   # workload = demo 레퍼런스 목적이라 Uptime SLA 가 필요 없다. Standard 로의 전환은

@@ -233,8 +233,11 @@ module "aks_workbench" {
   kubelogin_version = "v0.2.19"
 
   # ── 도구: hub와 동일한 핀 ──────────────────────────────────────────────────────
-  az_cli_version  = "2.88.0-1~noble"
-  kubectl_version = "v1.37.0"
+  az_cli_version = "2.88.0-1~noble"
+  # kubectl 은 API 서버와 한 마이너 차이까지 지원된다. 클러스터를 올릴 대상 마이너로 핀해 두면 올리기
+  # 전과 뒤 양쪽에서 지원 범위 안이라, 업그레이드 도중에 이 VM 을 교체하지 않는다. 클러스터의 마이너를
+  # 올린 뒤 다음 대상 마이너로 올린다. 값은 `curl -fsS https://dl.k8s.io/release/stable-<마이너>.txt`.
+  kubectl_version = "v1.36.5"
   helm_version    = "v4.2.4"
   argocd_version  = "v3.5.3"
 
