@@ -225,7 +225,7 @@ module "aks_cluster" {
   # ⚠️ AKS 에는 이 값을 내리는 수단이 없다. 낮춰 적으면 apply 가 실패한다.
   # ⚠️ 마이너는 한 번에 하나만 올린다. 둘을 건너뛰면 plan 은 통과하고 apply 에서 AKS 가 거부한다.
   # 갈 수 있는 버전은 `az aks get-upgrades -g <rg> -n <cluster> -o table` 로 읽는다.
-  kubernetes_version = "1.35.8"
+  kubernetes_version = "1.36.4"
 
   # 시스템 노드 풀. vm_size 는 hub 와 같은 값이다. node_count 는 hub 가 3 이고 여기는 2 다 — hub 의
   # 3대는 ArgoCD 의 redis-ha 가 요구하는 수이고, 이 스포크에는 ArgoCD 가 없다.
