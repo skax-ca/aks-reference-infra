@@ -11,6 +11,7 @@ Azure hub-spoke AKS 배포 루트(`eks-reference-infra`의 Azure 대응). `iac-m
 - `docs/hub-lifecycle.md`: hub 구축·철거
 - `docs/spoke-lifecycle.md`: spoke 구축·철거
 - `docs/runbooks.md`: 이미 선 환경 운영
+- `docs/upgrade.md`: Kubernetes 마이너 업그레이드와 시스템 풀 되돌리기
 
 패턴 갈림길("왜 role assignment를 스포크가 만드는가", "왜 공개 FQDN인가")은
 `iac-module-library/docs/architectures/gitops-hub-spoke/azure/`가 갖는다. 이 repo 고유의 판단(Pod CIDR

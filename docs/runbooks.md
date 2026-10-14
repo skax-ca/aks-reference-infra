@@ -180,7 +180,8 @@ kubectl -n argocd get secret argocd-initial-admin-secret     # NotFound 여야 �
 
 ## 4. AKS 업그레이드
 
-순서와 그 근거는 `iac-module-library`의 `docs/architectures/gitops-hub-spoke/azure/upgrade.md`가 갖는다.
+따라 하는 절차는 [`upgrade.md`](upgrade.md)가, 순서와 그 근거는 `iac-module-library`의
+`docs/architectures/gitops-hub-spoke/azure/upgrade.md`가 갖는다. 이 절은 제약과 버전의 자리만 갖는다.
 
 ### 제약
 
@@ -188,7 +189,7 @@ kubectl -n argocd get secret argocd-initial-admin-secret     # NotFound 여야 �
 |------|------|
 | 마이너는 한 번에 하나 | `1.35 → 1.37` 직행은 안 된다. plan은 통과하고 apply에서 AKS가 거부한다 |
 | 컨트롤플레인이 먼저다 | 노드 풀은 컨트롤플레인보다 높을 수 없고, 3 마이너까지 뒤처질 수 있다 |
-| 컨트롤플레인은 내릴 수 없다 | 되돌릴 수 있는 것은 노드 풀뿐이다(`az aks nodepool rollback`, 7일) |
+| 컨트롤플레인은 내릴 수 없다 | 되돌릴 수 있는 것은 시스템 풀뿐이다(커밋 revert, 7일. `upgrade.md` 「시스템 풀 되돌리기」) |
 | 자동 업그레이드는 없다 | `automatic_upgrade_channel`을 쓰지 않는다. 코드의 값을 올리기 전까지 버전은 그대로다 |
 
 ### 버전의 자리

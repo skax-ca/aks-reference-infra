@@ -49,6 +49,7 @@ dispatch는 새 plan이라 승인을 다시 받는다. plan artifact는 7일 보
 | hub를 구축·철거한다 | [`docs/hub-lifecycle.md`](docs/hub-lifecycle.md) |
 | spoke를 구축·철거한다 | [`docs/spoke-lifecycle.md`](docs/spoke-lifecycle.md) |
 | 이미 구축된 환경을 운영한다 | [`docs/runbooks.md`](docs/runbooks.md) |
+| Kubernetes 마이너를 올린다 | [`docs/upgrade.md`](docs/upgrade.md) |
 | state 저장소·CI 신원(App Registration·FIC)·역할을 만든다(IaC 밖) | [`bootstrap/README.md`](bootstrap/README.md) |
 | 왜 이 패턴인가 | `iac-module-library`의 [`docs/architectures/gitops-hub-spoke/azure/`](https://github.com/skax-ca/iac-module-library/tree/main/docs/architectures/gitops-hub-spoke/azure) |
 
