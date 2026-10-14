@@ -258,7 +258,7 @@ module "aks_cluster" {
     max_pods                     = 30
     only_critical_addons_enabled = true
     # 위 kubernetes_version 과 같은 값으로 시작한다. 올릴 때는 컨트롤플레인 다음 커밋에서 올린다.
-    kubernetes_version = "1.36.4"
+    kubernetes_version = "1.35.8"
   }
 
   # workload = demo 레퍼런스 목적이라 Uptime SLA 가 필요 없다. Standard 로의 전환은
