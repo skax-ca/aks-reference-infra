@@ -28,17 +28,28 @@
 
 - **적용**이 "승인"인 단계는 PR 머지가 plan을 돌리고 environment 승인이 apply를 돌린다. "머지"인 단계는
   머지가 곧 적용이고 hub의 ArgoCD가 5분 안에 반영한다.
-- 🔑 **올릴지는 0단계에서 정한다.** 2단계의 컨트롤플레인은 되돌릴 수 없다. 그 뒤에 되돌릴 수 있는 것은 시스템
-  풀뿐이고, 그것은 증상이 났을 때 여는 대응이다(6절).
+- 🔑 **올릴지는 0단계에서 2.7의 기준으로 정한다.** 2단계의 컨트롤플레인은 되돌릴 수 없다. 그 뒤에 되돌릴 수
+  있는 것은 시스템 풀뿐이고, 그것은 증상이 났을 때 여는 대응이다(6절).
 - 1단계부터 5단계까지는 끊지 않고 이어서 한다. 차단 중에도 스케일 아웃으로 새로 뜨는 NAP 노드는 새 마이너다.
 
-| 환경 | 티어 | 클러스터 | 고칠 파일 | 워크플로 |
-|------|------|----------|-----------|----------|
-| dev | `nonprd` | `aks-demo-dev-krc-main-01` | `live/dev/aks/main.tf` | `deploy-dev-aks.yml` |
-| hub | `prd` | `aks-demo-hub-krc-main-01` | `live/hub/aks/main.tf` | `deploy-hub-aks.yml` |
+| 환경 | 티어 | 구독 ID를 담은 repo 변수 | 리소스 그룹 | 클러스터 | 고칠 파일 | 워크플로 |
+|------|------|--------------------------|-------------|----------|-----------|----------|
+| dev | `nonprd` | `AZURE_DEV_SUBSCRIPTION_ID` | `rg-demo-dev-krc-workload-01` | `aks-demo-dev-krc-main-01` | `live/dev/aks/main.tf` | `deploy-dev-aks.yml` |
+| hub | `prd` | `AZURE_HUB_SUBSCRIPTION_ID` | `rg-demo-hub-krc-workload-01` | `aks-demo-hub-krc-main-01` | `live/hub/aks/main.tf` | `deploy-hub-aks.yml` |
 
-명령 앞의 주석이 치는 자리다. `# 로컬:`은 그 구독에 로그인한 내 터미널에서, `# workbench:`는 올릴 클러스터의
-workbench에서 친다.
+명령 앞의 주석이 치는 자리다. `# 로컬:`은 내 터미널에서, `# workbench:`는 올릴 클러스터의 workbench에서
+친다(접속은 `runbooks.md` 「클러스터에 접근하기」). 로컬 명령은 아래 세 변수를 쓴다. 시작할 때 한 번 정하고,
+다른 클러스터로 넘어갈 때 다시 정한다.
+
+```bash
+# 로컬: dev를 올릴 때. hub는 표의 hub 줄 값으로 바꾼다
+export SUB=$(gh variable get AZURE_DEV_SUBSCRIPTION_ID -R skax-ca/aks-reference-infra)
+export RG=rg-demo-dev-krc-workload-01 CLUSTER=aks-demo-dev-krc-main-01
+az account set --subscription "$SUB"
+```
+
+⚠️ dev와 hub는 구독이 다르다. 구독을 바꾸지 않고 다른 클러스터를 조회하면 `ResourceNotFound`가 난다.
+`az aks operation`은 `aks-preview` 확장이 필요하다(`az extension add --name aks-preview --upgrade`).
 
 ---
 
@@ -65,11 +76,11 @@ workbench에서 친다.
 
 ```bash
 # 로컬: 지금 버전과 노드 이미지. cp와 pools[].v가 같은 패치여야 시작할 수 있다
-az aks show -g <rg> -n <cluster> \
+az aks show -g "$RG" -n "$CLUSTER" \
   --query '{cp:currentKubernetesVersion, pools:agentPoolProfiles[].{n:name,v:currentOrchestratorVersion,img:nodeImageVersion}}'
 
 # 로컬: <k8s>. 다음 마이너의 가장 높은 패치를 고른다
-az aks get-upgrades -g <rg> -n <cluster> --query 'controlPlaneProfile.upgrades[].kubernetesVersion' -o tsv
+az aks get-upgrades -g "$RG" -n "$CLUSTER" --query 'controlPlaneProfile.upgrades[].kubernetesVersion' -o tsv
 
 # workbench: kubectl이 <k8s>의 마이너와 같은지. 다르면 먼저 workbench를 올린다(2.5)
 kubectl version
@@ -113,6 +124,30 @@ az vm list-usage --location koreacentral --query "[?contains(name.value,'standar
 | 복제본이 하나다 | NAP 노드 교체에서 끊기지 않았다. preStop으로 종료를 늦춘 파드다 |
 | PDB가 eviction을 전부 막는다 | drain timeout(기본 30분)이 지나면 시스템 풀 apply가 실패한다 ⏳ |
 
+### 2.7. 진행할지 정한다
+
+아래가 전부 "진행"이어야 1단계로 간다. 하나라도 "멈춤"이면 고치고 처음부터 다시 본다.
+
+| 확인 | 진행 | 멈춤 |
+|------|------|------|
+| 앞 티어 클러스터를 올린 뒤의 대기(hub만) | 사이트의 변경 관리 규칙이 정한 기간이 지났다 | 안 지났다 |
+| 클러스터와 시스템 풀의 상태 | 둘 다 `Succeeded` | 그 밖 |
+| 진행 중인 AKS 작업 | 클러스터·시스템 풀 모두 종료 상태(`Succeeded`·`Failed`·`Canceled`) | 진행 중. 노드 이미지 자동 업그레이드일 수 있다 |
+| 버전 | `cp`와 `pools[].v`가 같은 패치(2.2) | 다르다 |
+| deprecated API | 포털 「Diagnose and solve problems → Kubernetes API deprecations」에 대상 마이너의 항목이 없다 | 있다 |
+| 플랫폼 addon(2.4) | 대상 마이너를 지원한다 | 지원하지 않는다 |
+| `kubectl`(2.5) | 대상 마이너와 같다 | 다르다 |
+| PDB와 쿼터(2.6) | 허용 disruption이 0인 PDB가 없고 노드 한 대분의 vCPU가 남는다 | 그 밖 |
+
+```bash
+# 로컬: 상태
+az aks show -g "$RG" -n "$CLUSTER" --query '{cluster:provisioningState, pools:agentPoolProfiles[].provisioningState}'
+
+# 로컬: 마지막 작업. status가 종료 상태여야 한다
+az aks operation show-latest -g "$RG" -n "$CLUSTER" --query '{status:status,start:startTime}'
+az aks operation show-latest -g "$RG" -n "$CLUSTER" --nodepool-name npsystem --query '{status:status,start:startTime}'
+```
+
 ---
 
 ## 3. 절차
@@ -150,8 +185,15 @@ plan에는 `module.aks_cluster.azurerm_kubernetes_cluster.this[0]`의 `kubernete
 ⛔ `orchestrator_version`이 함께 뜨거나 클러스터가 `must be replaced`로 뜨면 승인하지 않는다.
 
 ```bash
+# 로컬: 진행 중. status가 InProgress에서 Succeeded로 바뀐다
+az aks operation show-latest -g "$RG" -n "$CLUSTER" --query '{status:status,start:startTime,error:error}'
+```
+
+실측은 4~5분이다. 15분이 지나도 `InProgress`면 7절을 본다.
+
+```bash
 # 로컬:
-az aks show -g <rg> -n <cluster> --query '{cp:currentKubernetesVersion,state:provisioningState}'
+az aks show -g "$RG" -n "$CLUSTER" --query '{cp:currentKubernetesVersion,state:provisioningState}'
 ```
 
 - **완료 조건**: `cp`가 `<k8s>`이고 `state`가 `Succeeded`다. 노드는 전부 옛 마이너에 남아 있다.
@@ -194,10 +236,17 @@ plan에는 `default_node_pool`의 `orchestrator_version`이 바뀌는 `update in
 ```bash
 # workbench: 시스템 노드만 바뀌고 NAP 노드는 그대로여야 한다
 kubectl get nodes -L karpenter.sh/nodepool -w
+
+# workbench: AKS가 남기는 Surge·Cordon·Drain 이벤트. 1시간 뒤 사라지므로 작업 중에 본다
+kubectl get events --field-selector source=upgrader -w
+
+# 로컬: 풀 단위 작업의 상태와 오류
+az aks operation show-latest -g "$RG" -n "$CLUSTER" --nodepool-name npsystem --query '{status:status,error:error}'
 ```
 
 surge 노드 한 대가 새 마이너로 뜨고, 기존 노드가 한 대씩 cordon·drain된 뒤 같은 이름으로 새 마이너가 되어
-돌아온다. 노드 한 대에 3분 반쯤 걸리고 마지막에 surge 노드가 빠진다. drain 중에 KEDA의 PDB가 eviction을 잠깐
+돌아온다. 노드 한 대에 3분 반쯤 걸리고 마지막에 surge 노드가 빠진다. 한 노드가 10분 넘게
+`SchedulingDisabled`에 머물면 drain이 막힌 것이다. 7절을 본다. drain 중에 KEDA의 PDB가 eviction을 잠깐
 막는 이벤트(`Eviction blocked by Too Many Requests`)가 남지만 스스로 풀린다.
 
 - **완료 조건**: 시스템 노드가 전부 `<k8s>`이고 `Ready`다. NAP 노드는 옛 마이너에 남아 있다.
@@ -268,25 +317,53 @@ AKS가 그 값을 받는다. 올릴 때와 같은 방식으로 교체되고 노�
 
 ```bash
 # 로컬: 되돌릴 수 있는 버전. 비어 있으면 기한이 지났거나 그 버전이 지원 밖이다
-az aks nodepool get-rollback-versions -g <rg> --cluster-name <cluster> -n npsystem
+az aks nodepool get-rollback-versions -g "$RG" --cluster-name "$CLUSTER" -n npsystem
 ```
 
 - **완료 조건**: 2.2의 `pools[].v`가 옛 버전이다. `action=plan`이 `No changes`다.
 - 노드 이미지 자동 업그레이드(`nodeOsUpgradeChannel: NodeImage`)가 켜져 있어, 그 사이 새 이미지가 나왔다면 이전
   이미지가 복원되지 않을 수 있다. `<image>`와 비교한다 ⏳.
-- revert가 apply에서 거부되면 `az aks nodepool rollback -g <rg> --cluster-name <cluster> -n npsystem`을 사람이 로컬에서
+- revert가 apply에서 거부되면 `az aks nodepool rollback -g "$RG" --cluster-name "$CLUSTER" -n npsystem`을 사람이 로컬에서
   실행하고, 끝난 뒤 revert를 머지해 코드를 실제와 맞춘다 ⏳.
 
 ---
 
-## 7. 자주 막히는 지점
+## 7. 실패했을 때
+
+먼저 무엇이 실패했는지 읽는다. CI run의 apply job 로그, AKS 작업의 오류, 활동 로그 순이다.
+
+```bash
+# 로컬: AKS 작업의 오류(code·subcode·message)
+az aks operation show-latest -g "$RG" -n "$CLUSTER" --query '{status:status,error:error}'
+az aks operation show-latest -g "$RG" -n "$CLUSTER" --nodepool-name npsystem --query '{status:status,error:error}'
+
+# 로컬: AKS가 받기 전에 거부한 요청은 위에 남지 않는다. 활동 로그를 본다
+az monitor activity-log list --resource-id "$(az aks show -g "$RG" -n "$CLUSTER" --query id -o tsv)" \
+  --offset 6h --status Failed --query '[].{time:eventTimestamp,op:operationName.localizedValue,msg:properties.statusMessage}'
+```
+
+🔑 **다시 할 때는 CI로 한다.** 같은 커밋으로 `gh workflow run deploy-<env>-aks.yml --ref main -f action=apply`를
+돌리면 같은 값의 PUT이 나가 멈춘 작업을 이어 가거나 `Failed` 상태를 맞춘다. Microsoft 문서의 `az aks update`·
+`az aks nodepool upgrade`로 직접 맞추지 않는다. 적용 경로가 CI 밖에 하나 더 생긴다.
+
+| 오류·증상 | 원인 | 대응 |
+|-----------|------|------|
+| `OperationNotAllowed`, 다른 작업이 진행 중이라는 메시지 | 노드 이미지 자동 업그레이드 같은 다른 작업이 돌고 있다 | 2.7의 작업 조회가 종료 상태가 될 때까지 기다린 뒤 다시 한다 |
+| `UpgradeBlockedOnDeprecatedAPIUsage` | 지난 12시간에 deprecated API를 쓴 클라이언트가 있다 | 2.7의 포털 진단으로 대상을 찾아 고치고 12시간 뒤 다시 한다. `upgrade_override`로 건너뛰지 않는다 ⏳ |
+| `UpgradeFailed`·`PodDrainFailure`, 노드가 오래 `SchedulingDisabled` | PDB나 끝나지 않는 파드가 drain을 막는다. drain timeout(기본 30분)이 지나면 작업이 멈춘다 | `kubectl get pdb -A`에서 허용 disruption이 0인 것을 찾아 푼 뒤 다시 한다 ⏳ |
+| `QuotaExceeded`·`AllocationFailed`·`SkuNotAvailable` | surge 노드를 띄우지 못했다 | 2.6의 쿼터를 다시 보고 확보한 뒤 다시 한다 |
+| `SubnetIsFull` | 노드 서브넷에 surge 노드의 IP가 없다 | 서브넷 여유를 확보한 뒤 다시 한다 |
+| 클러스터·풀이 `Failed`로 남았다 | 위 원인 중 하나가 해소되지 않았다 | 원인을 고친 뒤 다시 한다. 같은 오류가 반복되면 그 오류를 다시 읽는다 |
+| apply job이 실패했는데 AKS 작업은 `InProgress`다 | CI가 먼저 끝났다. AKS는 작업을 계속한다 | 작업이 종료 상태가 될 때까지 기다린 뒤 `action=plan`으로 코드와 실제를 비교한다 |
+| 너무 오래 걸린다 | | `az aks operation-abort -g "$RG" -n "$CLUSTER"`로 멈출 수 있다. 이미 적용된 변경은 되돌아가지 않고, 멈춘 뒤 다시 하면 이어 간다 ⏳ |
+
+### 자주 막히는 지점
 
 | 단계 | 증상 | 원인과 대응 |
 |------|------|-------------|
 | 컨트롤플레인 apply | plan에 `orchestrator_version`이 함께 뜬다 | 시스템 풀의 값을 함께 바꿨다. Reject하고 커밋을 나눈다 |
-| 컨트롤플레인 apply | `UpgradeBlockedOnDeprecatedAPIUsage`로 실패한다 | 지난 12시간에 deprecated API를 쓴 클라이언트가 있다. 포털의 「Kubernetes API deprecations」로 대상을 찾아 고치고 12시간 뒤 다시 한다. `upgrade_override`로 건너뛰지 않는다 ⏳ |
-| 시스템 풀 apply | drain에서 실패한다 | PDB가 eviction을 막고 있다. 원인 파드를 풀고 `action=apply`로 다시 dispatch한다 ⏳ |
 | 차단 | 차단 줄이 반대 티어에도 붙었다 | 두 줄을 함께 바꿨다. 반대 티어 줄을 `false`로 되돌린다 |
 | 차단 해제 | NAP 노드가 옛 마이너에 남는다 | `kubectl describe nodeclaim`으로 drift 판정과 막는 사유(PDB, `karpenter.sh/do-not-disrupt`)를 읽는다 |
+| 전 단계 | 로컬 명령이 `ResourceNotFound`로 끝난다 | 구독이 다르다. 1절의 변수를 그 환경 값으로 다시 정한다 |
 | 전 단계 | 승인 게이트가 서지 않고 apply가 `skipped`다 | plan에 변경이 없다. 값이 실제로 바뀌었는지 plan job 로그로 본다 |
 | 전 단계 | 머지가 `required status checks`로 거부된다 | PR의 검사가 아직 돌고 있다. `gh pr checks <번호> --watch`로 끝난 것을 보고 머지한다 |
