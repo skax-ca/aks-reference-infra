@@ -99,7 +99,7 @@ UAMI(`id-demo-hub-krc-argocd-01`)를 `Role=argocd-hub` 태그로 조회해, hub 
 `live/dev/eks`가 `access_entries`를 자기 apply에 넣는 것과 같다. 근거는 `iac-module-library`
 `docs/architectures/gitops-hub-spoke/azure/README.md` 「클러스터 등록」). 그래서 `live/hub/vwan`을
 다시 적용할 필요가 없다. hub와 dev를 함께 구축할 때 기다리는 것은 이 root 하나다.
-`live/dev/networking`은 hub의 어느 root도 읽지 않으므로 hub networking과 동시에 건다.
+`live/dev/networking`은 hub의 어느 root도 읽지 않으므로 hub networking과 동시에 건다. hub vwan은 둘이 끝난 뒤에 건다(`hub-lifecycle.md` 「네트워킹과 vWAN」의 ⚠️).
 plan 요약에 `azurerm_role_assignment.argocd_hub_access[0]`이 있는지 보고 승인한다.
 
 ```bash

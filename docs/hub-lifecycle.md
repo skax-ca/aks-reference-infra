@@ -110,6 +110,8 @@ networking → spoke eks → **hub networking 재적용**"과 정확히 같은 �
 한 번 더 apply해야 그 연결이 채워진다. 스포크가 여러 개(qa 등)로 늘어나도 태그만 맞으면
 코드 변경 없이 같은 재적용으로 전부 잡힌다.
 
+⚠️ **hub와 spoke를 함께 구축할 때는 spoke의 networking이 끝난 뒤에 이 워크플로를 건다.** vwan apply는 가상 허브를 만드느라 30분쯤 걸리고, apply job이 끝에서 plan을 한 번 더 돌려 변경이 남았는지 본다. 그 사이에 spoke VNet이 생기면 재-plan이 `spoke["<env>"]` 연결 1건을 보고해 run이 `failure`로 끝난다. 리소스는 전부 만들어졌고 그 연결만 빠진 상태라 한 번 더 apply하면 해소된다. hub networking과 spoke networking을 병렬로 먼저 끝내고 vwan을 걸면 첫 apply에 spoke 연결까지 들어가 재적용도 필요 없다.
+
 ### 5. AKS 클러스터 (L2)
 
 같은 방식으로 `live/hub/aks`를 초기화한다(`key = "hub/aks.tfstate"`). 이 root는 `data.azurerm_subnet`으로 `aks-node` 서브넷을 Name 기반 조회하므로 networking이 먼저 있어야 한다.
