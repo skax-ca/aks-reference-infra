@@ -102,7 +102,7 @@ module "aks_cluster" {
   # dev 는 hub 구독의 ArgoCD 가 크로스 구독으로 접근해야 해서 필요하다.
   # ⚠️ 태그를 내리면 아래 인자가 "Unsupported argument"로 깨진다. 태그를 올릴 때는 모듈
   #    CHANGELOG(태그 메시지)로 ForceNew 축 변경 여부를 먼저 본다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.10.0&depth=1"
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.11.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다. 모듈이 조합한다(모듈 repo 규약).
   # {demo, dev, krc} → aks-demo-dev-krc-main-01
@@ -215,7 +215,20 @@ module "aks_cluster" {
     default_nginx_controller = "None"
   }
 
-  # 시스템 노드 풀. vm_size·node_count 는 hub 와 같은 값이다.
+  # ── Kubernetes 버전 ──────────────────────────────────────────────────────────
+  #
+  # 컨트롤플레인의 버전이다. 시스템 풀의 버전은 아래 system_node_pool.kubernetes_version 이 따로 갖고,
+  # 두 값에 같은 패치 버전을 적는다. 마이너 별칭("1.35")은 apply 시점에 패치가 정해져 두 apply 에서
+  # 값이 갈릴 수 있다.
+  # 올릴 때는 이 값을 먼저 올리고, 컨트롤플레인을 확인한 뒤 다음 커밋에서 시스템 풀을 올린다. 한 커밋에
+  # 함께 올리면 되돌릴 수 없는 변경과 되돌릴 수 있는 변경이 한 승인에 묶인다.
+  # ⚠️ AKS 에는 이 값을 내리는 수단이 없다. 낮춰 적으면 apply 가 실패한다.
+  # ⚠️ 마이너는 한 번에 하나만 올린다. 둘을 건너뛰면 plan 은 통과하고 apply 에서 AKS 가 거부한다.
+  # 갈 수 있는 버전은 `az aks get-upgrades -g <rg> -n <cluster> -o table` 로 읽는다.
+  kubernetes_version = "1.35.8"
+
+  # 시스템 노드 풀. vm_size 는 hub 와 같은 값이다. node_count 는 hub 가 3 이고 여기는 2 다 — hub 의
+  # 3대는 ArgoCD 의 redis-ha 가 요구하는 수이고, 이 스포크에는 ArgoCD 가 없다.
   #
   # AKS 가 시스템 풀에 거는 조건은 세 층으로 갈린다. 노드 2대 이상과 B 시리즈 금지는 강제다.
   # vCPU 4 이상·메모리 4 GiB 이상은 Microsoft 가 제약으로 적지만 API 가 막지는 않는다(더 작은
@@ -244,6 +257,8 @@ module "aks_cluster" {
     auto_scaling_enabled         = false
     max_pods                     = 30
     only_critical_addons_enabled = true
+    # 위 kubernetes_version 과 같은 값으로 시작한다. 올릴 때는 컨트롤플레인 다음 커밋에서 올린다.
+    kubernetes_version = "1.35.8"
   }
 
   # workload = demo 레퍼런스 목적이라 Uptime SLA 가 필요 없다. Standard 로의 전환은
