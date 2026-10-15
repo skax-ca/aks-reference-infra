@@ -102,7 +102,7 @@ module "aks_cluster" {
   # dev 는 hub 구독의 ArgoCD 가 크로스 구독으로 접근해야 해서 필요하다.
   # ⚠️ 태그를 내리면 아래 인자가 "Unsupported argument"로 깨진다. 태그를 올릴 때는 모듈
   #    CHANGELOG(태그 메시지)로 ForceNew 축 변경 여부를 먼저 본다.
-  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.11.0&depth=1"
+  source = "git::https://github.com/skax-ca/iac-module-library.git//modules/azure/aks-cluster?ref=aks-cluster-v0.12.0&depth=1"
 
   # 소비자는 리소스 타입 약어를 타이핑하지 않는다. 모듈이 조합한다(모듈 repo 규약).
   # {demo, dev, krc} → aks-demo-dev-krc-main-01
