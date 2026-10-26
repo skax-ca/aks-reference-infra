@@ -70,8 +70,8 @@ module "vnet" {
       nsg_enabled      = true
     }
 
-    # 내부 LB. AWS elb-uniq 대응. 운영 라우트(hub↔spoke)를 얹을 자리라
-    # route_table_enabled 를 켠다. vWAN 연결 후 live/hub/vwan 또는 이 root 후속 변경이 채운다.
+    # 내부 LB. AWS elb-uniq 대응. 라우팅 테이블은 두지 않는다. hub↔spoke 경로는 vWAN이 연결된
+    # VNet에 전파하고(live/hub/vwan은 Default 라우팅 테이블을 쓴다), Azure CNI는 UDR을 요구하지 않는다.
     #
     # ⚠️ App Routing(Gateway API/Istio)은 위임 서브넷을 요구하지 않는다. 이 서브넷의
     #    용도는 **Gateway API로 표현 안 되는 L4/비-HTTP 내부 트래픽**(DB·MQTT 등,
@@ -79,9 +79,8 @@ module "vnet" {
     #    소비자는 아직 없다. 이미 배포된 서브넷을 지우는 건 파괴적 변경이라 별도 승인이
     #    필요하므로 지금 없애지 않는다.
     "ilb" = {
-      address_prefixes    = [local.subnet_cidrs["ilb"]]
-      nsg_enabled         = true
-      route_table_enabled = true
+      address_prefixes = [local.subnet_cidrs["ilb"]]
+      nsg_enabled      = true
     }
 
     # 관리·workbench VM. AWS vm-uniq 대응. NAT 아웃바운드.

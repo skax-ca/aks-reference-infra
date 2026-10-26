@@ -51,9 +51,8 @@ module "vnet" {
     }
 
     "ilb" = {
-      address_prefixes    = [local.subnet_cidrs["ilb"]]
-      nsg_enabled         = true
-      route_table_enabled = true
+      address_prefixes = [local.subnet_cidrs["ilb"]]
+      nsg_enabled      = true
     }
 
     "vm" = {
