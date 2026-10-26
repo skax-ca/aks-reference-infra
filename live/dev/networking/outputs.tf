@@ -30,12 +30,6 @@ output "aks_node_subnet_id" {
   value       = module.vnet.subnet_ids_by_group["aks-node"]
 }
 
-# 운영 라우트의 앵커. hub↔spoke 라우트는 live/hub/vwan 연결 후 여기 얹는다.
-output "route_table_ids_by_group" {
-  description = "그룹 키 → 라우팅 테이블 ID. route_table_enabled = true 인 그룹만 키가 있다."
-  value       = module.vnet.route_table_ids_by_group
-}
-
 output "nat_gateway_id" {
   description = "NAT Gateway ID. vm·aks-node 그룹이 nat_routed = true 라 생성된다."
   value       = module.vnet.nat_gateway_id
